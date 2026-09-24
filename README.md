@@ -9,9 +9,9 @@ session RX buffering. The `serial-tool` CLI provides engineering commands and
 machine-readable output through Core, including a persistent Serial Worker.
 
 Core also provides a linear Serial Step Runner with `SendText`, `SendBytes`,
-`Wait`, `Read`, `ReadUntil`, and `Repeat`. It keeps step results and a logical
-TX/RX transcript in memory. There is no persisted Sequence format or workflow
-engine.
+`Wait`, `Read`, `ReadUntil`, and `Repeat`. JSON Sequence files persist line
+settings and steps. Execution keeps step results and a logical TX/RX transcript
+in memory. There is no workflow engine.
 
 This project is not a device-specific controller, workflow orchestrator, or
 test-record database.
@@ -57,6 +57,35 @@ or checking the port. Use `--format text|json|jsonl` (default `text`), or
 `--json` as an alias for `--format json`. See the
 [Serial CLI machine contract](docs/contracts/serial-cli-jsonl-contract.md) for
 event fields and exit codes.
+
+## Sequences
+
+A Sequence JSON file uses `sequence_version: 1` and records all serial line
+settings and ordered steps:
+
+```json
+{
+  "sequence_version": 1,
+  "serial": { "baud_rate": 115200, "data_bits": 8, "parity": "none", "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000 },
+  "steps": [
+    { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },
+    { "id": "read-frame", "type": "read_until", "delimiter_hex": "0d0a", "max_bytes": 64 }
+  ]
+}
+```
+
+Save this as `sequence.json`, then use:
+
+```sh
+serial-tool sequence validate --file sequence.json
+serial-tool sequence run --file sequence.json --mode live --port COM4
+serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
+```
+
+Validation performs no serial I/O. A Sequence file does not store the port or
+execution mode; choose those at runtime. See the
+[Serial Sequence contract](docs/contracts/serial-sequence-contract.md) for the
+complete format.
 
 ## Worker
 

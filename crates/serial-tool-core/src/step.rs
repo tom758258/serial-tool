@@ -188,7 +188,7 @@ impl<'a, T: Transport> StepRunner<'a, T> {
     }
 
     pub fn run(&mut self, steps: &[Step]) -> Result<RunReport, RunError> {
-        validate(steps).map_err(RunError::Validation)?;
+        validate_steps(steps).map_err(RunError::Validation)?;
         let mut report = RunReport::default();
         if let Err((step_id, error)) = self.execute(steps, &mut report) {
             return Err(RunError::Execution(ExecutionFailure {
@@ -286,7 +286,7 @@ impl<'a, T: Transport> StepRunner<'a, T> {
     }
 }
 
-fn validate(steps: &[Step]) -> Result<(), ValidationError> {
+pub fn validate_steps(steps: &[Step]) -> Result<(), ValidationError> {
     fn visit<'a>(steps: &'a [Step], seen: &mut HashSet<&'a StepId>) -> Result<(), ValidationError> {
         for step in steps {
             let reason = if !seen.insert(&step.id) {

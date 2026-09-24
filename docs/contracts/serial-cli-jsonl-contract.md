@@ -7,9 +7,10 @@ fields.
 
 ## Commands and output
 
-The one-shot commands are `manifest`, `list-ports`, `send`, `receive`, and
-`query`. The persistent `worker` runtime is defined by the Serial Worker
-Contract.
+The one-shot commands are `manifest`, `list-ports`, `send`, `receive`, `query`,
+`sequence validate`, and `sequence run`. The Sequence file format is defined by
+the [Serial Sequence contract](serial-sequence-contract.md). The persistent
+`worker` runtime is defined by the Serial Worker Contract.
 Each accepts `--format text|json|jsonl` (default `text`) or `--json` as an alias
 for `--format json`. Each one-shot machine command writes one complete JSON
 object to stdout. JSONL output has exactly one object line. Text mode writes
@@ -40,13 +41,30 @@ no separators. Raw bytes remain authoritative; UTF-8 decoding is not required.
   `performs_serial_io: false`, `serial_settings`, `port`, and applicable TX,
   delimiter, or `max_bytes` fields. It neither checks port existence nor opens
   the port, and omits `run_id`.
+- `sequence_validate`: successful no-I/O validation with `ok: true`,
+  `sequence_version: 1`, and `defined_steps`, the recursively defined Step
+  count (not the runtime execution count).
+- `sequence_run`: successful one-shot execution with `ok: true`,
+  `sequence_version: 1`, `mode` (`live` or `simulate`), `step_results`, and
+  `transcript`. Live results contain `port`; simulation results contain
+  `simulation_profile_id`. Neither has `run_id` or `worker_job_id`.
+  `step_results` preserve completion order, including each repeat child
+  execution. Each result has `step_id`, `type`, and a type-specific field:
+  `bytes_written` for sends, `requested_duration_ms` for wait, `rx_hex` and
+  `rx_bytes` for reads, or `completed_iterations` for repeat. Transcript
+  entries have `step_id`, `direction` (`tx` or `rx`), `hex`, and `bytes`. They
+  represent logical I/O from completed steps, not a physical-wire capture.
 - `error`: after machine handling starts, a validation or runtime failure
   contains `ok: false`, `command`, `message`, and `exit_code`. When Core
   supplies partial RX bytes, it also contains `partial_hex` and
   `partial_bytes`.
+  A `sequence run` StepRunner failure also includes the failing `step_id`,
+  completed `step_results`, and completed logical `transcript`. The underlying
+  error remains in `message`; Core partial RX appears when available.
 
 ## Exit codes
 
-`0` means success or dry-run success. `2` means usage or validation failure.
+`0` means success or dry-run success. `2` means usage, Sequence input, or
+validation failure.
 `3` means connection, enumeration, timeout, or serial I/O failure. Clap parser
 errors may use stderr and exit `2` before machine handling starts.

@@ -4,11 +4,13 @@ use chrono::{SecondsFormat, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
-    DataBits, Error, FlowControl, MAX_READ_BYTES, Parity, PortInfo, PortType, SerialSession,
-    SerialSettings, SerialTransport, StopBits, Transport, list_ports,
+    DataBits, Error, ExecutionFailure, FlowControl, MAX_READ_BYTES, Parity, PortInfo, PortType,
+    SequenceError, SerialSession, SerialSettings, SerialTransport, StopBits, Transport, list_ports,
 };
 
+mod sequence;
 mod worker;
+use sequence::SequenceArgs;
 use worker::WorkerArgs;
 
 #[derive(Debug, Parser)]
@@ -30,6 +32,8 @@ enum Command {
     Receive(ReceiveArgs),
     /// Write raw bytes, then read through a delimiter.
     Query(QueryArgs),
+    /// Validate or run a Serial Sequence file.
+    Sequence(SequenceArgs),
     /// Run the local Serial Worker control plane.
     Worker(WorkerArgs),
 }
@@ -195,20 +199,23 @@ struct QueryArgs {
 enum CliError {
     Validation(Error),
     Input(&'static str),
+    Sequence(SequenceError),
+    SequenceExecution(ExecutionFailure),
     Runtime(Error),
 }
 
 impl CliError {
     fn exit_code(&self) -> i32 {
         match self {
-            Self::Validation(_) | Self::Input(_) => 2,
-            Self::Runtime(_) => 3,
+            Self::Validation(_) | Self::Input(_) | Self::Sequence(_) => 2,
+            Self::Runtime(_) | Self::SequenceExecution(_) => 3,
         }
     }
 
     fn partial(&self) -> Option<&[u8]> {
         match self {
             Self::Runtime(error) => error.partial(),
+            Self::SequenceExecution(error) => error.error.partial(),
             _ => None,
         }
     }
@@ -219,6 +226,8 @@ impl std::fmt::Display for CliError {
         match self {
             Self::Validation(error) | Self::Runtime(error) => write!(f, "{error}"),
             Self::Input(message) => write!(f, "{message}"),
+            Self::Sequence(error) => write!(f, "{error}"),
+            Self::SequenceExecution(error) => write!(f, "{error}"),
         }
     }
 }
@@ -284,6 +293,11 @@ fn error_json(command: &str, error: &CliError) -> Value {
     if let Some(partial) = error.partial() {
         value["partial_hex"] = json!(hex(partial));
         value["partial_bytes"] = json!(partial.len());
+    }
+    if let CliError::SequenceExecution(failure) = error {
+        value["step_id"] = json!(failure.step_id.as_str());
+        value["step_results"] = sequence::step_results_json(&failure.report);
+        value["transcript"] = sequence::transcript_json(&failure.report);
     }
     value
 }
@@ -351,6 +365,7 @@ impl Cli {
             Command::Send(args) => ("send", &args.output),
             Command::Receive(args) => ("receive", &args.output),
             Command::Query(args) => ("query", &args.output),
+            Command::Sequence(args) => (args.command_name(), args.output()),
             Command::Worker(_) => unreachable!(),
         };
         let machine = output.machine();
@@ -521,6 +536,7 @@ impl Cli {
                     ),
                 ))
             }
+            Command::Sequence(args) => args.execute(),
             Command::Worker(_) => unreachable!(),
         }
     }
