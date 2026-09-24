@@ -42,9 +42,10 @@ synthesize a physical `planning_model_id`.
 
 ## Failure Handling
 
-Treat a missing `ready` event, unreachable status endpoint, malformed JSON,
-non-zero process exit code, missing final summary, or final `ok: false` summary
-as failed or incomplete until the Worker-specific contract says otherwise.
+Treat failure to establish control-plane readiness through the documented
+`ready` event or `GET /status` fallback, malformed JSON, a non-zero process exit
+code, a missing final summary, or a final `ok: false` summary as failed or
+incomplete until the Worker-specific contract says otherwise.
 
 `GET /status` must be non-mutating. Orchestrators can poll it for readiness,
 but should avoid adding extra request loops to device I/O paths.

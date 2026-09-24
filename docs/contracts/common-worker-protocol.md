@@ -89,7 +89,7 @@ Common context fields are:
 | Mode | Required or allowed | Forbidden |
 | --- | --- | --- |
 | `live` | optional `expected_model_id` | `planning_model_id` |
-| `simulate` | `planning_model_id`, unless the Worker-specific contract defines another deterministic planning or simulation identity | `expected_model_id` |
+| `simulate` | required deterministic planning or simulation identity; use `planning_model_id` unless the Worker-specific contract defines another identity | `expected_model_id` |
 | `dry_run` | `planning_model_id`, unless the Worker-specific contract defines another planning identity | `expected_model_id` |
 
 `expected_model_id` is a live identity guard. `planning_model_id` identifies a
@@ -97,10 +97,11 @@ physical model used for simulation or planning. Values are canonical,
 project-owned identifiers.
 
 A Worker-specific contract may define additional context fields, such as a
-nonphysical planning profile. For `simulate`, it may define another
-deterministic planning or simulation identity instead of
-`planning_model_id`. Such an alternative remains Worker-specific and does not
-change the type or meaning of the Common fields above.
+nonphysical planning profile. Every `simulate` execution must have a
+deterministic planning or simulation identity. A Worker-specific contract may
+define another such identity instead of `planning_model_id`. The alternative
+remains Worker-specific and does not change the type or meaning of the Common
+fields above.
 
 Each Worker-specific contract defines whether context is supplied at Worker
 startup, in each command request, or is forbidden in command requests because
