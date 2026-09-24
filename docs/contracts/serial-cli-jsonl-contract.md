@@ -7,7 +7,9 @@ fields.
 
 ## Commands and output
 
-The commands are `manifest`, `list-ports`, `send`, `receive`, and `query`.
+The one-shot commands are `manifest`, `list-ports`, `send`, `receive`, and
+`query`. The persistent `worker` runtime is defined by the Serial Worker
+Contract.
 Each accepts `--format text|json|jsonl` (default `text`) or `--json` as an alias
 for `--format json`. Each one-shot machine command writes one complete JSON
 object to stdout. JSONL output has exactly one object line. Text mode writes

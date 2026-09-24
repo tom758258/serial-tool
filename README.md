@@ -8,6 +8,11 @@ settings, port discovery, raw byte transport, deterministic simulation, and
 session RX buffering. The `serial-tool` CLI provides engineering commands and
 machine-readable output through Core, including a persistent Serial Worker.
 
+Core also provides a linear Serial Step Runner with `SendText`, `SendBytes`,
+`Wait`, `Read`, `ReadUntil`, and `Repeat`. It keeps step results and a logical
+TX/RX transcript in memory. There is no persisted Sequence format or workflow
+engine.
+
 This project is not a device-specific controller, workflow orchestrator, or
 test-record database.
 

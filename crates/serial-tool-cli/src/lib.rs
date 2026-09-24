@@ -4,14 +4,12 @@ use chrono::{SecondsFormat, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
-    DataBits, Error, FlowControl, Parity, PortInfo, PortType, SerialSession, SerialSettings,
-    SerialTransport, StopBits, Transport, list_ports,
+    DataBits, Error, FlowControl, MAX_READ_BYTES, Parity, PortInfo, PortType, SerialSession,
+    SerialSettings, SerialTransport, StopBits, Transport, list_ports,
 };
 
 mod worker;
 use worker::WorkerArgs;
-
-const MAX_READ_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(name = "serial-tool", version, about = "Serial port diagnostic CLI")]
