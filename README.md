@@ -6,7 +6,7 @@ targets Windows first, and keeps its Core portable where practical.
 The workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
 settings, port discovery, raw byte transport, deterministic simulation, and
 session RX buffering. The `serial-tool` CLI provides engineering commands and
-machine-readable output through Core. A Worker is not available yet.
+machine-readable output through Core, including a persistent Serial Worker.
 
 This project is not a device-specific controller, workflow orchestrator, or
 test-record database.
@@ -52,3 +52,20 @@ or checking the port. Use `--format text|json|jsonl` (default `text`), or
 `--json` as an alias for `--format json`. See the
 [Serial CLI machine contract](docs/contracts/serial-cli-jsonl-contract.md) for
 event fields and exit codes.
+
+## Worker
+
+Start a local Worker for an explicit serial port or deterministic simulation:
+
+```sh
+serial-tool worker --mode live --port COM4 --baud 115200 --control-port 0
+serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
+```
+
+Worker stdout is JSONL. Its HTTP control plane binds only to `127.0.0.1`, and
+the `ready` event supplies the selected endpoint URLs. A live Worker holds one
+COM port through a persistent session. Simulation profile `loopback-v1` makes
+each written byte available for later reads without opening hardware. `/stop`
+closes the session without sending device-specific bytes. See the
+[Serial Worker contract](docs/contracts/serial-worker-contract.md) for requests,
+events, and lifecycle details.

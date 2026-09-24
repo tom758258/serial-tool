@@ -84,3 +84,23 @@ fn validation_and_connection_errors_have_distinct_exit_codes() {
     assert_eq!(runtime.status.code(), Some(3));
     assert_eq!(object(&runtime)["exit_code"], 3);
 }
+
+#[test]
+fn dry_run_send_text_describes_planned_transmission() {
+    let output = run(&[
+        "send",
+        "--port",
+        "COM_DOES_NOT_EXIST",
+        "--baud",
+        "115200",
+        "--hex",
+        "00 FF",
+        "--dry-run",
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .contains("Dry run: would send 2 bytes to COM_DOES_NOT_EXIST")
+    );
+}

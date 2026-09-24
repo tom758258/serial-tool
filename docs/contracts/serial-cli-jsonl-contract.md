@@ -24,9 +24,9 @@ no separators. Raw bytes remain authoritative; UTF-8 decoding is not required.
 
 - `tool_manifest`: static tool identity with `tool_id: "serial"`,
   `tool_version`, and `worker_protocol` containing
-  `compatibility_policy: "v2-only"` and `schema_versions: []`. This command
-  performs no port discovery or device I/O. The empty array means no launchable
-  Worker protocol is implemented.
+  `compatibility_policy: "v2-only"` and `schema_versions: [2]`. This command
+  performs no port discovery, HTTP bind, or device I/O. The Worker surface is
+  defined in the [Serial Worker contract](serial-worker-contract.md).
 - `list-ports`: discovery result with `count` and `ports`. Each port has `port`
   and `type` (`usb`, `pci`, `bluetooth`, or `unknown`). USB ports also have
   numeric `vid` and `pid` and optional `serial_number`, `manufacturer`, and

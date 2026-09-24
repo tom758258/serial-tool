@@ -8,6 +8,9 @@ use serial_tool_core::{
     SerialTransport, StopBits, Transport, list_ports,
 };
 
+mod worker;
+use worker::WorkerArgs;
+
 const MAX_READ_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Parser)]
@@ -29,6 +32,8 @@ enum Command {
     Receive(ReceiveArgs),
     /// Write raw bytes, then read through a delimiter.
     Query(QueryArgs),
+    /// Run the local Serial Worker control plane.
+    Worker(WorkerArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
@@ -337,15 +342,21 @@ fn query<T: Transport>(
 
 impl Cli {
     pub fn run(self) -> i32 {
-        let (name, output) = match &self.command {
+        let command = match self.command {
+            Command::Worker(args) => return args.run(),
+            command => command,
+        };
+        let self_ = Self { command };
+        let (name, output) = match &self_.command {
             Command::Manifest(args) => ("manifest", args),
             Command::ListPorts(args) => ("list-ports", args),
             Command::Send(args) => ("send", &args.output),
             Command::Receive(args) => ("receive", &args.output),
             Command::Query(args) => ("query", &args.output),
+            Command::Worker(_) => unreachable!(),
         };
         let machine = output.machine();
-        match self.execute() {
+        match self_.execute() {
             Ok((value, text)) => {
                 if machine {
                     println!("{value}");
@@ -372,12 +383,12 @@ impl Cli {
                 let value = json!({
                     "event": "tool_manifest", "schema_version": 2, "tool_id": "serial",
                     "tool_version": env!("CARGO_PKG_VERSION"),
-                    "worker_protocol": { "compatibility_policy": "v2-only", "schema_versions": [] },
+                    "worker_protocol": { "compatibility_policy": "v2-only", "schema_versions": [2] },
                 });
                 Ok((
                     value,
                     format!(
-                        "serial {}\nWorker protocol: not available yet",
+                        "serial {}\nWorker protocol: schema 2",
                         env!("CARGO_PKG_VERSION")
                     ),
                 ))
@@ -432,16 +443,22 @@ impl Cli {
                 } else {
                     json!({ "event": "send", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "send", "port": settings.port, "tx_hex": hex(&tx), "tx_bytes": tx.len() })
                 };
-                Ok((
-                    value,
+                let text = if args.dry_run {
                     format!(
-                        "{}: {} bytes sent to {} ({})",
-                        if args.dry_run { "Dry run" } else { "Send" },
+                        "Dry run: would send {} bytes to {} ({})",
                         tx.len(),
                         settings.port,
                         spaced_hex(&tx)
-                    ),
-                ))
+                    )
+                } else {
+                    format!(
+                        "Send: {} bytes sent to {} ({})",
+                        tx.len(),
+                        settings.port,
+                        spaced_hex(&tx)
+                    )
+                };
+                Ok((value, text))
             }
             Command::Receive(args) => {
                 let settings = args.serial.settings()?;
@@ -506,6 +523,7 @@ impl Cli {
                     ),
                 ))
             }
+            Command::Worker(_) => unreachable!(),
         }
     }
 }
@@ -582,12 +600,12 @@ mod tests {
     }
 
     #[test]
-    fn manifest_is_static_and_advertises_no_worker() {
+    fn manifest_is_static_and_advertises_worker() {
         let (value, _) = cli(&["manifest", "--json"]).execute().unwrap();
         assert_eq!(value["event"], "tool_manifest");
         assert_eq!(value["schema_version"].as_i64(), Some(2));
         assert_eq!(value["tool_id"], "serial");
-        assert_eq!(value["worker_protocol"]["schema_versions"], json!([]));
+        assert_eq!(value["worker_protocol"]["schema_versions"], json!([2]));
     }
 
     #[test]

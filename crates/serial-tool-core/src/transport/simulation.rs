@@ -6,6 +6,7 @@ use super::Transport;
 pub struct SimulationTransport {
     rx_chunks: VecDeque<Vec<u8>>,
     tx: Vec<u8>,
+    loopback: bool,
 }
 
 impl SimulationTransport {
@@ -13,6 +14,14 @@ impl SimulationTransport {
         Self {
             rx_chunks: chunks.into_iter().collect(),
             tx: Vec::new(),
+            loopback: false,
+        }
+    }
+
+    pub fn loopback() -> Self {
+        Self {
+            loopback: true,
+            ..Self::default()
         }
     }
 
@@ -44,6 +53,9 @@ impl Transport for SimulationTransport {
 
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.tx.extend_from_slice(bytes);
+        if self.loopback {
+            self.rx_chunks.push_back(bytes.to_vec());
+        }
         Ok(())
     }
 
