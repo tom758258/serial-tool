@@ -28,6 +28,10 @@ impl SimulationTransport {
     pub fn captured_tx(&self) -> &[u8] {
         &self.tx
     }
+
+    pub fn bytes_to_read(&self) -> usize {
+        self.rx_chunks.iter().map(Vec::len).sum()
+    }
 }
 
 impl Transport for SimulationTransport {

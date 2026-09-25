@@ -7,8 +7,7 @@ Keep changes small, preserve clear component ownership, and do not build future 
 
 - Read the affected code and relevant documentation before changing behavior.
 - Keep the project focused on serial/device communication and execution. Do not turn it into a test-record management system, workflow engine, or orchestration system.
-- The initial product structure is Core + CLI. Desktop may be added later when there is a concrete UI requirement.
-- Keep implementation proportional to the current phase. Do not create Desktop scaffolding, frameworks, abstractions, or persistence layers only for possible future use.
+- The product structure is Core + CLI + Desktop. Keep implementation proportional to concrete requirements.
 - The project is Windows-first, but Core should use Rust abstractions where practical instead of unnecessarily hard-coding Windows-specific behavior.
 
 ## 2. Repository And Architecture Boundaries
@@ -28,13 +27,11 @@ serial_tool/
 └─ AGENTS.md
 ```
 
-A future Desktop application may add a separate component, for example:
+The Desktop application lives at:
 
 ```text
-crates/
-├─ serial-tool-core/
-├─ serial-tool-cli/
-└─ serial-tool-desktop/
+apps/desktop/                 # Tauri 2 + React/TypeScript/Vite
+└─ src-tauri/                 # Separate Cargo workspace
 ```
 
 Architecture rules:
@@ -42,7 +39,10 @@ Architecture rules:
 - `serial-tool-core` owns serial communication behavior, protocol-independent execution logic, configuration models, validation, simulation behavior, and reusable domain logic.
 - `serial-tool-cli` depends on Core and provides an engineering/diagnostic command-line interface.
 - Core must not depend on CLI-specific parsing, terminal presentation, Tauri, frontend frameworks, TypeScript, WebView APIs, or other UI-specific code.
-- If Desktop is added later, Desktop depends on Core. Core must not depend on Desktop.
+- Desktop depends directly on Core. Core must not depend on Desktop, Tauri, or frontend code.
+- Tauri commands remain thin; one connected `SerialSession` has one I/O owner thread.
+- Continuous RX and `StepRunner` must never race to read the same connection.
+- Desktop is not Worker and has no database or persistent run history.
 - Keep UI/application-layer commands thin. Reusable behavior belongs in Core.
 - Do not split the project into additional crates unless a real ownership or dependency boundary requires it.
 
@@ -113,6 +113,15 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked
 cargo build --workspace --locked
+```
+
+Desktop baseline checks:
+
+```text
+cd apps/desktop && npm ci && npm run typecheck && npm run build
+cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
 - Run the narrowest relevant checks first, then workspace-level checks when practical.

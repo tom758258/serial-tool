@@ -9,6 +9,13 @@ pub struct SerialTransport {
 }
 
 impl SerialTransport {
+    pub fn bytes_to_read(&self) -> Result<usize, Error> {
+        self.port
+            .bytes_to_read()
+            .map(|count| count as usize)
+            .map_err(Error::ReadAvailabilityFailed)
+    }
+
     pub fn open(settings: &SerialSettings) -> Result<Self, Error> {
         settings.validate()?;
         let port = serialport::new(&settings.port, settings.baud_rate)

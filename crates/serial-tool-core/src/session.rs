@@ -86,6 +86,10 @@ impl<T: Transport> SerialSession<T> {
         &self.transport
     }
 
+    pub fn buffered_len(&self) -> usize {
+        self.rx.len()
+    }
+
     fn map_read_error(error: io::Error, partial: Vec<u8>) -> Error {
         if matches!(
             error.kind(),

@@ -3,7 +3,7 @@
 `serial_tool` is a generic Serial / COM execution tool. It is written in Rust,
 targets Windows first, and keeps its Core portable where practical.
 
-The workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
+The root workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
 settings, port discovery, raw byte transport, deterministic simulation, and
 session RX buffering. The `serial-tool` CLI provides engineering commands and
 machine-readable output through Core, including a persistent Serial Worker.
@@ -15,6 +15,25 @@ in memory. There is no workflow engine.
 
 This project is not a device-specific controller, workflow orchestrator, or
 test-record database.
+
+## Desktop
+
+The Windows-first Desktop app uses Tauri 2 with React, TypeScript, and Vite.
+It connects directly to Core. Its Terminal provides a persistent Live or
+Simulation connection, continuous RX, exact Text or Hex TX, and Hex, Text, or
+Both RX display. The Sequence editor loads, saves, validates, and runs the six
+Core step types on the current connection. System, Light, and Dark themes are
+available.
+
+```sh
+cd apps/desktop
+npm ci
+npm run tauri -- dev
+```
+
+For frontend checks, run `npm run typecheck` and `npm run build` from
+`apps/desktop`. See [Desktop documentation](docs/desktop/README.md) for usage,
+architecture, and backend checks.
 
 ## Build and test
 

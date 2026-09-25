@@ -1,3 +1,4 @@
 [workspace]
 members = ["crates/serial-tool-core", "crates/serial-tool-cli"]
+exclude = ["apps/desktop/src-tauri"]
 resolver = "3"

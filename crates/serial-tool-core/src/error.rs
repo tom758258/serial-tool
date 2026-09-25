@@ -6,6 +6,7 @@ pub enum Error {
     PortEnumerationFailed(serialport::Error),
     PortOpenFailed(serialport::Error),
     ReadFailed(io::Error),
+    ReadAvailabilityFailed(serialport::Error),
     WriteFailed(io::Error),
     FlushFailed(io::Error),
     Timeout { partial: Vec<u8> },
@@ -28,6 +29,7 @@ impl fmt::Display for Error {
             Self::PortEnumerationFailed(error) => write!(f, "port enumeration failed: {error}"),
             Self::PortOpenFailed(error) => write!(f, "port open failed: {error}"),
             Self::ReadFailed(error) => write!(f, "read failed: {error}"),
+            Self::ReadAvailabilityFailed(error) => write!(f, "read availability failed: {error}"),
             Self::WriteFailed(error) => write!(f, "write failed: {error}"),
             Self::FlushFailed(error) => write!(f, "flush failed: {error}"),
             Self::Timeout { partial } => write!(f, "read timed out after {} bytes", partial.len()),
@@ -42,6 +44,7 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Self::PortEnumerationFailed(error) | Self::PortOpenFailed(error) => Some(error),
+            Self::ReadAvailabilityFailed(error) => Some(error),
             Self::ReadFailed(error) | Self::WriteFailed(error) | Self::FlushFailed(error) => {
                 Some(error)
             }

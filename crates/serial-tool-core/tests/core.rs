@@ -61,6 +61,26 @@ fn simulation_splits_a_chunk_for_small_reads() {
 }
 
 #[test]
+fn simulation_reports_pending_rx_bytes() {
+    let mut session = SerialSession::new(SimulationTransport::loopback());
+    session.write_all(&[0xaa, 0xbb]).unwrap();
+    assert_eq!(session.transport().bytes_to_read(), 2);
+    session.read(&mut [0; 1]).unwrap();
+    assert_eq!(session.transport().bytes_to_read(), 1);
+}
+
+#[test]
+fn session_reports_bytes_buffered_after_delimiter() {
+    let mut session =
+        SerialSession::new(SimulationTransport::with_rx_chunks([b"A\r\nBC".to_vec()]));
+    assert_eq!(session.read_until(b"\r\n", 16).unwrap(), b"A\r\n");
+    assert_eq!(session.buffered_len(), 2);
+    let mut bytes = [0; 2];
+    assert_eq!(session.read(&mut bytes).unwrap(), 2);
+    assert_eq!(&bytes, b"BC");
+}
+
+#[test]
 fn read_until_handles_split_and_binary_delimiters() {
     let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
         vec![0xff, 0],
