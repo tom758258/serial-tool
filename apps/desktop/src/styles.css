@@ -22,7 +22,7 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .subtitle, .muted { color: var(--muted); }
 .topbar, .section-heading, .connection-actions, .send-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .topbar { margin-bottom: 1rem; }
-.theme-control { width: 145px; }
+.appearance-control { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .85rem; font-weight: 600; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 1rem; }
 .connection .section-heading { margin-bottom: .8rem; }
 .field-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .75rem; align-items: end; }

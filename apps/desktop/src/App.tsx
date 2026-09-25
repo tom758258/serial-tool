@@ -21,6 +21,16 @@ function initialTheme(): Theme {
   return saved === 'light' || saved === 'dark' ? saved : 'system'
 }
 
+function nextTheme(theme: Theme): Theme {
+  if (theme === 'system') return 'light'
+  if (theme === 'light') return 'dark'
+  return 'system'
+}
+
+function themeLabel(theme: Theme): string {
+  return theme[0].toUpperCase() + theme.slice(1)
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [mode, setMode] = useState<'live' | 'simulation'>('live')
@@ -43,6 +53,8 @@ export default function App() {
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
   const settingsLocked = connected || busy
   const rxText = useMemo(() => rxTextFragments(history), [history])
+  const nextThemePreference = nextTheme(theme)
+  const nextThemeLabel = themeLabel(nextThemePreference)
 
   useEffect(() => {
     localStorage.setItem('serial-tool.theme', theme)
@@ -166,9 +178,10 @@ export default function App() {
 
   return <main>
     <header className="topbar"><div><h1>Serial Tool</h1><span className="subtitle">Desktop console</span></div>
-      <label className="theme-control">Theme <select value={theme} onChange={event => setTheme(event.target.value as Theme)}>
-        <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
-      </select></label>
+      <div className="appearance-control"><span>Appearance</span>
+        <button type="button" aria-label={`Switch theme to ${nextThemeLabel}`} title={`Switch theme to ${nextThemeLabel}`}
+          onClick={() => setTheme(nextThemePreference)}>◐ {themeLabel(theme)}</button>
+      </div>
     </header>
 
     <section className="connection panel">
