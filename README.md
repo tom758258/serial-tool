@@ -58,6 +58,12 @@ or checking the port. Use `--format text|json|jsonl` (default `text`), or
 [Serial CLI machine contract](docs/contracts/serial-cli-jsonl-contract.md) for
 event fields and exit codes.
 
+`receive`, `query`, and `sequence run` accept `--rx-display hex|text|both`
+(default `hex`). RX remains raw bytes internally; `--rx-display` changes only
+human-readable text output. `hex` uses spaced uppercase bytes, `text` uses
+lossy UTF-8 with control characters escaped, and `both` shows both. JSON/JSONL
+machine output remains canonical lowercase hex regardless of `--rx-display`.
+
 ## Sequences
 
 A Sequence JSON file uses `sequence_version: 1` and records all serial line

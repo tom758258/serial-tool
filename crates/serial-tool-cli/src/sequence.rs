@@ -1,11 +1,11 @@
 use clap::{Args, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
-    RunError, RunReport, Sequence, SerialSession, SerialTransport, SimulationTransport, Step,
-    StepRunner, Transport,
+    Direction, RunError, RunReport, Sequence, SerialSession, SerialTransport, SimulationTransport,
+    Step, StepRunner, Transport,
 };
 
-use crate::{CliError, OutputArgs, sequence_result, timestamp};
+use crate::{CliError, OutputArgs, RxDisplay, render_rx, sequence_result, timestamp};
 
 #[derive(Debug, Args)]
 pub(super) struct SequenceArgs {
@@ -45,6 +45,8 @@ struct RunArgs {
     port: Option<String>,
     #[arg(long)]
     simulation_profile_id: Option<String>,
+    #[arg(long, value_enum, default_value_t = RxDisplay::Hex)]
+    rx_display: RxDisplay,
     #[command(flatten)]
     output: OutputArgs,
 }
@@ -128,13 +130,21 @@ impl RunArgs {
             RunMode::Live => value["port"] = json!(resource),
             RunMode::Simulate => value["simulation_profile_id"] = json!(resource),
         }
-        Ok((
-            value,
-            format!(
-                "Sequence run complete: {} step results",
-                report.step_results.len()
-            ),
-        ))
+        let mut text = format!(
+            "Sequence run complete: {} step results",
+            report.step_results.len()
+        );
+        for entry in &report.transcript.entries {
+            if entry.direction == Direction::Rx {
+                let rendered = render_rx(&entry.bytes, self.rx_display, "");
+                if self.rx_display == RxDisplay::Both {
+                    text.push_str(&format!("\nRX {}\n{rendered}", entry.step_id));
+                } else {
+                    text.push_str(&format!("\nRX {}: {rendered}", entry.step_id));
+                }
+            }
+        }
+        Ok((value, text))
     }
 }
 

@@ -16,6 +16,14 @@ for `--format json`. Each one-shot machine command writes one complete JSON
 object to stdout. JSONL output has exactly one object line. Text mode writes
 human-readable output to stdout and errors to stderr.
 
+`receive`, `query`, and `sequence run` accept `--rx-display hex|text|both`
+with default `hex`. This runtime presentation option affects only text-mode
+stdout. Raw RX bytes remain authoritative, and JSON/JSONL machine fields keep
+their canonical lowercase hex representation regardless of the option. Human
+hex is uppercase and space-separated. Human text uses lossy UTF-8 decoding,
+preserves printable Unicode, and escapes terminal control characters rather
+than sending them to the terminal. `both` presents hex and text together.
+
 Runtime result objects include `event`, `schema_version`, UTC ISO 8601
 `timestamp_utc`, and `ok: true`. `send`, `receive`, and `query` also include
 `command` and `port`; `send` and `query` include `tx_hex` and

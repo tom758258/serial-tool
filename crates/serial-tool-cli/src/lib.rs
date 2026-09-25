@@ -47,6 +47,14 @@ enum Format {
     Jsonl,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+enum RxDisplay {
+    #[default]
+    Hex,
+    Text,
+    Both,
+}
+
 #[derive(Debug, Args)]
 struct OutputArgs {
     #[arg(long, value_enum, default_value_t = Format::Text, conflicts_with = "json")]
@@ -174,6 +182,8 @@ struct ReceiveArgs {
     serial: SerialArgs,
     #[arg(long, default_value_t = 1024)]
     max_bytes: usize,
+    #[arg(long, value_enum, default_value_t = RxDisplay::Hex)]
+    rx_display: RxDisplay,
     #[command(flatten)]
     output: OutputArgs,
     #[arg(long)]
@@ -190,6 +200,8 @@ struct QueryArgs {
     delimiter: DelimiterArgs,
     #[arg(long, default_value_t = 1024)]
     max_bytes: usize,
+    #[arg(long, value_enum, default_value_t = RxDisplay::Hex)]
+    rx_display: RxDisplay,
     #[command(flatten)]
     output: OutputArgs,
     #[arg(long)]
@@ -491,15 +503,21 @@ impl Cli {
                 let rx = receive(&mut SerialSession::new(transport), limit)
                     .map_err(CliError::Runtime)?;
                 let value = json!({ "event": "receive", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "receive", "port": settings.port, "rx_hex": hex(&rx), "rx_bytes": rx.len() });
-                Ok((
-                    value,
+                let rendered = render_rx(&rx, args.rx_display, "");
+                let text = if args.rx_display == RxDisplay::Both {
                     format!(
-                        "Receive: {} bytes from {} ({})",
+                        "Receive: {} bytes from {}\n{rendered}",
                         rx.len(),
-                        settings.port,
-                        spaced_hex(&rx)
-                    ),
-                ))
+                        settings.port
+                    )
+                } else {
+                    format!(
+                        "Receive: {} bytes from {} ({rendered})",
+                        rx.len(),
+                        settings.port
+                    )
+                };
+                Ok((value, text))
             }
             Command::Query(args) => {
                 let settings = args.serial.settings()?;
@@ -527,15 +545,22 @@ impl Cli {
                 let rx = query(&mut SerialSession::new(transport), &tx, &delimiter, limit)
                     .map_err(CliError::Runtime)?;
                 let value = json!({ "event": "query", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "query", "port": settings.port, "tx_hex": hex(&tx), "tx_bytes": tx.len(), "rx_hex": hex(&rx), "rx_bytes": rx.len(), "delimiter_hex": hex(&delimiter) });
-                Ok((
-                    value,
+                let text = if args.rx_display == RxDisplay::Both {
+                    format!(
+                        "Query {}: TX {}\n{}",
+                        settings.port,
+                        spaced_hex(&tx),
+                        render_rx(&rx, args.rx_display, "RX ")
+                    )
+                } else {
                     format!(
                         "Query {}: TX {} / RX {}",
                         settings.port,
                         spaced_hex(&tx),
-                        spaced_hex(&rx)
-                    ),
-                ))
+                        render_rx(&rx, args.rx_display, "")
+                    )
+                };
+                Ok((value, text))
             }
             Command::Sequence(args) => args.execute(),
             Command::Worker(_) => unreachable!(),
@@ -549,6 +574,32 @@ fn spaced_hex(bytes: &[u8]) -> String {
         .map(|byte| format!("{byte:02X}"))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn safe_rx_text(bytes: &[u8]) -> String {
+    let mut result = String::new();
+    for character in String::from_utf8_lossy(bytes).chars() {
+        match character {
+            '\r' => result.push_str("\\r"),
+            '\n' => result.push_str("\\n"),
+            '\t' => result.push_str("\\t"),
+            control if control.is_control() => result.extend(control.escape_default()),
+            printable => result.push(printable),
+        }
+    }
+    result
+}
+
+fn render_rx(bytes: &[u8], display: RxDisplay, prefix: &str) -> String {
+    match display {
+        RxDisplay::Hex => spaced_hex(bytes),
+        RxDisplay::Text => safe_rx_text(bytes),
+        RxDisplay::Both => format!(
+            "{prefix}HEX: {}\n{prefix}TEXT: {}",
+            spaced_hex(bytes),
+            safe_rx_text(bytes)
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -581,6 +632,94 @@ mod tests {
         }
         assert!(parse_bytes(Some(""), None).is_err());
         assert!(parse_bytes(None, Some("")).is_err());
+    }
+
+    #[test]
+    fn rx_presentation_keeps_raw_bytes_and_escapes_controls() {
+        let bytes = b"OK\r\n";
+        assert_eq!(render_rx(bytes, RxDisplay::Hex, ""), "4F 4B 0D 0A");
+        assert_eq!(render_rx(bytes, RxDisplay::Text, ""), "OK\\r\\n");
+        assert_eq!(safe_rx_text("你好".as_bytes()), "你好");
+
+        let invalid = vec![b'O', b'K', 0xff, 0x1b, b'\t'];
+        assert_eq!(safe_rx_text(&invalid), "OK�\\u{1b}\\t");
+        assert_eq!(invalid, [b'O', b'K', 0xff, 0x1b, b'\t']);
+    }
+
+    #[test]
+    fn parses_rx_display_only_for_rx_human_commands() {
+        let Command::Receive(receive) =
+            cli(&["receive", "--port", "COM1", "--baud", "9600"]).command
+        else {
+            panic!("expected receive")
+        };
+        assert_eq!(receive.rx_display, RxDisplay::Hex);
+
+        let Command::Receive(receive) = cli(&[
+            "receive",
+            "--port",
+            "COM1",
+            "--baud",
+            "9600",
+            "--rx-display",
+            "text",
+        ])
+        .command
+        else {
+            panic!("expected receive")
+        };
+        assert_eq!(receive.rx_display, RxDisplay::Text);
+
+        let Command::Query(query) = cli(&[
+            "query",
+            "--port",
+            "COM1",
+            "--baud",
+            "9600",
+            "--text",
+            "X",
+            "--until-text",
+            "Y",
+            "--rx-display",
+            "both",
+        ])
+        .command
+        else {
+            panic!("expected query")
+        };
+        assert_eq!(query.rx_display, RxDisplay::Both);
+
+        let Command::Sequence(sequence) = cli(&[
+            "sequence",
+            "run",
+            "--file",
+            "sequence.json",
+            "--mode",
+            "simulate",
+            "--simulation-profile-id",
+            "loopback-v1",
+            "--rx-display",
+            "text",
+        ])
+        .command
+        else {
+            panic!("expected sequence")
+        };
+        assert_eq!(sequence.command_name(), "sequence-run");
+
+        assert!(
+            Cli::try_parse_from([
+                "serial-tool",
+                "receive",
+                "--port",
+                "COM1",
+                "--baud",
+                "9600",
+                "--rx-display",
+                "unknown",
+            ])
+            .is_err()
+        );
     }
 
     #[test]

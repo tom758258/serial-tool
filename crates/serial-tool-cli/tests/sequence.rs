@@ -4,7 +4,7 @@ use std::{
     process::{Command, Output},
 };
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn file(steps: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
@@ -179,4 +179,95 @@ fn runtime_mode_admission_is_explicit() {
         assert_eq!(object(&output)["exit_code"], 2);
     }
     fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn simulation_rx_display_changes_only_human_output() {
+    let path = file(
+        r#"{"id":"send-status","type":"send_text","text":"OK\r\n"},{"id":"read-status","type":"read_until","delimiter_hex":"0d0a","max_bytes":64}"#,
+    );
+    let name = path.to_str().unwrap();
+    let base = [
+        "sequence",
+        "run",
+        "--file",
+        name,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+    ];
+    let default = run(&base);
+    assert_eq!(default.status.code(), Some(0));
+    let default_text = String::from_utf8(default.stdout).unwrap();
+    assert!(default_text.contains("Sequence run complete: 2 step results"));
+    assert!(default_text.contains("RX read-status: 4F 4B 0D 0A"));
+
+    let text = run(&[&base[..], &["--rx-display", "text"]].concat());
+    assert_eq!(text.status.code(), Some(0));
+    assert!(
+        String::from_utf8(text.stdout)
+            .unwrap()
+            .contains("RX read-status: OK\\r\\n")
+    );
+
+    let both = run(&[&base[..], &["--rx-display", "both"]].concat());
+    assert_eq!(both.status.code(), Some(0));
+    let both_text = String::from_utf8(both.stdout).unwrap();
+    assert!(both_text.contains("RX read-status\nHEX: 4F 4B 0D 0A\nTEXT: OK\\r\\n"));
+
+    for format in ["json", "jsonl"] {
+        let plain = run(&[&base[..], &["--format", format]].concat());
+        let displayed = run(&[&base[..], &["--format", format, "--rx-display", "text"]].concat());
+        assert_eq!(plain.status.code(), Some(0));
+        assert_eq!(displayed.status.code(), Some(0));
+        let mut plain_value = object(&plain);
+        let mut displayed_value = object(&displayed);
+        plain_value.as_object_mut().unwrap().remove("timestamp_utc");
+        displayed_value
+            .as_object_mut()
+            .unwrap()
+            .remove("timestamp_utc");
+        assert_eq!(plain_value, displayed_value);
+        assert_eq!(displayed_value["schema_version"].as_u64(), Some(2));
+        assert_eq!(displayed_value["sequence_version"].as_u64(), Some(1));
+        assert_eq!(
+            displayed_value["step_results"][1],
+            json!({
+                "step_id": "read-status", "type": "read_until", "rx_hex": "4f4b0d0a", "rx_bytes": 4
+            })
+        );
+        assert_eq!(
+            displayed_value["transcript"][1],
+            json!({
+                "step_id": "read-status", "direction": "rx", "hex": "4f4b0d0a", "bytes": 4
+            })
+        );
+        assert!(!displayed_value.to_string().contains("rx_text"));
+        assert!(!displayed_value.to_string().contains("display_mode"));
+        assert!(!displayed_value.to_string().contains("encoding"));
+    }
+    fs::remove_file(&path).unwrap();
+}
+
+#[test]
+fn repeated_rx_entries_keep_transcript_order_in_human_output() {
+    let path = file(
+        r#"{"id":"send-bytes","type":"send_bytes","hex":"4142"},{"id":"repeat","type":"repeat","count":2,"steps":[{"id":"read-byte","type":"read","max_bytes":1}]}"#,
+    );
+    let output = run(&[
+        "sequence",
+        "run",
+        "--file",
+        path.to_str().unwrap(),
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+    ]);
+    fs::remove_file(&path).unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout.matches("RX read-byte:").count(), 2);
+    assert!(stdout.find("RX read-byte: 41").unwrap() < stdout.find("RX read-byte: 42").unwrap());
 }
