@@ -119,6 +119,21 @@ fn stop(child: &mut Child, receiver: &Receiver<Value>, ready: &Value, body: &str
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }
 
+fn sequence(steps: Value) -> Value {
+    json!({
+        "sequence_version": 1,
+        "serial": {
+            "baud_rate": 115200, "data_bits": 8, "parity": "none",
+            "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000
+        },
+        "steps": steps,
+    })
+}
+
+fn sequence_request(sequence: Value) -> Value {
+    json!({"schema_version": 2, "command": "run-sequence", "arguments": {"sequence": sequence}, "job_id": "sequence-client"})
+}
+
 #[test]
 fn startup_validation_and_bind_failure() {
     for args in [
@@ -285,4 +300,161 @@ fn strict_command_envelope_and_argument_validation() {
     assert_eq!(status["active_job"], Value::Null);
     assert_eq!(status["last_job"], Value::Null);
     stop(&mut child, &receiver, &ready, "{}");
+}
+
+#[test]
+fn sequence_admission_rejects_invalid_definitions_and_settings() {
+    let (mut child, receiver, ready) = spawn();
+    let url = ready["command_url"].as_str().unwrap();
+    let steps = json!([{"id":"send-byte","type":"send_bytes","hex":"55"}]);
+    let valid = sequence(steps.clone());
+    let mut mismatch = valid.clone();
+    mismatch["serial"]["baud_rate"] = json!(9600);
+    let mut version = valid.clone();
+    version["sequence_version"] = json!(2);
+    let mut unknown = valid.clone();
+    unknown["extra"] = json!(true);
+    let duplicate = sequence(json!([
+        {"id":"same","type":"send_bytes","hex":"55"},
+        {"id":"same","type":"read","max_bytes":1}
+    ]));
+    let cases = [
+        json!({"schema_version":2,"command":"run-sequence"}),
+        sequence_request(Value::Null),
+        sequence_request(json!([])),
+        json!({"schema_version":2,"command":"run-sequence","arguments":{"sequence":valid,"port":"COM4"}}),
+        sequence_request(version),
+        sequence_request(unknown),
+        sequence_request(duplicate),
+        sequence_request(mismatch),
+    ];
+    for body in cases {
+        let (code, response) = request(url, "POST", &body.to_string());
+        assert_eq!(code, 400, "{body}");
+        assert_eq!(response["status"], "error");
+        assert_eq!(response["error"], "validation_error");
+    }
+    let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(status["active_job"], Value::Null);
+    assert_eq!(status["last_job"], Value::Null);
+    assert!(receiver.try_recv().is_err());
+    stop(&mut child, &receiver, &ready, "");
+}
+
+#[test]
+fn sequence_uses_persistent_session_and_preserves_results_and_failures() {
+    let (mut child, receiver, ready) = spawn();
+    let run_id = ready["run_id"].as_str().unwrap();
+    let url = ready["command_url"].as_str().unwrap();
+    let (code, _) = request(
+        url,
+        "POST",
+        &json!({"schema_version":2,"command":"send","arguments":{"tx_hex":"55"}}).to_string(),
+    );
+    assert_eq!(code, 202);
+    assert_eq!(wait_terminal(&receiver, run_id)["event"], "job_finished");
+
+    let request_body = sequence_request(sequence(json!([
+        {"id":"read-pending","type":"read","max_bytes":1},
+        {"id":"send-frame","type":"send_bytes","hex":"0055aaff0d0a"},
+        {"id":"read-frame","type":"read_until","delimiter_hex":"0d0a","max_bytes":64}
+    ])));
+    let (code, accepted) = request(url, "POST", &request_body.to_string());
+    assert_eq!(code, 202);
+    assert_eq!(accepted["status"], "accepted");
+    assert_eq!(accepted["command"], "run-sequence");
+    assert!(accepted["worker_job_id"].as_str().is_some());
+    let finished = wait_terminal(&receiver, run_id);
+    assert_eq!(finished["event"], "job_finished");
+    assert_eq!(finished["worker_job_id"], accepted["worker_job_id"]);
+    assert_eq!(finished["result"]["sequence_version"], 1);
+    assert_eq!(
+        finished["result"]["step_results"],
+        json!([
+            {"step_id":"read-pending","type":"read","rx_hex":"55","rx_bytes":1},
+            {"step_id":"send-frame","type":"send_bytes","bytes_written":6},
+            {"step_id":"read-frame","type":"read_until","rx_hex":"0055aaff0d0a","rx_bytes":6}
+        ])
+    );
+    assert_eq!(
+        finished["result"]["transcript"],
+        json!([
+            {"step_id":"read-pending","direction":"rx","hex":"55","bytes":1},
+            {"step_id":"send-frame","direction":"tx","hex":"0055aaff0d0a","bytes":6},
+            {"step_id":"read-frame","direction":"rx","hex":"0055aaff0d0a","bytes":6}
+        ])
+    );
+
+    let failure = sequence_request(sequence(json!([
+        {"id":"send-byte","type":"send_bytes","hex":"aa"},
+        {"id":"read-reply","type":"read_until","delimiter_hex":"0d0a","max_bytes":8}
+    ])));
+    let (code, _) = request(url, "POST", &failure.to_string());
+    assert_eq!(code, 202);
+    let failed = wait_terminal(&receiver, run_id);
+    assert_eq!(failed["event"], "job_failed");
+    assert_eq!(failed["error"], "sequence_execution_error");
+    assert_eq!(failed["exit_code"], 3);
+    assert_eq!(failed["step_id"], "read-reply");
+    assert_eq!(failed["partial_hex"], "aa");
+    assert_eq!(failed["partial_bytes"], 1);
+    assert_eq!(
+        failed["step_results"],
+        json!([{"step_id":"send-byte","type":"send_bytes","bytes_written":1}])
+    );
+    assert_eq!(
+        failed["transcript"],
+        json!([{"step_id":"send-byte","direction":"tx","hex":"aa","bytes":1}])
+    );
+    assert!(child.try_wait().unwrap().is_none());
+    let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(status["status"], "ready");
+    assert_eq!(status["last_job"], failed);
+    stop(&mut child, &receiver, &ready, "");
+}
+
+#[test]
+fn active_sequence_is_busy_and_stop_waits_for_completion() {
+    let (mut child, receiver, ready) = spawn();
+    let run_id = ready["run_id"].as_str().unwrap();
+    let url = ready["command_url"].as_str().unwrap();
+    let request_body = sequence_request(sequence(
+        json!([{"id":"pause","type":"wait","duration_ms":500}]),
+    ));
+    let (code, _) = request(url, "POST", &request_body.to_string());
+    assert_eq!(code, 202);
+    loop {
+        let event = next(&receiver);
+        if event["event"] == "job_started" {
+            break;
+        }
+    }
+    let (code, rejected) = request(
+        url,
+        "POST",
+        &json!({"schema_version":2,"command":"send","arguments":{"tx_hex":"55"}}).to_string(),
+    );
+    assert_eq!(code, 409);
+    assert_eq!(rejected["reason"], "busy");
+    let (code, response) = request(ready["stop_url"].as_str().unwrap(), "POST", "");
+    assert_eq!(code, 200);
+    assert_eq!(response["status"], "stopping");
+    let (code, rejected) = request(url, "POST", &request_body.to_string());
+    assert_eq!(code, 409);
+    assert_eq!(rejected["reason"], "stopping");
+    let finished = wait_terminal(&receiver, run_id);
+    assert_eq!(finished["event"], "job_finished");
+    assert_eq!(
+        finished["result"]["step_results"][0]["requested_duration_ms"],
+        500
+    );
+    loop {
+        let event = next(&receiver);
+        if event["event"] == "summary" {
+            assert_eq!(event["ok"], true);
+            assert_eq!(event["exit_code"], 0);
+            break;
+        }
+    }
+    assert_eq!(child.wait().unwrap().code(), Some(0));
 }

@@ -55,10 +55,21 @@ hex is ignored; an empty value, odd digit count, or non-hex digit is rejected.
 | `send` | required `tx_hex` string | `tx_hex`, `tx_bytes` |
 | `receive` | optional `max_bytes` integer | `rx_hex`, `rx_bytes` |
 | `query` | required `tx_hex`, `delimiter_hex` strings; optional `max_bytes` integer | `tx_hex`, `tx_bytes`, `rx_hex`, `rx_bytes`, `delimiter_hex` |
+| `run-sequence` | required `sequence` inline Sequence v1 JSON object | `sequence_version`, `step_results`, `transcript` |
 
 `max_bytes` defaults to `1024` and must be in `1..=1048576`; the query
 delimiter must fit within it. Unknown argument fields, wrong types, and
 missing required arguments are rejected before admission or serial I/O.
+`run-sequence` accepts only `arguments.sequence`; paths, file names, and
+serialized Sequence strings are not accepted. The object follows the
+[Serial Sequence contract](serial-sequence-contract.md). Core parses and
+validates the complete Sequence before admission. Its baud rate, data bits,
+parity, stop bits, flow control, and timeout must exactly match the Worker
+startup settings in both live and simulation mode; the port is a separate
+runtime resource. A mismatch or invalid definition returns HTTP `400` with
+`status: "error"` and `error: "validation_error"` before enqueueing or any
+serial I/O. The Worker never reconfigures or replaces its session for a
+Sequence.
 Requests over 16 MiB or with headers over 16 KiB are rejected. The control
 plane uses one active slot and does not queue further commands.
 
@@ -77,6 +88,15 @@ accepted command's HTTP response remains `202` even if execution later fails.
 Timeouts and serial read/write/flush failures emit `job_failed` and update
 `last_job`; the Worker remains available. Partial RX supplied by Core appears
 as `partial_hex` and `partial_bytes`.
+For `run-sequence`, the same runner thread executes the existing Core
+`StepRunner` on the persistent session. Its success result uses the same
+`step_results` and logical `transcript` machine representation as one-shot
+`sequence run --json`. A Step failure emits `job_failed` with
+`error: "sequence_execution_error"`, `exit_code: 3`, `step_id`, completed
+`step_results`, and completed `transcript`. When Core supplies partial RX,
+`partial_hex` and `partial_bytes` are also present. Ordinary execution failure
+leaves the Worker ready for another command. The single active slot and busy
+rejection apply to `run-sequence` and all other commands alike.
 
 `POST /stop` accepts an empty body or empty JSON object and returns a
 structured `stopping` response. Repeated calls succeed while the endpoint is
@@ -84,6 +104,8 @@ reachable. New commands are rejected. An active command is allowed to finish
 or time out before the runner and control plane close. The session is then
 dropped and a final summary is emitted. Stop performs no device-specific
 command, reset, RX clear, or output-off action. Normal stop exits `0`.
+`/stop` does not interrupt an active Sequence; it waits for the currently
+admitted job to terminate under existing StepRunner/Serial timeout semantics.
 
 ## Runtime JSONL
 

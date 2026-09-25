@@ -103,3 +103,9 @@ each written byte available for later reads without opening hardware. `/stop`
 closes the session without sending device-specific bytes. See the
 [Serial Worker contract](docs/contracts/serial-worker-contract.md) for requests,
 events, and lifecycle details.
+
+Worker commands are `send`, `receive`, `query`, and `run-sequence`.
+`run-sequence` accepts an inline Sequence object whose line settings must
+match the Worker startup settings. See the
+[Serial Orchestrator workflow contract](docs/contracts/serial-orchestrator-workflows.md)
+for the future orchestration flow.

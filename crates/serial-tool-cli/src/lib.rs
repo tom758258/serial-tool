@@ -9,6 +9,7 @@ use serial_tool_core::{
 };
 
 mod sequence;
+mod sequence_result;
 mod worker;
 use sequence::SequenceArgs;
 use worker::WorkerArgs;
@@ -296,8 +297,8 @@ fn error_json(command: &str, error: &CliError) -> Value {
     }
     if let CliError::SequenceExecution(failure) = error {
         value["step_id"] = json!(failure.step_id.as_str());
-        value["step_results"] = sequence::step_results_json(&failure.report);
-        value["transcript"] = sequence::transcript_json(&failure.report);
+        value["step_results"] = sequence_result::step_results_json(&failure.report);
+        value["transcript"] = sequence_result::transcript_json(&failure.report);
     }
     value
 }

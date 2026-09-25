@@ -9,13 +9,14 @@ use std::{
 use clap::{Args, ValueEnum};
 use serde_json::{Map, Value, json};
 use serial_tool_core::{
-    DataBits, Error, FlowControl, Parity, SerialSession, SerialSettings, SerialTransport,
-    SimulationTransport, StopBits, Transport,
+    DataBits, Error, FlowControl, Parity, RunError, Sequence, SerialSession, SerialSettings,
+    SerialTransport, SimulationTransport, StepRunner, StopBits, Transport,
 };
 use uuid::Uuid;
 
 use crate::{
-    CliError, CliFlowControl, CliParity, hex, max_bytes, parse_bytes, settings_json, timestamp,
+    CliError, CliFlowControl, CliParity, hex, max_bytes, parse_bytes, sequence_result,
+    settings_json, timestamp,
 };
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -72,6 +73,7 @@ struct HttpContext<'a> {
     urls: &'a Value,
     mode: &'a str,
     serial_settings: &'a Value,
+    settings: &'a SerialSettings,
     port: Option<&'a str>,
 }
 
@@ -92,6 +94,18 @@ enum Operation {
     Send(Vec<u8>),
     Receive(usize),
     Query(Vec<u8>, Vec<u8>, usize),
+    RunSequence(Sequence),
+}
+
+enum WorkerOperationError {
+    Serial(Error),
+    Sequence(RunError),
+}
+
+impl From<Error> for WorkerOperationError {
+    fn from(error: Error) -> Self {
+        Self::Serial(error)
+    }
 }
 
 struct Job {
@@ -105,7 +119,7 @@ enum WorkerSession {
 }
 
 impl WorkerSession {
-    fn execute(&mut self, operation: Operation) -> Result<Value, Error> {
+    fn execute(&mut self, operation: Operation) -> Result<Value, WorkerOperationError> {
         match self {
             Self::Live(session) => execute(session, operation),
             Self::Simulate(session) => execute(session, operation),
@@ -116,7 +130,7 @@ impl WorkerSession {
 fn execute<T: Transport>(
     session: &mut SerialSession<T>,
     operation: Operation,
-) -> Result<Value, Error> {
+) -> Result<Value, WorkerOperationError> {
     match operation {
         Operation::Send(tx) => {
             session.write_all(&tx)?;
@@ -137,6 +151,16 @@ fn execute<T: Transport>(
                 "tx_hex": hex(&tx), "tx_bytes": tx.len(),
                 "rx_hex": hex(&rx), "rx_bytes": rx.len(),
                 "delimiter_hex": hex(&delimiter),
+            }))
+        }
+        Operation::RunSequence(sequence) => {
+            let report = StepRunner::new(session)
+                .run(&sequence.steps)
+                .map_err(WorkerOperationError::Sequence)?;
+            Ok(json!({
+                "sequence_version": sequence.sequence_version,
+                "step_results": sequence_result::step_results_json(&report),
+                "transcript": sequence_result::transcript_json(&report),
             }))
         }
     }
@@ -312,6 +336,7 @@ impl WorkerArgs {
             urls: &urls,
             mode,
             serial_settings: &serial_settings,
+            settings: &settings,
             port: self.port.as_deref(),
         };
         let mut control_error = None;
@@ -387,11 +412,30 @@ fn run_jobs(
             Err(error) => {
                 terminal["ok"] = json!(false);
                 terminal["exit_code"] = json!(3);
-                terminal["error"] = json!("serial_error");
-                terminal["message"] = json!(error.to_string());
-                if let Some(partial) = error.partial() {
-                    terminal["partial_hex"] = json!(hex(partial));
-                    terminal["partial_bytes"] = json!(partial.len());
+                match error {
+                    WorkerOperationError::Serial(error) => {
+                        terminal["error"] = json!("serial_error");
+                        terminal["message"] = json!(error.to_string());
+                        if let Some(partial) = error.partial() {
+                            terminal["partial_hex"] = json!(hex(partial));
+                            terminal["partial_bytes"] = json!(partial.len());
+                        }
+                    }
+                    WorkerOperationError::Sequence(error) => {
+                        terminal["error"] = json!("sequence_execution_error");
+                        terminal["message"] = json!(error.to_string());
+                        if let RunError::Execution(failure) = error {
+                            terminal["step_id"] = json!(failure.step_id.as_str());
+                            terminal["step_results"] =
+                                sequence_result::step_results_json(&failure.report);
+                            terminal["transcript"] =
+                                sequence_result::transcript_json(&failure.report);
+                            if let Some(partial) = failure.error.partial() {
+                                terminal["partial_hex"] = json!(hex(partial));
+                                terminal["partial_bytes"] = json!(partial.len());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -427,6 +471,7 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
         urls,
         mode,
         serial_settings,
+        settings,
         port,
     } = context;
     let port = *port;
@@ -462,7 +507,7 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
             write_response(stream, 200, &value)
         }
         ("POST", "/command") => {
-            let (identity, operation) = match parse_command(&body) {
+            let (identity, operation) = match parse_command(&body, settings) {
                 Ok(parsed) => parsed,
                 Err(value) => return write_response(stream, 400, &value),
             };
@@ -542,7 +587,10 @@ fn identity_json(identity: &JobIdentity) -> Value {
     json!({"worker_job_id": identity.worker_job_id, "command": identity.command, "job_id": identity.job_id})
 }
 
-fn parse_command(body: &[u8]) -> Result<(JobIdentity, Operation), Value> {
+fn parse_command(
+    body: &[u8],
+    settings: &SerialSettings,
+) -> Result<(JobIdentity, Operation), Value> {
     let parsed: Value =
         serde_json::from_slice(body).map_err(|_| validation(None, None, "malformed JSON"))?;
     let object = parsed
@@ -592,6 +640,21 @@ fn parse_command(body: &[u8]) -> Result<(JobIdentity, Operation), Value> {
                 return Err(reject("max_bytes must be at least delimiter length"));
             }
             Operation::Query(tx, delimiter, limit)
+        }
+        "run-sequence" => {
+            exact_keys(arguments, &["sequence"]).map_err(reject)?;
+            let value = arguments
+                .get("sequence")
+                .filter(|value| value.is_object())
+                .ok_or_else(|| reject("sequence must be an object"))?;
+            let sequence = Sequence::from_json_str(&value.to_string())
+                .map_err(|error| validation(Some(command), job_id, &error.to_string()))?;
+            if !sequence.serial.matches_serial_settings(settings) {
+                return Err(reject(
+                    "sequence serial settings must match Worker startup settings",
+                ));
+            }
+            Operation::RunSequence(sequence)
         }
         _ => return Err(reject("unknown command")),
     };
@@ -738,7 +801,16 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let output = Mutex::new(io::stdout());
         let urls = json!({});
-        let settings = json!({});
+        let settings = SerialSettings {
+            port: "simulation".into(),
+            baud_rate: 115200,
+            data_bits: DataBits::Eight,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+            flow_control: FlowControl::None,
+            timeout: Duration::from_millis(1000),
+        };
+        let settings_json = settings_json(&settings);
         let context = HttpContext {
             state: &state,
             sender: &sender,
@@ -746,7 +818,8 @@ mod tests {
             run_id: "run",
             urls: &urls,
             mode: "simulate",
-            serial_settings: &settings,
+            serial_settings: &settings_json,
+            settings: &settings,
             port: None,
         };
         handle_http(&mut server, &context).unwrap();

@@ -20,6 +20,15 @@ pub struct SequenceSerialConfig {
 }
 
 impl SequenceSerialConfig {
+    pub fn matches_serial_settings(&self, settings: &SerialSettings) -> bool {
+        self.baud_rate == settings.baud_rate
+            && self.data_bits == settings.data_bits
+            && self.parity == settings.parity
+            && self.stop_bits == settings.stop_bits
+            && self.flow_control == settings.flow_control
+            && self.timeout == settings.timeout
+    }
+
     pub fn serial_settings_for_port(&self, port: impl Into<String>) -> SerialSettings {
         SerialSettings {
             port: port.into(),

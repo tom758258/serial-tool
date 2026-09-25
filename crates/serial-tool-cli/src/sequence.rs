@@ -1,11 +1,11 @@
 use clap::{Args, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
-    Direction, RunError, RunReport, Sequence, SerialSession, SerialTransport, SimulationTransport,
-    Step, StepOutcome, StepRunner, Transport,
+    RunError, RunReport, Sequence, SerialSession, SerialTransport, SimulationTransport, Step,
+    StepRunner, Transport,
 };
 
-use crate::{CliError, OutputArgs, hex, timestamp};
+use crate::{CliError, OutputArgs, sequence_result, timestamp};
 
 #[derive(Debug, Args)]
 pub(super) struct SequenceArgs {
@@ -122,7 +122,7 @@ impl RunArgs {
             "event": "sequence_run", "schema_version": 2, "timestamp_utc": timestamp(),
             "ok": true, "sequence_version": sequence.sequence_version,
             "mode": match self.mode { RunMode::Live => "live", RunMode::Simulate => "simulate" },
-            "step_results": step_results_json(&report), "transcript": transcript_json(&report),
+            "step_results": sequence_result::step_results_json(&report), "transcript": sequence_result::transcript_json(&report),
         });
         match self.mode {
             RunMode::Live => value["port"] = json!(resource),
@@ -162,27 +162,4 @@ fn count_steps(steps: &[Step]) -> usize {
             }
         })
         .sum()
-}
-
-pub(super) fn step_results_json(report: &RunReport) -> Value {
-    Value::Array(report.step_results.iter().map(|result| {
-        let mut value = match &result.outcome {
-            StepOutcome::SendText { bytes_written } => json!({ "type": "send_text", "bytes_written": bytes_written }),
-            StepOutcome::SendBytes { bytes_written } => json!({ "type": "send_bytes", "bytes_written": bytes_written }),
-            StepOutcome::Wait { requested_duration } => json!({ "type": "wait", "requested_duration_ms": requested_duration.as_millis() }),
-            StepOutcome::Read { bytes } => json!({ "type": "read", "rx_hex": hex(bytes), "rx_bytes": bytes.len() }),
-            StepOutcome::ReadUntil { bytes } => json!({ "type": "read_until", "rx_hex": hex(bytes), "rx_bytes": bytes.len() }),
-            StepOutcome::Repeat { completed_iterations } => json!({ "type": "repeat", "completed_iterations": completed_iterations }),
-        };
-        value["step_id"] = json!(result.step_id.as_str());
-        value
-    }).collect())
-}
-
-pub(super) fn transcript_json(report: &RunReport) -> Value {
-    Value::Array(report.transcript.entries.iter().map(|entry| json!({
-        "step_id": entry.step_id.as_str(),
-        "direction": match entry.direction { Direction::Tx => "tx", Direction::Rx => "rx" },
-        "hex": hex(&entry.bytes), "bytes": entry.bytes.len(),
-    })).collect())
 }
