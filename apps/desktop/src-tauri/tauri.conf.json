@@ -5,6 +5,13 @@
   "version": "0.1.0",
   "identifier": "io.github.tom758258.serial-tool",
 
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+
   "app": {
     "windows": [
       {
@@ -15,7 +22,10 @@
         "resizable": true,
         "preventOverflow": true
       }
-    ]
+    ],
+    "security": {
+      "csp": null
+    }
   },
 
   "bundle": {

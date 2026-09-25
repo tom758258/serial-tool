@@ -1,6 +1,6 @@
-# serial_tool
+# Serial Tool
 
-`serial_tool` is a generic Serial / COM execution tool. It is written in Rust,
+Serial Tool is a generic Serial / COM execution tool. It is written in Rust,
 targets Windows first, and keeps its Core portable where practical.
 
 The root workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial

@@ -1,6 +1,6 @@
 # Agent Instructions
 
-These instructions define long-term, repository-specific boundaries for agents working on `serial_tool`.
+These instructions define long-term, repository-specific boundaries for agents working on `serial-tool`.
 Keep changes small, preserve clear component ownership, and do not build future layers before a concrete requirement exists.
 
 ## 1. Project Context
@@ -15,7 +15,7 @@ Keep changes small, preserve clear component ownership, and do not build future 
 The intended initial repository structure is:
 
 ```text
-serial_tool/
+serial-tool/
 ├─ crates/
 │  ├─ serial-tool-core/
 │  └─ serial-tool-cli/
@@ -59,7 +59,7 @@ Architecture rules:
 
 ## 4. Orchestrator / Worker Boundary
 
-`serial_tool` is an executable tool that may be invoked by `orchestrator-tool`.
+`serial-tool` is an executable tool that may be invoked by `orchestrator-tool`.
 
 - Keep orchestration logic in `orchestrator-tool`; do not reimplement scheduling, workflow execution, template ownership, or orchestration policy in this repository.
 - The worker surface must remain deterministic, machine-readable, and suitable for non-interactive invocation by the orchestrator.
