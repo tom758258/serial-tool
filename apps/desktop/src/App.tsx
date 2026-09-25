@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke, Channel } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
-import { defaultLine, display, freshSequence, hex } from './model'
+import { defaultLine, display, freshSequence, hex, rxTextFragments } from './model'
 import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent } from './model'
 
 type Status = 'disconnected' | 'connecting' | 'connected' | 'running' | 'disconnecting' | 'error'
 type Theme = 'system' | 'light' | 'dark'
 type HistoryEntry = { direction: 'tx' | 'rx'; bytes: number[] }
+type Notice = { message: string; kind: 'info' | 'success' | 'error' }
 const HISTORY_LIMIT = 5000
 
 function errorMessage(error: unknown): string {
@@ -26,7 +27,7 @@ export default function App() {
   const [settings, setSettings] = useState<ConnectionSettings>({ port: '', ...defaultLine })
   const [ports, setPorts] = useState<Port[]>([])
   const [status, setStatus] = useState<Status>('disconnected')
-  const [message, setMessage] = useState('')
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [tab, setTab] = useState<'terminal' | 'sequence'>('terminal')
   const [txFormat, setTxFormat] = useState<'text' | 'hex'>('text')
   const [txInput, setTxInput] = useState('')
@@ -41,6 +42,7 @@ export default function App() {
   const connected = status === 'connected' || status === 'running'
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
   const settingsLocked = connected || busy
+  const rxText = useMemo(() => rxTextFragments(history), [history])
 
   useEffect(() => {
     localStorage.setItem('serial-tool.theme', theme)
@@ -57,8 +59,8 @@ export default function App() {
   async function refreshPorts() {
     try {
       setPorts(await invoke<Port[]>('list_serial_ports'))
-      setMessage('')
-    } catch (error) { setMessage(errorMessage(error)) }
+      setNotice(null)
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   useEffect(() => { void refreshPorts() }, [])
@@ -69,10 +71,10 @@ export default function App() {
   }
 
   async function connect() {
-    if (mode === 'live' && !settings.port) { setMessage('Select a port before connecting.'); return }
-    if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setMessage('Baud rate must be positive.'); return }
+    if (mode === 'live' && !settings.port) { setNotice({ message: 'Select a port before connecting.', kind: 'error' }); return }
+    if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setNotice({ message: 'Baud rate must be positive.', kind: 'error' }); return }
     setStatus('connecting')
-    setMessage('')
+    setNotice(null)
     const connectionId = ++currentConnection.current
     const channel = new Channel<SessionEvent>()
     channel.onmessage = event => {
@@ -80,7 +82,7 @@ export default function App() {
       if (event.kind === 'data') {
         setHistory(previous => [...previous, { direction: event.direction, bytes: event.bytes }].slice(-HISTORY_LIMIT))
       } else if (event.kind === 'connection_error') {
-        setMessage(event.message)
+        setNotice({ message: event.message, kind: 'error' })
         setStatus('error')
       } else if (event.kind === 'disconnected') {
         setStatus(previous => previous === 'error' ? 'error' : 'disconnected')
@@ -95,7 +97,7 @@ export default function App() {
       currentConnection.current++
       setHistory(previousHistory)
       setStatus('error')
-      setMessage(errorMessage(error))
+      setNotice({ message: errorMessage(error), kind: 'error' })
     }
   }
 
@@ -105,18 +107,18 @@ export default function App() {
       await invoke('disconnect_serial')
       currentConnection.current++
       setStatus('disconnected')
-      setMessage('')
+      setNotice(null)
     } catch (error) {
       setStatus('error')
-      setMessage(errorMessage(error))
+      setNotice({ message: errorMessage(error), kind: 'error' })
     }
   }
 
   async function send() {
     try {
       await invoke('send_serial', { input: txInput, format: txFormat })
-      setMessage('')
-    } catch (error) { setMessage(errorMessage(error)) }
+      setNotice(null)
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   function json(): string { return JSON.stringify(draft) }
@@ -124,18 +126,18 @@ export default function App() {
   async function validate() {
     try {
       await invoke('validate_sequence', { json: json() })
-      setMessage('Sequence is valid.')
-    } catch (error) { setMessage(errorMessage(error)) }
+      setNotice({ message: 'Sequence is valid.', kind: 'success' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function loadSequence() {
-    const path = await open({ multiple: false, filters: [{ name: 'Sequence JSON', extensions: ['json'] }] })
-    if (!path || typeof path !== 'string') return
     try {
+      const path = await open({ multiple: false, filters: [{ name: 'Sequence JSON', extensions: ['json'] }] })
+      if (!path || typeof path !== 'string') return
       const normalized = await invoke<string>('load_sequence', { path })
       setDraft(JSON.parse(normalized) as Sequence)
-      setMessage(`Loaded ${path}`)
-    } catch (error) { setMessage(errorMessage(error)) }
+      setNotice({ message: `Loaded ${path}`, kind: 'info' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function saveSequence() {
@@ -144,19 +146,21 @@ export default function App() {
       const path = await save({ defaultPath: 'sequence.json', filters: [{ name: 'Sequence JSON', extensions: ['json'] }] })
       if (!path) return
       await invoke('save_sequence', { path, json: json() })
-      setMessage(`Saved ${path}`)
-    } catch (error) { setMessage(errorMessage(error)) }
+      setNotice({ message: `Saved ${path}`, kind: 'info' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function runSequence() {
     setStatus('running')
-    setMessage('Running sequence…')
+    setNotice({ message: 'Running sequence…', kind: 'info' })
     setLastRun(null)
     try {
       const result = await invoke<RunResult>('run_sequence', { json: json() })
       setLastRun(result)
-      setMessage(result.status === 'success' ? 'Sequence completed.' : result.error ?? 'Sequence failed.')
-    } catch (error) { setMessage(errorMessage(error)) }
+      setNotice(result.status === 'success'
+        ? { message: 'Sequence completed.', kind: 'success' }
+        : { message: result.error ?? 'Sequence failed.', kind: 'error' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
     setStatus(previous => previous === 'error' || previous === 'disconnected' ? previous : 'connected')
   }
 
@@ -194,7 +198,7 @@ export default function App() {
       </div>
     </section>
 
-    {message && <div className={`notice ${status === 'error' || lastRun?.status === 'failed' ? 'notice-error' : ''}`} role="status">{message}</div>}
+    {notice && <div className={`notice notice-${notice.kind}`} role="status">{notice.message}</div>}
 
     <nav className="tabs" aria-label="Main views"><button className={tab === 'terminal' ? 'active' : ''} onClick={() => setTab('terminal')}>Terminal</button>
       <button className={tab === 'sequence' ? 'active' : ''} onClick={() => setTab('sequence')}>Sequence</button></nav>
@@ -205,7 +209,9 @@ export default function App() {
         <button onClick={() => setHistory([])}>Clear View</button></div></div>
       <div className="terminal-history" aria-live="polite">{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
         {history.map((entry, index) => <div className={`terminal-entry ${entry.direction}`} key={index}>
-          <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'rx' ? display(entry.bytes, rxDisplay) : hex(entry.bytes)}</code></div>)}
+          <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :
+            rxDisplay === 'hex' ? hex(entry.bytes) :
+              rxDisplay === 'text' ? rxText[index] : `${hex(entry.bytes)}  |  ${rxText[index]}`}</code></div>)}
         <div ref={terminalEnd} /></div>
       <div className="send-box"><div className="section-heading"><h3>Send</h3><div className="segmented"><button className={txFormat === 'text' ? 'active' : ''} onClick={() => setTxFormat('text')}>Text</button><button className={txFormat === 'hex' ? 'active' : ''} onClick={() => setTxFormat('hex')}>Hex</button></div></div>
         <textarea aria-label="Send data" value={txInput} onChange={event => setTxInput(event.target.value)} placeholder={txFormat === 'hex' ? '4F 4B 0D 0A' : 'Exact UTF-8 text; no line ending added'} disabled={!connected || busy} />

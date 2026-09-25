@@ -259,7 +259,7 @@ fn parse_bytes(text: Option<&str>, hex: Option<&str>) -> Result<Vec<u8>, CliErro
                 ));
             }
             let mut bytes = Vec::with_capacity(digits.len() / 2);
-            for pair in digits.chunks_exact(2) {
+            for pair in digits.as_chunks::<2>().0 {
                 let high = (pair[0] as char).to_digit(16);
                 let low = (pair[1] as char).to_digit(16);
                 match (high, low) {

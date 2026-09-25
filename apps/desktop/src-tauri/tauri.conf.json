@@ -10,10 +10,11 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "Serial Tool", "width": 1440, "height": 900, "center": true, "resizable": true }],
+    "windows": [{ "title": "Serial Tool", "width": 1440, "height": 900, "center": true, "resizable": true, "preventOverflow": true }],
     "security": { "csp": null }
   },
   "bundle": {
+    "icon": ["icons/icon.png", "icons/icon.ico"],
     "windows": { "webviewInstallMode": { "type": "skip" } }
   }
 }

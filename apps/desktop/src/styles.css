@@ -34,6 +34,7 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .status.connected { color: #15804c; }.status.running { color: var(--accent); }.status.error { color: var(--error); }
 .notice { margin: .8rem 0; border: 1px solid var(--line); border-radius: 6px; padding: .6rem .8rem; background: var(--panel); }
 .notice-error, .error-text { color: var(--error); }
+.notice-success { color: #15804c; }
 .tabs { display: flex; gap: .5rem; margin: 1rem 0 .75rem; border-bottom: 1px solid var(--line); }
 .tabs button { border: 0; background: none; border-radius: 0; padding: .7rem 1rem; }
 .tabs button.active { color: var(--accent); border-bottom: 3px solid var(--accent); font-weight: 700; }

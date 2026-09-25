@@ -90,8 +90,7 @@ export function hex(bytes: number[]): string {
   return bytes.map(byte => byte.toString(16).toUpperCase().padStart(2, '0')).join(' ')
 }
 
-export function text(bytes: number[]): string {
-  const decoded = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes))
+function escapeText(decoded: string): string {
   return [...decoded].map(char => {
     if (char === '\r') return '\\r'
     if (char === '\n') return '\\n'
@@ -102,6 +101,17 @@ export function text(bytes: number[]): string {
     }
     return char
   }).join('')
+}
+
+export function text(bytes: number[]): string {
+  return escapeText(new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes)))
+}
+
+export function rxTextFragments(entries: { direction: 'tx' | 'rx'; bytes: number[] }[]): string[] {
+  const decoder = new TextDecoder('utf-8', { fatal: false })
+  return entries.map(entry => entry.direction === 'rx'
+    ? escapeText(decoder.decode(new Uint8Array(entry.bytes), { stream: true }))
+    : '')
 }
 
 export type Display = 'hex' | 'text' | 'both'

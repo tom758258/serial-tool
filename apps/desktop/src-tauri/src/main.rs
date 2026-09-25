@@ -170,7 +170,9 @@ fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
         return Err("Hex input must contain a nonempty, even number of digits".into());
     }
     digits
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             match (
                 (pair[0] as char).to_digit(16),
