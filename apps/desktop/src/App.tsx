@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke, Channel } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
@@ -33,6 +34,7 @@ function themeLabel(theme: Theme): string {
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
+  const [applicationVersion, setApplicationVersion] = useState<string | null>(null)
   const [mode, setMode] = useState<'live' | 'simulation'>('live')
   const [settings, setSettings] = useState<ConnectionSettings>({ port: '', ...defaultLine })
   const [ports, setPorts] = useState<Port[]>([])
@@ -55,6 +57,19 @@ export default function App() {
   const rxText = useMemo(() => rxTextFragments(history), [history])
   const nextThemePreference = nextTheme(theme)
   const nextThemeLabel = themeLabel(nextThemePreference)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const version = await getVersion()
+        if (version.trim()) {
+          setApplicationVersion(version)
+        }
+      } catch {
+        // Tauri runtime may be unavailable in browser-only Vite mode.
+      }
+    })()
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('serial-tool.theme', theme)
@@ -177,7 +192,9 @@ export default function App() {
   }
 
   return <main>
-    <header className="topbar"><div><h1>Serial Tool</h1><span className="subtitle">Desktop console</span></div>
+    <header className="topbar"><div><h1>Serial Tool</h1>{applicationVersion && (
+      <span className="subtitle">v{applicationVersion}</span>
+    )}</div>
       <div className="appearance-control"><span>Appearance</span>
         <button type="button" aria-label={`Switch theme to ${nextThemeLabel}`} title={`Switch theme to ${nextThemeLabel}`}
           onClick={() => setTheme(nextThemePreference)}>◐ {themeLabel(theme)}</button>
