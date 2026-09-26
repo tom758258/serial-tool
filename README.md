@@ -25,6 +25,12 @@ Both RX display. The Sequence editor loads, saves, validates, and runs the six
 Core step types on the current connection. System, Light, and Dark themes are
 available.
 
+Windows Desktop requires the system Microsoft Edge WebView2 Runtime. Serial Tool
+checks it before creating a Tauri window and offers the official Microsoft
+download page in a native dialog if it is unavailable. It does not download or
+install the runtime automatically. See [Desktop documentation](docs/desktop/README.md)
+for startup behavior.
+
 ```sh
 cd apps/desktop
 npm ci

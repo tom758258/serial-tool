@@ -224,7 +224,7 @@ fn main() {
         return;
     }
 
-    tauri::Builder::default()
+    if let Err(error) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(SessionManager::default()))
         .invoke_handler(tauri::generate_handler![
@@ -238,5 +238,10 @@ fn main() {
             run_sequence
         ])
         .run(tauri::generate_context!())
-        .expect("failed to run Serial Tool desktop");
+    {
+        #[cfg(windows)]
+        webview2::show_startup_error(&error.to_string());
+        #[cfg(not(windows))]
+        panic!("failed to run Serial Tool desktop: {error}");
+    }
 }

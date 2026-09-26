@@ -3,8 +3,14 @@
 ## Setup
 
 Install Rust, Node.js, npm, and the platform prerequisites for Tauri 2. On
-Windows, Microsoft Edge WebView2 Runtime is required. The app checks for it
-before creating its window and shows a native warning when it is missing.
+Windows, Desktop uses the system Microsoft Edge WebView2 Runtime. Serial Tool
+checks for a usable runtime before creating a Tauri window. If unavailable, a
+native Windows warning offers Yes to open the [official Microsoft WebView2
+page](https://developer.microsoft.com/microsoft-edge/webview2/) or No to close
+Serial Tool. Neither choice creates an application WebView. Serial Tool does not
+bundle, download, or automatically install WebView2. Install the runtime, then
+restart Serial Tool. If the check passes but Desktop initialization still
+fails, a native startup-error dialog shows the Tauri error details.
 
 From `apps/desktop`, run `npm ci` and `npm run tauri -- dev`. To check the
 frontend, run `npm run typecheck` and `npm run build`. To compile without an
