@@ -18,8 +18,12 @@ function errorMessage(error: unknown): string {
 }
 
 function initialTheme(): Theme {
-  const saved = localStorage.getItem('serial-tool.theme')
-  return saved === 'light' || saved === 'dark' ? saved : 'system'
+  try {
+    const saved = localStorage.getItem('serial-tool.theme')
+    return saved === 'light' || saved === 'dark' ? saved : 'system'
+  } catch {
+    return 'system'
+  }
 }
 
 function nextTheme(theme: Theme): Theme {
@@ -72,13 +76,18 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('serial-tool.theme', theme)
-    const media = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => { document.documentElement.dataset.theme = theme === 'system' ? (media.matches ? 'dark' : 'light') : theme }
+    try { localStorage.setItem('serial-tool.theme', theme) } catch {}
+    let media: MediaQueryList | null = null
+    if (theme === 'system') {
+      try { media = window.matchMedia('(prefers-color-scheme: dark)') } catch {}
+    }
+    const apply = () => { document.documentElement.dataset.theme = theme === 'system' ? (media?.matches ? 'dark' : 'light') : theme }
     apply()
-    media.addEventListener('change', apply)
+    try { media?.addEventListener('change', apply) } catch {}
     getCurrentWindow().setTheme(theme === 'system' ? null : theme).catch(error => console.warn('Native theme:', error))
-    return () => media.removeEventListener('change', apply)
+    return () => {
+      try { media?.removeEventListener('change', apply) } catch {}
+    }
   }, [theme])
 
   useEffect(() => { terminalEnd.current?.scrollIntoView({ block: 'end' }) }, [history.length, tab])
