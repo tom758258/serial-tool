@@ -36,10 +36,14 @@ impl fmt::Display for Error {
             Self::InvalidConfiguration(message) => write!(f, "invalid configuration: {message}"),
             Self::PortEnumerationFailed(error) => write!(f, "port enumeration failed: {error}"),
             Self::PortOpenFailed { port, source } => {
-                if source.kind() == serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied) {
+                if matches!(
+                    source.kind(),
+                    serialport::ErrorKind::NoDevice
+                        | serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied)
+                ) {
                     write!(
                         f,
-                        "Cannot open {port}. The port may already be in use by another application or you may not have permission to access it. Close other serial terminals using {port} and try again."
+                        "Cannot open {port}. The port may be unavailable, already in use by another application, or blocked by permissions. Close other serial terminals, check the device connection, and try again."
                     )
                 } else {
                     write!(f, "Cannot open {port}: {source}")
@@ -76,39 +80,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn port_open_permission_denied_is_actionable() {
-        let kind = serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied);
-        let error = Error::PortOpenFailed {
-            port: "COM4".into(),
-            source: serialport::Error::new(kind, "denied by OS"),
-        };
+    fn port_open_unavailable_or_permission_denied_is_actionable() {
+        for kind in [
+            serialport::ErrorKind::NoDevice,
+            serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied),
+        ] {
+            let error = Error::PortOpenFailed {
+                port: "COM4".into(),
+                source: serialport::Error::new(kind, "denied by OS"),
+            };
 
-        assert_eq!(
-            error.to_string(),
-            "Cannot open COM4. The port may already be in use by another application or you may not have permission to access it. Close other serial terminals using COM4 and try again."
-        );
-        let source = error::Error::source(&error)
-            .unwrap()
-            .downcast_ref::<serialport::Error>()
-            .unwrap();
-        assert_eq!(source.kind(), kind);
-        assert_eq!(source.to_string(), "denied by OS");
+            assert_eq!(
+                error.to_string(),
+                "Cannot open COM4. The port may be unavailable, already in use by another application, or blocked by permissions. Close other serial terminals, check the device connection, and try again."
+            );
+            let source = error::Error::source(&error)
+                .unwrap()
+                .downcast_ref::<serialport::Error>()
+                .unwrap();
+            assert_eq!(source.kind(), kind);
+            assert_eq!(source.to_string(), "denied by OS");
+        }
     }
 
     #[test]
     fn port_open_other_error_preserves_detail() {
-        let kind = serialport::ErrorKind::NoDevice;
+        let kind = serialport::ErrorKind::InvalidInput;
         let error = Error::PortOpenFailed {
             port: "COM4".into(),
-            source: serialport::Error::new(kind, "device not found"),
+            source: serialport::Error::new(kind, "invalid setting"),
         };
 
-        assert_eq!(error.to_string(), "Cannot open COM4: device not found");
+        assert_eq!(error.to_string(), "Cannot open COM4: invalid setting");
         let source = error::Error::source(&error)
             .unwrap()
             .downcast_ref::<serialport::Error>()
             .unwrap();
         assert_eq!(source.kind(), kind);
-        assert_eq!(source.to_string(), "device not found");
+        assert_eq!(source.to_string(), "invalid setting");
     }
 }
