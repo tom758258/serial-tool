@@ -160,8 +160,16 @@ impl TerminalArgs {
             let _ = runtime.disconnect();
             return 3;
         }
-        // EOF allows one short monitor window for the last submitted line's RX.
-        let mut eof_deadline: Option<Instant> = None;
+        self.run_connected(&runtime, &receiver, mode, None)
+    }
+
+    fn run_connected(
+        &self,
+        runtime: &PersistentRuntime,
+        receiver: &mpsc::Receiver<Message>,
+        mode: Mode,
+        mut eof_deadline: Option<Instant>,
+    ) -> i32 {
         let mut code = 0;
         loop {
             if eof_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -192,6 +200,7 @@ impl TerminalArgs {
                     break;
                 }
                 Some(Message::Eof) => {
+                    // EOF allows one short monitor window for the last submitted line's RX.
                     eof_deadline = Some(Instant::now() + Duration::from_millis(50))
                 }
                 Some(Message::Stop) | None => break,
@@ -212,8 +221,10 @@ impl TerminalArgs {
             code = 3;
         }
         for message in receiver.try_iter() {
-            if let Message::Event(event) = message {
-                self.display(event, mode);
+            if let Message::Event(event) = message
+                && !self.display(event, mode)
+            {
+                code = 3;
             }
         }
         code
@@ -279,6 +290,42 @@ fn tx_bytes(line: &str, format: TxFormat, ending: LineEnding) -> Result<Vec<u8>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_eof_final_drain_connection_error_exits_three() {
+        use clap::Parser;
+
+        let crate::Command::Terminal(args) = crate::Cli::parse_from([
+            "serial-tool",
+            "terminal",
+            "--mode",
+            "simulate",
+            "--baud",
+            "115200",
+            "--simulation-profile-id",
+            "loopback-v1",
+        ])
+        .command
+        else {
+            unreachable!();
+        };
+        let (mode, settings) = args.settings().unwrap();
+        // An expired EOF deadline skips the main loop, leaving the error for final drain.
+        for eof_deadline in [None, Some(Instant::now())] {
+            let runtime = PersistentRuntime::default();
+            let (sender, receiver) = mpsc::channel();
+            runtime.connect(mode, settings.clone(), |_| {}).unwrap();
+            sender
+                .send(Message::Event(Event::ConnectionError {
+                    message: "queued connection failure".into(),
+                }))
+                .unwrap();
+            assert_eq!(
+                args.run_connected(&runtime, &receiver, mode, eof_deadline),
+                3
+            );
+        }
+    }
 
     #[test]
     fn terminal_tx_preserves_payload_and_applies_only_requested_ending() {
