@@ -1,23 +1,9 @@
-use std::{
-    sync::{Mutex, mpsc},
-    thread::{self, JoinHandle},
-    time::Duration,
-};
-
 use serde::Serialize;
+pub use serial_tool_core::runtime::Mode;
+use serial_tool_core::runtime::{Event as CoreEvent, PersistentRuntime, RuntimeError};
 use serial_tool_core::{
-    Direction, Error, RunError, RunReport, Sequence, SerialSession, SerialSettings,
-    SerialTransport, SimulationTransport, StepOutcome, StepRunner,
+    Direction, Error, RunError, RunReport, Sequence, SerialSettings, StepOutcome,
 };
-
-const POLL_INTERVAL: Duration = Duration::from_millis(15);
-const READ_CHUNK: usize = 4096;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Live,
-    Simulation,
-}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -136,59 +122,9 @@ impl RunResult {
     }
 }
 
-enum Session {
-    Live(SerialSession<SerialTransport>),
-    Simulation(SerialSession<SimulationTransport>),
-}
-
-impl Session {
-    fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        match self {
-            Self::Live(session) => session.write_all(bytes).and_then(|()| session.flush()),
-            Self::Simulation(session) => session.write_all(bytes).and_then(|()| session.flush()),
-        }
-    }
-
-    fn pending(&self) -> Result<usize, Error> {
-        match self {
-            Self::Live(session) => {
-                Ok(session.buffered_len() + session.transport().bytes_to_read()?)
-            }
-            Self::Simulation(session) => {
-                Ok(session.buffered_len() + session.transport().bytes_to_read())
-            }
-        }
-    }
-
-    fn read(&mut self, bytes: &mut [u8]) -> Result<usize, Error> {
-        match self {
-            Self::Live(session) => session.read(bytes),
-            Self::Simulation(session) => session.read(bytes),
-        }
-    }
-
-    fn run(&mut self, sequence: &Sequence) -> Result<RunReport, RunError> {
-        match self {
-            Self::Live(session) => StepRunner::new(session).run(&sequence.steps),
-            Self::Simulation(session) => StepRunner::new(session).run(&sequence.steps),
-        }
-    }
-}
-
-enum Command {
-    Send(Vec<u8>, mpsc::SyncSender<Result<(), String>>),
-    Run(Sequence, mpsc::SyncSender<Result<RunResult, String>>),
-    Disconnect(mpsc::SyncSender<()>),
-}
-
-struct Connection {
-    commands: mpsc::Sender<Command>,
-    thread: JoinHandle<()>,
-}
-
 #[derive(Default)]
 pub struct SessionManager {
-    connection: Mutex<Option<Connection>>,
+    runtime: PersistentRuntime,
 }
 
 impl SessionManager {
@@ -198,195 +134,52 @@ impl SessionManager {
         settings: SerialSettings,
         events: impl Fn(Event) + Send + 'static,
     ) -> Result<(), String> {
-        settings.validate().map_err(|error| error.to_string())?;
-        let mut guard = self.connection.lock().map_err(|error| error.to_string())?;
-        Self::reap_finished(&mut guard);
-        if guard.is_some() {
-            return Err("Already connected".into());
-        }
-        let session = match mode {
-            Mode::Live => Session::Live(SerialSession::new(
-                SerialTransport::open(&settings).map_err(|error| error.to_string())?,
-            )),
-            Mode::Simulation => {
-                Session::Simulation(SerialSession::new(SimulationTransport::loopback()))
-            }
-        };
-        let (commands, receiver) = mpsc::channel();
-        let owner_settings = settings.clone();
-        let thread = thread::Builder::new()
-            .name("serial-session-owner".into())
-            .spawn(move || owner_loop(session, owner_settings, receiver, events))
-            .map_err(|error| error.to_string())?;
-        *guard = Some(Connection { commands, thread });
-        Ok(())
+        self.runtime
+            .connect(mode, settings, move |event| {
+                events(match event {
+                    CoreEvent::Connected => Event::Connected,
+                    CoreEvent::Disconnected => Event::Disconnected,
+                    CoreEvent::ConnectionError { message } => Event::ConnectionError { message },
+                    CoreEvent::Data { direction, bytes } => Event::Data {
+                        direction: match direction {
+                            Direction::Tx => "tx",
+                            Direction::Rx => "rx",
+                        },
+                        bytes,
+                    },
+                })
+            })
+            .map_err(|error| error.to_string())
     }
 
     pub fn send(&self, bytes: Vec<u8>) -> Result<(), String> {
-        let commands = self.sender()?;
-        let (reply, response) = mpsc::sync_channel(1);
-        commands
-            .send(Command::Send(bytes, reply))
-            .map_err(|_| "Connection closed")?;
-        response.recv().map_err(|_| "Connection closed")?
+        self.runtime.send(bytes).map_err(|error| error.to_string())
     }
 
     pub fn run(&self, sequence: Sequence) -> Result<RunResult, String> {
-        let commands = self.sender()?;
-        let (reply, response) = mpsc::sync_channel(1);
-        commands
-            .send(Command::Run(sequence, reply))
-            .map_err(|_| "Connection closed")?;
-        response.recv().map_err(|_| "Connection closed")?
+        match self.runtime.run(sequence) {
+            Ok(report) => Ok(RunResult::from_report(report, None)),
+            Err(RuntimeError::Sequence(error)) => match *error {
+                RunError::Execution(failure) => Ok(RunResult::from_report(
+                    failure.report,
+                    Some((failure.step_id.as_str().to_owned(), failure.error)),
+                )),
+                RunError::Validation(error) => Err(error.to_string()),
+            },
+            Err(error) => Err(error.to_string()),
+        }
     }
 
     pub fn disconnect(&self) -> Result<(), String> {
-        let mut guard = self.connection.lock().map_err(|error| error.to_string())?;
-        let connection = guard.take();
-        let Some(connection) = connection else {
-            return Err("Not connected".into());
-        };
-        if !connection.thread.is_finished() {
-            let (reply, response) = mpsc::sync_channel(1);
-            let _ = connection.commands.send(Command::Disconnect(reply));
-            let _ = response.recv();
-        }
-        let result = connection
-            .thread
-            .join()
-            .map_err(|_| "Session owner panicked".to_owned());
-        drop(guard);
-        result
+        self.runtime.disconnect().map_err(|error| error.to_string())
     }
-
-    fn sender(&self) -> Result<mpsc::Sender<Command>, String> {
-        let mut guard = self.connection.lock().map_err(|error| error.to_string())?;
-        Self::reap_finished(&mut guard);
-        guard
-            .as_ref()
-            .map(|connection| connection.commands.clone())
-            .ok_or_else(|| "Not connected".into())
-    }
-
-    fn reap_finished(guard: &mut Option<Connection>) {
-        if guard
-            .as_ref()
-            .is_some_and(|connection| connection.thread.is_finished())
-            && let Some(connection) = guard.take()
-        {
-            let _ = connection.thread.join();
-        }
-    }
-}
-
-impl Drop for SessionManager {
-    fn drop(&mut self) {
-        if self.connection.get_mut().is_ok_and(|value| value.is_some()) {
-            let _ = self.disconnect();
-        }
-    }
-}
-
-fn owner_loop(
-    mut session: Session,
-    settings: SerialSettings,
-    commands: mpsc::Receiver<Command>,
-    events: impl Fn(Event),
-) {
-    events(Event::Connected);
-    loop {
-        let command = match commands.try_recv() {
-            Ok(command) => Some(command),
-            Err(mpsc::TryRecvError::Disconnected) => break,
-            Err(mpsc::TryRecvError::Empty) => None,
-        };
-        if let Some(command) = command {
-            if handle_command(&mut session, &settings, command, &events) {
-                break;
-            }
-            continue;
-        }
-        match session.pending() {
-            Ok(0) => match commands.recv_timeout(POLL_INTERVAL) {
-                Ok(command) => {
-                    if handle_command(&mut session, &settings, command, &events) {
-                        break;
-                    }
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-            },
-            Ok(pending) => {
-                let mut buffer = [0u8; READ_CHUNK];
-                match session.read(&mut buffer[..pending.min(READ_CHUNK)]) {
-                    Ok(count) if count > 0 => events(Event::Data {
-                        direction: "rx",
-                        bytes: buffer[..count].to_vec(),
-                    }),
-                    Ok(_) | Err(Error::Timeout { .. }) => {}
-                    Err(error) => {
-                        events(Event::ConnectionError {
-                            message: error.to_string(),
-                        });
-                        break;
-                    }
-                }
-            }
-            Err(error) => {
-                events(Event::ConnectionError {
-                    message: error.to_string(),
-                });
-                break;
-            }
-        }
-    }
-    events(Event::Disconnected);
-}
-
-fn handle_command(
-    session: &mut Session,
-    settings: &SerialSettings,
-    command: Command,
-    events: &impl Fn(Event),
-) -> bool {
-    match command {
-        Command::Send(bytes, reply) => {
-            let result = session.send(&bytes).map_err(|error| error.to_string());
-            if result.is_ok() {
-                events(Event::Data {
-                    direction: "tx",
-                    bytes,
-                });
-            }
-            let _ = reply.send(result);
-        }
-        Command::Run(sequence, reply) => {
-            let result = if !sequence.serial.matches_serial_settings(settings) {
-                Err("Sequence serial settings do not match the current connection".into())
-            } else {
-                match session.run(&sequence) {
-                    Ok(report) => Ok(RunResult::from_report(report, None)),
-                    Err(RunError::Execution(failure)) => Ok(RunResult::from_report(
-                        failure.report,
-                        Some((failure.step_id.as_str().to_owned(), failure.error)),
-                    )),
-                    Err(RunError::Validation(error)) => Err(error.to_string()),
-                }
-            };
-            let _ = reply.send(result);
-        }
-        Command::Disconnect(reply) => {
-            let _ = reply.send(());
-            return true;
-        }
-    }
-    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serial_tool_core::{DataBits, FlowControl, Parity, StopBits};
+    use std::{sync::mpsc, time::Duration};
 
     fn settings() -> SerialSettings {
         SerialSettings {

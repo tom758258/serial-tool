@@ -10,6 +10,7 @@ use serial_tool_core::{
 
 mod sequence;
 mod sequence_result;
+mod terminal;
 mod worker;
 use sequence::SequenceArgs;
 use worker::WorkerArgs;
@@ -37,6 +38,8 @@ enum Command {
     Sequence(SequenceArgs),
     /// Run the local Serial Worker control plane.
     Worker(WorkerArgs),
+    /// Open a persistent human-interactive serial terminal.
+    Terminal(terminal::TerminalArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
@@ -369,6 +372,7 @@ impl Cli {
     pub fn run(self) -> i32 {
         let command = match self.command {
             Command::Worker(args) => return args.run(),
+            Command::Terminal(args) => return args.run(),
             command => command,
         };
         let self_ = Self { command };
@@ -379,7 +383,7 @@ impl Cli {
             Command::Receive(args) => ("receive", &args.output),
             Command::Query(args) => ("query", &args.output),
             Command::Sequence(args) => (args.command_name(), args.output()),
-            Command::Worker(_) => unreachable!(),
+            Command::Worker(_) | Command::Terminal(_) => unreachable!(),
         };
         let machine = output.machine();
         match self_.execute() {
@@ -563,7 +567,7 @@ impl Cli {
                 Ok((value, text))
             }
             Command::Sequence(args) => args.execute(),
-            Command::Worker(_) => unreachable!(),
+            Command::Worker(_) | Command::Terminal(_) => unreachable!(),
         }
     }
 }

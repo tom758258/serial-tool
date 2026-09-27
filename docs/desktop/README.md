@@ -57,11 +57,15 @@ bytes when available, is held only in application memory.
 
 ## Ownership
 
-Tauri commands adapt UI requests to Core. One Rust owner thread holds the
-connected `SerialSession`. It handles manual sends, continuous RX, Sequence
+Tauri commands and the Desktop backend are thin adapters for Core's shared
+persistent runtime, including conversion to the existing UI event and result
+DTOs. One Core owner thread holds the connected `SerialSession`.
+It handles manual sends, continuous RX, Sequence
 runs, and disconnect commands. The monitor checks the session's buffered byte
 count and the transport's pending RX count before reading, with a short wait
 between empty polls. Commands are checked before the next monitor read.
 `StepRunner` runs synchronously on the same owner, so the monitor cannot read
-while a Sequence runs. The connection's configured serial timeout remains
+while a Sequence runs, and monitoring resumes afterward. Core rejects manual
+Send and a second Sequence as Busy while a Sequence is accepted or running;
+neither request is queued for later execution. The configured serial timeout remains
 unchanged. Desktop does not use the CLI, Worker, HTTP, or persistent run data.

@@ -31,6 +31,10 @@ Runtime result objects include `event`, `schema_version`, UTC ISO 8601
 includes `delimiter_hex`. Hex is lowercase, has two digits per byte, and has
 no separators. Raw bytes remain authoritative; UTF-8 decoding is not required.
 
+`terminal` is a human-interactive persistent command. It does not accept
+`--json` or `--format` and is outside this one-shot JSON/JSONL contract.
+The Worker machine contract remains unchanged.
+
 ## Events
 
 - `tool_manifest`: static tool identity with `tool_id: "serial"`,

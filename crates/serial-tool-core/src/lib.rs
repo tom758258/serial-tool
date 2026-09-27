@@ -1,6 +1,7 @@
 pub mod config;
 pub mod discovery;
 pub mod error;
+pub mod runtime;
 pub mod sequence;
 pub mod session;
 pub mod step;

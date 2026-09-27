@@ -4,9 +4,11 @@ Serial Tool is a generic Serial / COM execution tool. It is written in Rust,
 targets Windows first, and keeps its Core portable where practical.
 
 The root workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
-settings, port discovery, raw byte transport, deterministic simulation, and
-session RX buffering. The `serial-tool` CLI provides engineering commands and
-machine-readable output through Core, including a persistent Serial Worker.
+settings, port discovery, raw byte transport, deterministic simulation,
+session RX buffering, and a shared persistent runtime with one I/O owner and
+continuous RX. Desktop and the interactive terminal use this runtime.
+The `serial-tool` CLI provides engineering commands and machine-readable output
+through Core, including a persistent Serial Worker.
 
 Core also provides a linear Serial Step Runner with `SendText`, `SendBytes`,
 `Wait`, `Read`, `ReadUntil`, and `Repeat`. JSON Sequence files persist line
@@ -19,8 +21,9 @@ test-record database.
 ## Desktop
 
 The Windows-first Desktop app uses Tauri 2 with React, TypeScript, and Vite.
-It connects directly to Core. Its Terminal provides a persistent Live or
-Simulation connection, continuous RX, exact Text or Hex TX, and Hex, Text, or
+It uses Core's persistent runtime through a thin backend adapter. Its Terminal
+provides a persistent Live or Simulation connection, continuous RX, exact Text
+or Hex TX, and Hex, Text, or
 Both RX display. The Sequence editor loads, saves, validates, and runs the six
 Core step types on the current connection. System, Light, and Dark themes are
 available.
@@ -88,6 +91,26 @@ event fields and exit codes.
 human-readable text output. `hex` uses spaced uppercase bytes, `text` uses
 lossy UTF-8 with control characters escaped, and `both` shows both. JSON/JSONL
 machine output remains canonical lowercase hex regardless of `--rx-display`.
+
+## Interactive CLI terminal
+
+The human-interactive terminal keeps one connection open for continuous RX
+and line-oriented manual TX:
+
+```sh
+serial-tool terminal --mode live --port COM4 --baud 115200
+serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopback-v1
+```
+
+It accepts the same serial line settings as the one-shot commands, plus
+`--rx-display hex|text|both` (default `hex`), `--tx-format text|hex` (default
+`text`), and `--line-ending none|lf|crlf` (default `none`). Enter submits a line;
+its stdin CR/LF is removed before applying the requested text line ending.
+Hex sends exact bytes using the existing parser and ignores text line endings.
+Invalid input is reported without ending the terminal. EOF or Ctrl+C gracefully
+disconnects; EOF allows a short 50 ms window for final monitor events, without
+waiting for a device response. Terminal has no JSON/JSONL output contract.
+Worker remains the machine persistent interface and uses its existing runtime.
 
 ## Sequences
 
