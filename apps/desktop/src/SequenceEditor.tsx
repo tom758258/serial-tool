@@ -146,12 +146,12 @@ export default function SequenceEditor(props: Props) {
           flow_control: connection.flow_control, timeout_ms: connection.timeout_ms,
         } })}>Use Current Connection Settings</button></div>
       <div className="field-grid">
-        <label>Baud<input disabled={disabled} type="number" value={draft.serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
+        <label>Baud rate<input disabled={disabled} type="number" value={draft.serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
         <label>Data bits<select disabled={disabled} value={draft.serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Parity<select disabled={disabled} value={draft.serial.parity} onChange={event => updateSerial('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>Parity<select disabled={disabled} value={draft.serial.parity} onChange={event => updateSerial('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
         <label>Stop bits<select disabled={disabled} value={draft.serial.stop_bits} onChange={event => updateSerial('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Flow control<select disabled={disabled} value={draft.serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Timeout ms<input disabled={disabled} type="number" value={draft.serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
+        <label>Flow control<select disabled={disabled} value={draft.serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
+        <label>Timeout (ms)<input disabled={disabled} type="number" value={draft.serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
       </div>
     </div>
     <div className="editor-columns">

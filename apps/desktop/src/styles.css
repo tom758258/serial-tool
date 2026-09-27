@@ -25,8 +25,18 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .appearance-control { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .85rem; font-weight: 600; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 1rem; }
 .connection .section-heading { margin-bottom: .8rem; }
+.connection-header-actions { display: flex; align-items: center; gap: .5rem; }
+.connection-options-toggle { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; }
+.connection-options { max-width: 360px; margin: 0 0 .8rem auto; padding: .8rem; border: 1px solid var(--line); border-radius: 6px; background: var(--field); }
+.connection-options h3 { margin-bottom: .6rem; }
+.execution-mode { border: 0; margin: 0; padding: 0; min-width: 0; }
+.execution-mode legend { margin-bottom: .4rem; padding: 0; color: var(--muted); font-size: .85rem; font-weight: 600; }
+.execution-mode-choices { display: flex; gap: 1rem; }
+.execution-mode-choices label { flex-direction: row; align-items: center; gap: .4rem; color: var(--text); }
+.execution-mode-choices input { width: auto; min-height: auto; margin: 0; accent-color: var(--accent); }
+.connection-options-help { margin: .6rem 0 0; color: var(--muted); font-size: .85rem; line-height: 1.4; }
 .field-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .75rem; align-items: end; }
-.connection-fields > label:nth-child(2) { grid-column: span 2; }
+.connection-fields > label:first-child { grid-column: span 2; }
 .connection-fields > button { align-self: end; }
 .connection-actions { justify-content: flex-end; margin-top: .9rem; }
 .port-detail { margin: .65rem 0 0; color: var(--muted); }

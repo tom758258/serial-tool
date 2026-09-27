@@ -27,11 +27,16 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 ## Terminal
 
-Refresh Ports lists available ports and USB metadata without opening them.
-Select Live and an explicit port, or choose Simulation for deterministic
-loopback. Set baud, data bits, parity, stop bits, flow control, and timeout,
-then Connect. Settings are locked until Disconnect. The app automatically
-receives available bytes while connected.
+In Connection Setup, use the Connection options gear to choose the execution
+mode. Live uses an explicit physical port; Refresh ports lists available ports
+and USB metadata without opening them. Simulation uses deterministic loopback
+without opening a physical serial port. Port and Refresh ports are disabled in
+Simulation, and the selected port is retained when switching modes. Set baud
+rate, data bits, parity, stop bits, flow control, and timeout, then Connect.
+Connection settings, including execution mode, are locked while connecting,
+connected, running, or disconnecting. The gear remains available to view the
+options. The header shows the current mode and connection status. The app
+automatically receives available bytes while connected.
 
 Send Text transmits the exact UTF-8 bytes entered without adding CR or LF.
 Send Hex accepts ASCII whitespace and case-insensitive pairs of hex digits.
