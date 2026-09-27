@@ -41,12 +41,14 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .toolbar { display: flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
 .toolbar label, .section-heading label { flex-direction: row; align-items: center; gap: .6rem; white-space: nowrap; }
 .toolbar label select, .section-heading label select { width: auto; }
+.toolbar .show-tx input { width: auto; min-height: auto; margin: 0; }
 .terminal { display: flex; flex-direction: column; min-height: 500px; }
 .terminal .section-heading { margin-bottom: .7rem; }
 .terminal-history { flex: 1; min-height: 220px; max-height: 47vh; overflow: auto; border: 1px solid var(--line); background: var(--bg); padding: .55rem; border-radius: 6px; }
 .terminal-entry { display: flex; gap: .8rem; padding: .32rem .38rem; border-bottom: 1px solid var(--line); }
 .terminal-entry .direction { min-width: 2rem; font-weight: 750; font-size: .78rem; color: var(--accent); }
 .terminal-entry.tx .direction { color: #9a6b00; }
+.terminal-stream { display: block; }
 code { font-family: Consolas, "Cascadia Code", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .send-box { border-top: 1px solid var(--line); margin-top: .9rem; padding-top: .9rem; }
 .send-box textarea { width: 100%; min-height: 86px; }

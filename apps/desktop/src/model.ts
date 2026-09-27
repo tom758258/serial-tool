@@ -90,8 +90,10 @@ export function hex(bytes: number[]): string {
   return bytes.map(byte => byte.toString(16).toUpperCase().padStart(2, '0')).join(' ')
 }
 
-function escapeText(decoded: string): string {
+function escapeText(decoded: string, stream = false): string {
   return [...decoded].map(char => {
+    if (stream && char === '\r') return ''
+    if (stream && char === '\n') return '\n'
     if (char === '\r') return '\\r'
     if (char === '\n') return '\\n'
     if (char === '\t') return '\\t'
@@ -107,14 +109,15 @@ export function text(bytes: number[]): string {
   return escapeText(new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(bytes)))
 }
 
-export function rxTextFragments(entries: { direction: 'tx' | 'rx'; bytes: number[] }[]): string[] {
+export function rxTextFragments(entries: { direction: 'tx' | 'rx'; bytes: number[] }[], stream = false): string[] {
   const decoder = new TextDecoder('utf-8', { fatal: false })
   return entries.map(entry => entry.direction === 'rx'
-    ? escapeText(decoder.decode(new Uint8Array(entry.bytes), { stream: true }))
+    ? escapeText(decoder.decode(new Uint8Array(entry.bytes), { stream: true }), stream)
     : '')
 }
 
 export type Display = 'hex' | 'text' | 'both'
+export type TerminalDisplay = Display | 'stream'
 
 export function display(bytes: number[], mode: Display): string {
   if (mode === 'hex') return hex(bytes)

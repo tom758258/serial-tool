@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
 import { defaultLine, display, freshSequence, hex, rxTextFragments } from './model'
-import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent } from './model'
+import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent, TerminalDisplay } from './model'
 
 type Status = 'disconnected' | 'connecting' | 'connected' | 'running' | 'disconnecting' | 'error'
 type Theme = 'system' | 'light' | 'dark'
@@ -47,7 +47,8 @@ export default function App() {
   const [tab, setTab] = useState<'terminal' | 'sequence'>('terminal')
   const [txFormat, setTxFormat] = useState<'text' | 'hex'>('text')
   const [txInput, setTxInput] = useState('')
-  const [rxDisplay, setRxDisplay] = useState<Display>('hex')
+  const [rxDisplay, setRxDisplay] = useState<TerminalDisplay>('hex')
+  const [showTx, setShowTx] = useState(true)
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [draft, setDraft] = useState<Sequence>(() => freshSequence(defaultLine))
   const [lastRun, setLastRun] = useState<RunResult | null>(null)
@@ -58,7 +59,7 @@ export default function App() {
   const connected = status === 'connected' || status === 'running'
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
   const settingsLocked = connected || busy
-  const rxText = useMemo(() => rxTextFragments(history), [history])
+  const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'stream'), [history, rxDisplay])
   const nextThemePreference = nextTheme(theme)
   const nextThemeLabel = themeLabel(nextThemePreference)
 
@@ -90,7 +91,7 @@ export default function App() {
     }
   }, [theme])
 
-  useEffect(() => { terminalEnd.current?.scrollIntoView({ block: 'end' }) }, [history.length, tab])
+  useEffect(() => { terminalEnd.current?.scrollIntoView({ block: 'end' }) }, [history, tab, rxDisplay, showTx])
 
   async function refreshPorts() {
     try {
@@ -243,11 +244,12 @@ export default function App() {
       <button className={tab === 'sequence' ? 'active' : ''} onClick={() => setTab('sequence')}>Sequence</button></nav>
 
     {tab === 'terminal' ? <section className="terminal panel">
-      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>RX Display <select value={rxDisplay} onChange={event => setRxDisplay(event.target.value as Display)}>
-        <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label>
+      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>RX Display <select value={rxDisplay} onChange={event => setRxDisplay(event.target.value as TerminalDisplay)}>
+        <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option><option value="stream">Stream</option></select></label>
+        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={rxDisplay === 'stream'} onChange={event => setShowTx(event.target.checked)} />Show TX</label>
         <button onClick={() => setHistory([])}>Clear View</button></div></div>
       <div className="terminal-history" aria-live="polite">{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
-        {history.map((entry, index) => <div className={`terminal-entry ${entry.direction}`} key={index}>
+        {rxDisplay === 'stream' ? <code className="terminal-stream">{rxText.join('')}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
           <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :
             rxDisplay === 'hex' ? hex(entry.bytes) :
               rxDisplay === 'text' ? rxText[index] : `${hex(entry.bytes)}  |  ${rxText[index]}`}</code></div>)}

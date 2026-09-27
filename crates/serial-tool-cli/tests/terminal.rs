@@ -78,6 +78,48 @@ fn text_terminal_applies_crlf_and_uses_existing_safe_rx_display() {
 }
 
 #[test]
+fn stream_terminal_joins_rx_without_lf_and_hides_tx_without_stopping_send() {
+    let output = terminal(
+        &[
+            "--rx-display",
+            "stream",
+            "--tx-display",
+            "off",
+            "--line-ending",
+            "none",
+        ],
+        b"ABC\nDEF\n",
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"ABCDEF");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("Connected (simulate: loopback-v1)"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("Disconnected"), "{stderr}");
+    assert!(!stderr.contains("TX:"), "{stderr}");
+}
+
+#[test]
+fn stream_terminal_crlf_creates_only_one_real_newline() {
+    let output = terminal(
+        &[
+            "--rx-display",
+            "stream",
+            "--tx-display",
+            "off",
+            "--line-ending",
+            "crlf",
+        ],
+        b"Hello\n",
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"Hello\n");
+    assert!(!String::from_utf8(output.stderr).unwrap().contains("TX:"));
+}
+
+#[test]
 fn terminal_validates_mode_resources_and_rejects_machine_output() {
     for args in [
         vec!["--mode", "live"],

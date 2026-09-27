@@ -36,9 +36,18 @@ receives available bytes while connected.
 Send Text transmits the exact UTF-8 bytes entered without adding CR or LF.
 Send Hex accepts ASCII whitespace and case-insensitive pairs of hex digits.
 The terminal keeps up to 5000 TX/RX entries in memory. RX display can be Hex,
-lossy UTF-8 Text with escaped controls, or Both; switching only rerenders
+lossy UTF-8 Text with escaped controls, Both, or Stream; switching only rerenders
 stored bytes. Clear View only clears the on-screen history. It does not clear
 serial buffers or affect the device.
+
+Stream is RX-only presentation without direction badges or event rows. RX
+fragments concatenate without added line breaks; LF creates a newline and CR
+is omitted. Other control characters remain escaped. The existing streaming
+UTF-8 decoder is retained; this is not an ANSI/VT100 terminal emulator.
+Show TX defaults to On. Turning it Off hides TX rows in Hex, Text, and Both
+without affecting Send or stored history. The control is disabled in Stream;
+its preference applies again when returning to a log view. Sequence Result
+continues to offer only Hex, Text, and Both.
 
 ## Sequence
 

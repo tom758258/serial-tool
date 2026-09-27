@@ -23,8 +23,8 @@ test-record database.
 The Windows-first Desktop app uses Tauri 2 with React, TypeScript, and Vite.
 It uses Core's persistent runtime through a thin backend adapter. Its Terminal
 provides a persistent Live or Simulation connection, continuous RX, exact Text
-or Hex TX, and Hex, Text, or
-Both RX display. The Sequence editor loads, saves, validates, and runs the six
+or Hex TX, Hex, Text, Both, or Stream RX display, and a Show TX control.
+The Sequence editor loads, saves, validates, and runs the six
 Core step types on the current connection. System, Light, and Dark themes are
 available.
 
@@ -103,14 +103,27 @@ serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopb
 ```
 
 It accepts the same serial line settings as the one-shot commands, plus
-`--rx-display hex|text|both` (default `hex`), `--tx-format text|hex` (default
-`text`), and `--line-ending none|lf|crlf` (default `none`). Enter submits a line;
+`--rx-display hex|text|both|stream` (default `hex`), `--tx-display hex|off`
+(default `hex`), `--tx-format text|hex` (default `text`), and
+`--line-ending none|lf|crlf` (default `none`). Enter submits a line;
 its stdin CR/LF is removed before applying the requested text line ending.
 Hex sends exact bytes using the existing parser and ignores text line endings.
 Invalid input is reported without ending the terminal. EOF or Ctrl+C gracefully
 disconnects; EOF allows a short 50 ms window for final monitor events, without
 waiting for a device response. Terminal has no JSON/JSONL output contract.
 Worker remains the machine persistent interface and uses its existing runtime.
+
+Text is an escaped log presentation. Stream presents RX text without prefixes
+or event-boundary line breaks: LF creates a newline, CR is omitted, and other
+control characters remain escaped. Output is flushed even without LF. CLI
+UTF-8 decoding remains lossy per RX event, so characters split across events
+may display replacement characters. Stream uses stdout for RX and stderr for
+lifecycle messages, errors, and TX hex logs. `--tx-display off` only hides TX
+presentation; bytes are still sent. For an RX-only capture, use:
+
+```sh
+serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display stream --tx-display off > rx.txt
+```
 
 ## Sequences
 

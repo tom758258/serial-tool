@@ -1,5 +1,5 @@
 use std::{
-    io::{self, BufRead},
+    io::{self, BufRead, Write},
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -25,6 +25,20 @@ enum TerminalMode {
 enum TxFormat {
     Text,
     Hex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+enum TerminalRxDisplay {
+    Hex,
+    Text,
+    Both,
+    Stream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
+enum TxDisplay {
+    Hex,
+    Off,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -54,8 +68,10 @@ pub(super) struct TerminalArgs {
     flow_control: CliFlowControl,
     #[arg(long, default_value_t = 1000)]
     timeout_ms: u64,
-    #[arg(long, value_enum, default_value_t = RxDisplay::Hex)]
-    rx_display: RxDisplay,
+    #[arg(long, value_enum, default_value_t = TerminalRxDisplay::Hex)]
+    rx_display: TerminalRxDisplay,
+    #[arg(long, value_enum, default_value_t = TxDisplay::Hex)]
+    tx_display: TxDisplay,
     #[arg(long, value_enum, default_value_t = TxFormat::Text)]
     tx_format: TxFormat,
     #[arg(long, value_enum, default_value_t = LineEnding::None)]
@@ -205,7 +221,7 @@ impl TerminalArgs {
                 }
                 Some(Message::Stop) | None => break,
                 Some(Message::Event(Event::Disconnected)) => {
-                    println!("Disconnected");
+                    self.display(Event::Disconnected, mode);
                     return code;
                 }
                 Some(Message::Event(event)) => {
@@ -231,26 +247,72 @@ impl TerminalArgs {
     }
 
     fn display(&self, event: Event, mode: Mode) -> bool {
+        let stream = self.rx_display == TerminalRxDisplay::Stream;
         match event {
-            Event::Connected => println!(
-                "Connected ({}) — enter one line to send; EOF or Ctrl+C disconnects",
-                if mode == Mode::Live {
-                    "live"
+            Event::Connected | Event::Disconnected => {
+                let message = if matches!(event, Event::Connected) {
+                    format!(
+                        "Connected ({}) — enter one line to send; EOF or Ctrl+C disconnects",
+                        if mode == Mode::Live {
+                            "live"
+                        } else {
+                            "simulate: loopback-v1"
+                        }
+                    )
                 } else {
-                    "simulate: loopback-v1"
+                    "Disconnected".into()
+                };
+                if stream {
+                    eprintln!("{message}");
+                } else {
+                    println!("{message}");
                 }
-            ),
-            Event::Disconnected => println!("Disconnected"),
+            }
             Event::Data {
                 direction: Direction::Tx,
                 bytes,
-            } => println!("TX: {}", spaced_hex(&bytes)),
+            } => {
+                if self.tx_display == TxDisplay::Hex {
+                    if stream {
+                        eprintln!("TX: {}", spaced_hex(&bytes));
+                    } else {
+                        println!("TX: {}", spaced_hex(&bytes));
+                    }
+                }
+            }
             Event::Data {
                 direction: Direction::Rx,
                 bytes,
             } => {
-                let rendered = render_rx(&bytes, self.rx_display, "RX ");
-                if self.rx_display == RxDisplay::Both {
+                let display = match self.rx_display {
+                    TerminalRxDisplay::Hex => RxDisplay::Hex,
+                    TerminalRxDisplay::Text => RxDisplay::Text,
+                    TerminalRxDisplay::Both => RxDisplay::Both,
+                    TerminalRxDisplay::Stream => {
+                        let mut rendered = String::new();
+                        for char in String::from_utf8_lossy(&bytes).chars() {
+                            match char {
+                                '\r' => {}
+                                '\n' => rendered.push('\n'),
+                                control if control.is_control() => {
+                                    rendered.extend(control.escape_default())
+                                }
+                                printable => rendered.push(printable),
+                            }
+                        }
+                        let mut stdout = io::stdout().lock();
+                        if let Err(error) = stdout
+                            .write_all(rendered.as_bytes())
+                            .and_then(|()| stdout.flush())
+                        {
+                            eprintln!("stdout error: {error}");
+                            return false;
+                        }
+                        return true;
+                    }
+                };
+                let rendered = render_rx(&bytes, display, "RX ");
+                if display == RxDisplay::Both {
                     println!("{rendered}");
                 } else {
                     println!("RX: {rendered}");
