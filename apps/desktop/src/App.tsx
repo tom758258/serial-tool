@@ -228,30 +228,38 @@ export default function App() {
     <section className="connection panel">
       <div className="section-heading"><h2>Connection Setup</h2><div className="connection-header-actions">
         <span className={`status ${status}`}>{mode === 'live' ? 'Live' : 'Simulation'} · {statusLabels[status]}</span>
-        <button type="button" className="connection-options-toggle" title="Connection options" aria-label="Connection options"
-          aria-expanded={connectionOptionsOpen} aria-controls="connection-options" onClick={() => setConnectionOptionsOpen(previous => !previous)}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="m9 3-.7 2.7-2 .9-2.5-.7-2 3.4 1.9 2v2.4l-1.9 2 2 3.4 2.5-.7 2 .9L9 22h4l.7-2.7 2-.9 2.5.7 2-3.4-1.9-2v-2.4l1.9-2-2-3.4-2.5.7-2-.9L13 3Z" />
-            <circle cx="11" cy="12.5" r="3" />
-          </svg>
-        </button>
-      </div></div>
-      <div id="connection-options" className="connection-options" hidden={!connectionOptionsOpen}>
-        <h3>Connection options</h3>
-        <fieldset disabled={settingsLocked} className="execution-mode">
-          <legend>Execution mode</legend>
-          <div className="execution-mode-choices">
-            <label><input type="radio" name="execution-mode" value="live" checked={mode === 'live'} onChange={() => setMode('live')} />Live</label>
-            <label><input type="radio" name="execution-mode" value="simulation" checked={mode === 'simulation'} onChange={() => setMode('simulation')} />Simulation</label>
+        <div className="connection-options-wrap">
+          <button type="button" className="connection-options-toggle" title="Connection options" aria-label="Connection options"
+            aria-expanded={connectionOptionsOpen} aria-controls="connection-options" onClick={() => setConnectionOptionsOpen(previous => !previous)}>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="m9 3-.7 2.7-2 .9-2.5-.7-2 3.4 1.9 2v2.4l-1.9 2 2 3.4 2.5-.7 2 .9L9 22h4l.7-2.7 2-.9 2.5.7 2-3.4-1.9-2v-2.4l1.9-2-2-3.4-2.5.7-2-.9L13 3Z" />
+              <circle cx="11" cy="12.5" r="3" />
+            </svg>
+          </button>
+          <div id="connection-options" className="connection-options" hidden={!connectionOptionsOpen}>
+            <h3>Connection options</h3>
+            <fieldset disabled={settingsLocked} className="execution-mode">
+              <legend>Execution mode</legend>
+              <div className="execution-mode-choices">
+                <label><input type="radio" name="execution-mode" value="live" checked={mode === 'live'} onChange={() => setMode('live')} />Live</label>
+                <label><input type="radio" name="execution-mode" value="simulation" checked={mode === 'simulation'} onChange={() => setMode('simulation')} />Simulation</label>
+              </div>
+            </fieldset>
+            <p className="connection-options-help">Simulation uses deterministic loopback and does not access a physical serial port.</p>
           </div>
-        </fieldset>
-        <p className="connection-options-help">Simulation uses deterministic loopback and does not access a physical serial port.</p>
-      </div>
-      <div className="field-grid connection-fields">
+        </div>
+      </div></div>
+      <div className="connection-resource-row">
         <label>Port<select disabled={settingsLocked || mode === 'simulation'} value={settings.port} onChange={event => updateSetting('port', event.target.value)}>
           <option value="">Select a port</option>{ports.map(port => <option key={port.port_name} value={port.port_name}>{port.port_name} · {portTypeLabel(port.kind)}{port.vid != null ? ` ${port.vid.toString(16).padStart(4, '0')}:${port.pid?.toString(16).padStart(4, '0')}` : ''}</option>)}
         </select></label>
         <button disabled={settingsLocked || mode === 'simulation'} onClick={() => void refreshPorts()}>Refresh ports</button>
+      </div>
+      {mode === 'live' && settings.port && <p className="port-detail">{(() => {
+        const port = ports.find(value => value.port_name === settings.port)
+        return port ? [port.manufacturer, port.product, port.serial_number].filter(Boolean).join(' · ') : ''
+      })()}</p>}
+      <div className="connection-serial-grid">
         <label>Baud rate<input disabled={settingsLocked} type="number" value={settings.baud_rate} onChange={event => updateSetting('baud_rate', event.target.value)} /></label>
         <label>Data bits<select disabled={settingsLocked} value={settings.data_bits} onChange={event => updateSetting('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
         <label>Parity<select disabled={settingsLocked} value={settings.parity} onChange={event => updateSetting('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
@@ -259,10 +267,6 @@ export default function App() {
         <label>Flow control<select disabled={settingsLocked} value={settings.flow_control} onChange={event => updateSetting('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
         <label>Timeout (ms)<input disabled={settingsLocked} type="number" value={settings.timeout_ms} onChange={event => updateSetting('timeout_ms', event.target.value)} /></label>
       </div>
-      {mode === 'live' && settings.port && <p className="port-detail">{(() => {
-        const port = ports.find(value => value.port_name === settings.port)
-        return port ? [port.manufacturer, port.product, port.serial_number].filter(Boolean).join(' · ') : ''
-      })()}</p>}
       <div className="connection-actions">
         <button className="primary" disabled={settingsLocked || (mode === 'live' && !settings.port) || settings.baud_rate <= 0} onClick={() => void connect()}>Connect</button>
         <button disabled={status !== 'connected'} onClick={() => void disconnect()}>Disconnect</button>

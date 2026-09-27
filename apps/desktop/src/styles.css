@@ -26,8 +26,10 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 1rem; }
 .connection .section-heading { margin-bottom: .8rem; }
 .connection-header-actions { display: flex; align-items: center; gap: .5rem; }
+.connection-options-wrap { position: relative; }
 .connection-options-toggle { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; }
-.connection-options { max-width: 360px; margin: 0 0 .8rem auto; padding: .8rem; border: 1px solid var(--line); border-radius: 6px; background: var(--field); }
+.connection-options-toggle[aria-expanded="true"] { border-color: var(--accent); background: var(--hover); color: var(--accent); }
+.connection-options { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; width: min(360px, calc(100vw - 48px)); padding: .8rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 .connection-options h3 { margin-bottom: .6rem; }
 .execution-mode { border: 0; margin: 0; padding: 0; min-width: 0; }
 .execution-mode legend { margin-bottom: .4rem; padding: 0; color: var(--muted); font-size: .85rem; font-weight: 600; }
@@ -36,8 +38,8 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .execution-mode-choices input { width: auto; min-height: auto; margin: 0; accent-color: var(--accent); }
 .connection-options-help { margin: .6rem 0 0; color: var(--muted); font-size: .85rem; line-height: 1.4; }
 .field-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .75rem; align-items: end; }
-.connection-fields > label:first-child { grid-column: span 2; }
-.connection-fields > button { align-self: end; }
+.connection-resource-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: end; }
+.connection-serial-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; align-items: end; margin-top: .9rem; }
 .connection-actions { justify-content: flex-end; margin-top: .9rem; }
 .port-detail { margin: .65rem 0 0; color: var(--muted); }
 .status { text-transform: capitalize; border-radius: 100px; padding: .32rem .65rem; background: var(--hover); font-size: .8rem; font-weight: 700; }
