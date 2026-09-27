@@ -139,12 +139,13 @@ export default function SequenceEditor(props: Props) {
       <button className="primary" disabled={!props.canRun || disabled} onClick={props.onRun}>Run Sequence</button>
     </div>
     <div className="sequence-serial panel">
-      <div className="section-heading"><h3>Sequence Serial Settings</h3>
+      <div className="section-heading"><h3>Communication Requirements</h3>
         <button disabled={disabled} onClick={() => edit(next => { next.serial = {
           baud_rate: connection.baud_rate, data_bits: connection.data_bits,
           parity: connection.parity, stop_bits: connection.stop_bits,
           flow_control: connection.flow_control, timeout_ms: connection.timeout_ms,
         } })}>Use Current Connection Settings</button></div>
+      <p className="muted">Saved with this Sequence. Port and execution mode are selected at runtime.</p>
       <div className="field-grid">
         <label>Baud rate<input disabled={disabled} type="number" value={draft.serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
         <label>Data bits<select disabled={disabled} value={draft.serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>

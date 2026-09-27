@@ -64,7 +64,9 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 code { font-family: Consolas, "Cascadia Code", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .send-box { border-top: 1px solid var(--line); margin-top: .9rem; padding-top: .9rem; }
 .send-box textarea { width: 100%; min-height: 86px; }
-.send-actions { margin-top: .55rem; }
+.send-actions { margin-top: .55rem; flex-wrap: wrap; }
+.send-actions .toolbar { margin-left: auto; }
+.send-actions input { width: 100px; }
 .segmented { display: flex; gap: .2rem; }
 .segmented button.active { background: var(--hover); color: var(--accent); font-weight: 700; }
 .sequence-editor > .toolbar { margin-bottom: .75rem; }

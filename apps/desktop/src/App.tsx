@@ -61,6 +61,9 @@ export default function App() {
   const [tab, setTab] = useState<'terminal' | 'sequence'>('terminal')
   const [txFormat, setTxFormat] = useState<'text' | 'hex'>('text')
   const [txInput, setTxInput] = useState('')
+  const [autoTxRunning, setAutoTxRunning] = useState(false)
+  const [txPending, setTxPending] = useState(false)
+  const [intervalMs, setIntervalMs] = useState('1000')
   const [rxDisplay, setRxDisplay] = useState<TerminalDisplay>('hex')
   const [showTx, setShowTx] = useState(true)
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -72,6 +75,8 @@ export default function App() {
 
   const connected = status === 'connected' || status === 'running'
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
+  const txLocked = busy || autoTxRunning || txPending
+  const canTransmit = status === 'connected' && !txLocked
   const settingsLocked = connected || busy
   const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'stream'), [history, rxDisplay])
   const nextThemePreference = nextTheme(theme)
@@ -105,7 +110,10 @@ export default function App() {
     }
   }, [theme])
 
-  useEffect(() => { terminalEnd.current?.scrollIntoView({ block: 'end' }) }, [history, tab, rxDisplay, showTx])
+  useEffect(() => {
+    const view = terminalEnd.current?.parentElement
+    if (view) view.scrollTop = view.scrollHeight
+  }, [history, tab, rxDisplay, showTx])
 
   async function refreshPorts() {
     try {
@@ -124,6 +132,7 @@ export default function App() {
   async function connect() {
     if (mode === 'live' && !settings.port) { setNotice({ message: 'Select a port before connecting.', kind: 'error' }); return }
     if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setNotice({ message: 'Baud rate must be positive.', kind: 'error' }); return }
+    setAutoTxRunning(false)
     setStatus('connecting')
     setNotice(null)
     const connectionId = ++currentConnection.current
@@ -133,9 +142,13 @@ export default function App() {
       if (event.kind === 'data') {
         setHistory(previous => [...previous, { direction: event.direction, bytes: event.bytes }].slice(-HISTORY_LIMIT))
       } else if (event.kind === 'connection_error') {
+        currentConnection.current++
+        setAutoTxRunning(false)
         setNotice({ message: event.message, kind: 'error' })
         setStatus('error')
       } else if (event.kind === 'disconnected') {
+        currentConnection.current++
+        setAutoTxRunning(false)
         setStatus(previous => previous === 'error' ? 'error' : 'disconnected')
       }
     }
@@ -157,18 +170,79 @@ export default function App() {
     try {
       await invoke('disconnect_serial')
       currentConnection.current++
+      setAutoTxRunning(false)
       setStatus('disconnected')
       setNotice(null)
     } catch (error) {
+      setAutoTxRunning(false)
       setStatus('error')
       setNotice({ message: errorMessage(error), kind: 'error' })
     }
   }
 
   async function send() {
+    if (!canTransmit) return
+    setTxPending(true)
     try {
       await invoke('send_serial', { input: txInput, format: txFormat })
       setNotice(null)
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
+    finally { setTxPending(false) }
+  }
+
+  async function toggleAutoTx() {
+    if (txPending || status !== 'connected') return
+    const interval = Number(intervalMs)
+    if (!autoTxRunning && (!Number.isSafeInteger(interval) || interval <= 0)) {
+      setNotice({ message: 'Interval must be integer milliseconds greater than zero.', kind: 'error' })
+      return
+    }
+    const connectionId = currentConnection.current
+    setTxPending(true)
+    try {
+      if (autoTxRunning) {
+        await invoke('stop_periodic_serial')
+        setAutoTxRunning(false)
+      } else {
+        await invoke('start_periodic_serial', { input: txInput, format: txFormat, intervalMs: interval })
+        if (connectionId === currentConnection.current) setAutoTxRunning(true)
+      }
+      setNotice(null)
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
+    finally { setTxPending(false) }
+  }
+
+  async function sendFile() {
+    if (!canTransmit) return
+    const connectionId = currentConnection.current
+    setTxPending(true)
+    try {
+      const path = await open({ multiple: false, title: 'Send File (Raw)' })
+      if (!path || typeof path !== 'string' || connectionId !== currentConnection.current) return
+      await invoke('send_serial_file', { path })
+      setNotice({ message: `Sent raw bytes from ${path}`, kind: 'success' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
+    finally { setTxPending(false) }
+  }
+
+  async function saveLog() {
+    const content = history.map(entry => `${entry.direction.toUpperCase()} ${hex(entry.bytes)}`).join('\n') + '\n'
+    try {
+      const path = await save({ defaultPath: 'terminal.log', filters: [{ name: 'Terminal Log', extensions: ['log'] }] })
+      if (!path) return
+      await invoke('save_text_file', { path, content })
+      setNotice({ message: `Saved ${path}`, kind: 'success' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
+  }
+
+  async function saveResult() {
+    if (!lastRun) return
+    const content = JSON.stringify(lastRun, null, 2) + '\n'
+    try {
+      const path = await save({ defaultPath: 'sequence-result.json', filters: [{ name: 'Sequence Result JSON', extensions: ['json'] }] })
+      if (!path) return
+      await invoke('save_text_file', { path, content })
+      setNotice({ message: `Saved ${path}`, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
@@ -202,6 +276,7 @@ export default function App() {
   }
 
   async function runSequence() {
+    if (!canTransmit) return
     setStatus('running')
     setNotice({ message: 'Running sequence…', kind: 'info' })
     setLastRun(null)
@@ -282,22 +357,27 @@ export default function App() {
       <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>RX Display <select value={rxDisplay} onChange={event => setRxDisplay(event.target.value as TerminalDisplay)}>
         <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option><option value="stream">Stream</option></select></label>
         <label className="show-tx"><input type="checkbox" checked={showTx} disabled={rxDisplay === 'stream'} onChange={event => setShowTx(event.target.checked)} />Show TX</label>
-        <button onClick={() => setHistory([])}>Clear View</button></div></div>
+        <button onClick={() => setHistory([])}>Clear View</button>
+        <button disabled={!history.length} onClick={() => void saveLog()}>Save Log...</button></div></div>
       <div className="terminal-history" aria-live="polite">{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
         {rxDisplay === 'stream' ? <code className="terminal-stream">{rxText.join('')}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
           <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :
             rxDisplay === 'hex' ? hex(entry.bytes) :
               rxDisplay === 'text' ? rxText[index] : `${hex(entry.bytes)}  |  ${rxText[index]}`}</code></div>)}
         <div ref={terminalEnd} /></div>
-      <div className="send-box"><div className="section-heading"><h3>Send</h3><div className="segmented"><button className={txFormat === 'text' ? 'active' : ''} onClick={() => setTxFormat('text')}>Text</button><button className={txFormat === 'hex' ? 'active' : ''} onClick={() => setTxFormat('hex')}>Hex</button></div></div>
-        <textarea aria-label="Send data" value={txInput} onChange={event => setTxInput(event.target.value)} placeholder={txFormat === 'hex' ? '4F 4B 0D 0A' : 'Exact UTF-8 text; no line ending added'} disabled={!connected || busy} />
-        <div className="send-actions"><span className="muted">{txFormat === 'text' ? 'Text sends exact UTF-8 bytes.' : 'Hex accepts digits and ASCII whitespace.'}</span><button className="primary" disabled={status !== 'connected' || !txInput} onClick={() => void send()}>Send</button></div>
+      <div className="send-box"><div className="section-heading"><h3>Send</h3><div className="segmented"><button disabled={txLocked} className={txFormat === 'text' ? 'active' : ''} onClick={() => setTxFormat('text')}>Text</button><button disabled={txLocked} className={txFormat === 'hex' ? 'active' : ''} onClick={() => setTxFormat('hex')}>Hex</button></div></div>
+        <textarea aria-label="Send data" value={txInput} onChange={event => setTxInput(event.target.value)} placeholder={txFormat === 'hex' ? '4F 4B 0D 0A' : 'Exact UTF-8 text; no line ending added'} disabled={!connected || txLocked} />
+        <div className="send-actions"><span className="muted">{txFormat === 'text' ? 'Text sends exact UTF-8 bytes.' : 'Hex accepts digits and ASCII whitespace.'} Send File sends raw bytes unchanged.</span>
+          <div className="toolbar"><label>Interval <input aria-label="Auto TX interval (ms)" type="number" min="1" step="1" disabled={!connected || txLocked} value={intervalMs} onChange={event => setIntervalMs(event.target.value)} /> ms</label>
+            <button className="primary" disabled={!canTransmit || !txInput} onClick={() => void send()}>Send</button>
+            <button disabled={!canTransmit} onClick={() => void sendFile()}>Send File (Raw)...</button>
+            <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !txInput))} onClick={() => void toggleAutoTx()}>{autoTxRunning ? 'Stop Auto TX' : 'Start Auto TX'}</button></div></div>
       </div>
     </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} disabled={status === 'running'}
       onNew={() => setDraft(freshSequence(settings))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
-      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={status === 'connected'} />
-      <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
-        <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div>
+      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit} />
+      <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>Save Result...</button><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
+        <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div></div>
         {!lastRun ? <p className="muted">No sequence run in this session.</p> : <>
           <p className={`result-status ${lastRun.status}`}>Status: {lastRun.status}{lastRun.failing_step_id ? ` · ${lastRun.failing_step_id}` : ''}</p>
           {lastRun.error && <p className="error-text">{lastRun.error}</p>}

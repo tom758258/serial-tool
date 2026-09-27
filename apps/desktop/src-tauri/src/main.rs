@@ -147,7 +147,65 @@ async fn send_serial(
     input: String,
     format: String,
 ) -> Result<(), String> {
-    let bytes = match format.as_str() {
+    let bytes = send_bytes(input, &format)?;
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || manager.send(bytes))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn start_periodic_serial(
+    manager: State<'_, Arc<SessionManager>>,
+    input: String,
+    format: String,
+    interval_ms: u64,
+) -> Result<(), String> {
+    let bytes = send_bytes(input, &format)?;
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.start_periodic(bytes, Duration::from_millis(interval_ms))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn stop_periodic_serial(manager: State<'_, Arc<SessionManager>>) -> Result<(), String> {
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || manager.stop_periodic())
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn send_serial_file(
+    manager: State<'_, Arc<SessionManager>>,
+    path: String,
+) -> Result<(), String> {
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+        if bytes.is_empty() {
+            return Err("Send File (Raw): file must not be empty".into());
+        }
+        manager.send(bytes)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn save_text_file(path: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(path, content).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn send_bytes(input: String, format: &str) -> Result<Vec<u8>, String> {
+    let bytes = match format {
         "text" => input.into_bytes(),
         "hex" => parse_hex(&input)?,
         _ => return Err("Invalid input format".into()),
@@ -155,10 +213,7 @@ async fn send_serial(
     if bytes.is_empty() {
         return Err("Send data must not be empty".into());
     }
-    let manager = Arc::clone(&manager);
-    tauri::async_runtime::spawn_blocking(move || manager.send(bytes))
-        .await
-        .map_err(|error| error.to_string())?
+    Ok(bytes)
 }
 
 fn parse_hex(input: &str) -> Result<Vec<u8>, String> {
@@ -232,6 +287,10 @@ fn main() {
             connect_serial,
             disconnect_serial,
             send_serial,
+            start_periodic_serial,
+            stop_periodic_serial,
+            send_serial_file,
+            save_text_file,
             load_sequence,
             save_sequence,
             validate_sequence,

@@ -156,6 +156,22 @@ impl SessionManager {
         self.runtime.send(bytes).map_err(|error| error.to_string())
     }
 
+    pub fn start_periodic(
+        &self,
+        bytes: Vec<u8>,
+        interval: std::time::Duration,
+    ) -> Result<(), String> {
+        self.runtime
+            .start_periodic(bytes, interval)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn stop_periodic(&self) -> Result<(), String> {
+        self.runtime
+            .stop_periodic()
+            .map_err(|error| error.to_string())
+    }
+
     pub fn run(&self, sequence: Sequence) -> Result<RunResult, String> {
         match self.runtime.run(sequence) {
             Ok(report) => Ok(RunResult::from_report(report, None)),
@@ -272,6 +288,53 @@ mod tests {
         manager.send(vec![0xaa]).unwrap();
         assert_eq!(next_data(&events), ("tx", vec![0xaa]));
         assert_eq!(next_data(&events), ("rx", vec![0xaa]));
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
+    fn periodic_adapter_preserves_binary_rx_and_busy_errors() {
+        let (manager, events) = connect();
+        let bytes = vec![0, 255, 128, 13, 10];
+        manager
+            .start_periodic(bytes.clone(), Duration::from_millis(40))
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(next_data(&events), ("tx", bytes.clone()));
+            assert_eq!(next_data(&events), ("rx", bytes.clone()));
+        }
+        assert_eq!(manager.send(vec![1]).unwrap_err(), "Connection busy");
+        manager.stop_periodic().unwrap();
+        while events.try_recv().is_ok() {}
+        manager.send(vec![2]).unwrap();
+        assert_eq!(next_data(&events), ("tx", vec![2]));
+        assert_eq!(next_data(&events), ("rx", vec![2]));
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
+    fn failed_sequence_json_retains_partial_bytes_and_completed_transcript() {
+        let (manager, _events) = connect();
+        let sequence = Sequence::from_json_str(r#"{
+            "sequence_version": 1,
+            "serial": {"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000},
+            "steps": [
+                {"id":"send","type":"send_bytes","hex":"00ff80"},
+                {"id":"read","type":"read_until","delimiter_hex":"0d0a","max_bytes":64}
+            ]
+        }"#).unwrap();
+        let result = manager.run(sequence).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string_pretty(&result).unwrap()).unwrap();
+        assert_eq!(json["status"], "failed");
+        assert_eq!(json["failing_step_id"], "read");
+        assert!(json["error"].as_str().unwrap().contains("timed out"));
+        assert_eq!(json["partial_bytes"], serde_json::json!([0, 255, 128]));
+        assert_eq!(json["step_results"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            json["transcript"][0]["bytes"],
+            serde_json::json!([0, 255, 128])
+        );
+        assert_eq!(json["transcript"].as_array().unwrap().len(), 1);
         manager.disconnect().unwrap();
     }
 
