@@ -4,13 +4,21 @@ use std::{error, fmt, io};
 pub enum Error {
     InvalidConfiguration(&'static str),
     PortEnumerationFailed(serialport::Error),
-    PortOpenFailed(serialport::Error),
+    PortOpenFailed {
+        port: Box<str>,
+        source: serialport::Error,
+    },
     ReadFailed(io::Error),
     ReadAvailabilityFailed(serialport::Error),
     WriteFailed(io::Error),
     FlushFailed(io::Error),
-    Timeout { partial: Vec<u8> },
-    ReadLimitExceeded { max_bytes: usize, partial: Vec<u8> },
+    Timeout {
+        partial: Vec<u8>,
+    },
+    ReadLimitExceeded {
+        max_bytes: usize,
+        partial: Vec<u8>,
+    },
 }
 
 impl Error {
@@ -27,7 +35,16 @@ impl fmt::Display for Error {
         match self {
             Self::InvalidConfiguration(message) => write!(f, "invalid configuration: {message}"),
             Self::PortEnumerationFailed(error) => write!(f, "port enumeration failed: {error}"),
-            Self::PortOpenFailed(error) => write!(f, "port open failed: {error}"),
+            Self::PortOpenFailed { port, source } => {
+                if source.kind() == serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied) {
+                    write!(
+                        f,
+                        "Cannot open {port}. The port may already be in use by another application or you may not have permission to access it. Close other serial terminals using {port} and try again."
+                    )
+                } else {
+                    write!(f, "Cannot open {port}: {source}")
+                }
+            }
             Self::ReadFailed(error) => write!(f, "read failed: {error}"),
             Self::ReadAvailabilityFailed(error) => write!(f, "read availability failed: {error}"),
             Self::WriteFailed(error) => write!(f, "write failed: {error}"),
@@ -43,12 +60,55 @@ impl fmt::Display for Error {
 impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
-            Self::PortEnumerationFailed(error) | Self::PortOpenFailed(error) => Some(error),
+            Self::PortOpenFailed { source, .. } => Some(source),
+            Self::PortEnumerationFailed(error) => Some(error),
             Self::ReadAvailabilityFailed(error) => Some(error),
             Self::ReadFailed(error) | Self::WriteFailed(error) | Self::FlushFailed(error) => {
                 Some(error)
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn port_open_permission_denied_is_actionable() {
+        let kind = serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied);
+        let error = Error::PortOpenFailed {
+            port: "COM4".into(),
+            source: serialport::Error::new(kind, "denied by OS"),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Cannot open COM4. The port may already be in use by another application or you may not have permission to access it. Close other serial terminals using COM4 and try again."
+        );
+        let source = error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<serialport::Error>()
+            .unwrap();
+        assert_eq!(source.kind(), kind);
+        assert_eq!(source.to_string(), "denied by OS");
+    }
+
+    #[test]
+    fn port_open_other_error_preserves_detail() {
+        let kind = serialport::ErrorKind::NoDevice;
+        let error = Error::PortOpenFailed {
+            port: "COM4".into(),
+            source: serialport::Error::new(kind, "device not found"),
+        };
+
+        assert_eq!(error.to_string(), "Cannot open COM4: device not found");
+        let source = error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<serialport::Error>()
+            .unwrap();
+        assert_eq!(source.kind(), kind);
+        assert_eq!(source.to_string(), "device not found");
     }
 }

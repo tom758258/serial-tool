@@ -25,7 +25,10 @@ impl SerialTransport {
             .flow_control(settings.flow_control.to_serialport())
             .timeout(settings.timeout)
             .open()
-            .map_err(Error::PortOpenFailed)?;
+            .map_err(|source| Error::PortOpenFailed {
+                port: settings.port.clone().into_boxed_str(),
+                source,
+            })?;
         Ok(Self { port })
     }
 }
