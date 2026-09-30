@@ -121,8 +121,14 @@ export function rxTextFragments(entries: { direction: 'tx' | 'rx'; bytes: number
     : '')
 }
 
+export function continuousRxHex(entries: { direction: 'tx' | 'rx'; bytes: number[] }[]): string {
+  return entries.filter(entry => entry.direction === 'rx' && entry.bytes.length > 0)
+    .map(entry => hex(entry.bytes))
+    .join(' ')
+}
+
 export type Display = 'hex' | 'text' | 'both'
-export type TerminalDisplay = Display | 'stream'
+export type TerminalDisplay = Display | 'continuous-text' | 'continuous-hex'
 
 export function display(bytes: number[], mode: Display): string {
   if (mode === 'hex') return hex(bytes)
