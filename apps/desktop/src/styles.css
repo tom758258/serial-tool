@@ -67,7 +67,8 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .terminal-entry { display: flex; gap: .8rem; padding: .32rem .38rem; border-bottom: 1px solid var(--line); }
 .terminal-entry .direction { min-width: 2rem; font-weight: 750; font-size: .78rem; color: var(--accent); }
 .terminal-entry.tx .direction { color: #9a6b00; }
-.terminal-stream { display: block; }
+.terminal-continuous { display: block; }
+.terminal-continuous.continuous-hex { overflow-wrap: normal; }
 code { font-family: Consolas, "Cascadia Code", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .send-box { border-top: 1px solid var(--line); margin-top: .9rem; padding-top: .9rem; }
 .send-box textarea { width: 100%; min-height: 86px; }

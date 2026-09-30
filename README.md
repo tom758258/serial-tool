@@ -24,8 +24,8 @@ The Windows-first Desktop app uses Tauri 2 with React, TypeScript, and Vite.
 It uses Core's persistent runtime through a thin backend adapter. Its Terminal
 provides a persistent Live or Simulation connection, continuous RX, exact Text
 or Hex TX, periodic Auto TX from the Send payload or a raw file, Send File
-(Raw), Hex, Text, Both, or Stream RX display, and a Show TX control. Terminal
-history can be exported as a TX/RX hexadecimal text log, RX raw binary, or
+(Raw), Events (Hex / Text / Both) or Continuous RX (Text / Hex) display, and a
+Show TX control. Terminal history can be exported as a TX/RX hexadecimal text log, RX raw binary, or
 flattened TX+RX raw binary; the last Sequence result can be saved as JSON.
 The Sequence editor loads, saves, validates, and runs the six
 Core step types on the current connection. System, Light, and Dark themes are
@@ -43,7 +43,7 @@ npm ci
 npm run tauri -- dev
 ```
 
-For frontend checks, run `npm run typecheck` and `npm run build` from
+For frontend checks, run `npm test`, `npm run typecheck`, and `npm run build` from
 `apps/desktop`. See [Desktop documentation](docs/desktop/README.md) for usage,
 architecture, and backend checks.
 

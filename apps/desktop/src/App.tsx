@@ -4,7 +4,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
-import { defaultLine, display, freshSequence, hex, rxTextFragments, serialSettingDifferences } from './model'
+import { continuousRxHex, defaultLine, display, freshSequence, hex, rxTextFragments, serialSettingDifferences } from './model'
 import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent, TerminalDisplay } from './model'
 
 type Status = 'disconnected' | 'connecting' | 'connected' | 'running' | 'disconnecting' | 'error'
@@ -91,7 +91,9 @@ export default function App() {
   const autoTxPayloadReady = autoTxSource === 'file' ? Boolean(autoTxFilePath) : Boolean(txInput)
   const settingsLocked = connected || busy
   const hasRxBytes = history.some(entry => entry.direction === 'rx' && entry.bytes.length > 0)
-  const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'stream'), [history, rxDisplay])
+  const isContinuous = rxDisplay === 'continuous-text' || rxDisplay === 'continuous-hex'
+  const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'continuous-text'), [history, rxDisplay])
+  const rxHex = useMemo(() => rxDisplay === 'continuous-hex' ? continuousRxHex(history) : '', [history, rxDisplay])
   const nextThemePreference = nextTheme(theme)
   const nextThemeLabel = themeLabel(nextThemePreference)
 
@@ -419,9 +421,18 @@ export default function App() {
       <button className={tab === 'sequence' ? 'active' : ''} onClick={() => setTab('sequence')}>Sequence</button></nav>
 
     {tab === 'terminal' ? <section className="terminal panel">
-      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>RX Display <select value={rxDisplay} onChange={event => setRxDisplay(event.target.value as TerminalDisplay)}>
-        <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option><option value="stream">Stream</option></select></label>
-        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={rxDisplay === 'stream'} onChange={event => setShowTx(event.target.checked)} />Show TX</label>
+      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>Display Mode <select aria-label="Display Mode" value={rxDisplay} onChange={event => setRxDisplay(event.target.value as TerminalDisplay)}>
+        <optgroup label="TX/RX Events">
+          <option value="hex">Events · Hex</option>
+          <option value="text">Events · Text</option>
+          <option value="both">Events · Both</option>
+        </optgroup>
+        <optgroup label="Continuous RX">
+          <option value="continuous-text">Continuous RX · Text</option>
+          <option value="continuous-hex">Continuous RX · Hex</option>
+        </optgroup>
+      </select></label>
+        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={isContinuous} onChange={event => setShowTx(event.target.checked)} />Show TX</label>
         <button onClick={() => { setHistory([]); setExportOpen(false) }}>Clear View</button>
         <div className="export-menu-wrap">
           <button type="button" disabled={!history.length} aria-expanded={exportOpen} aria-controls="terminal-export-menu"
@@ -433,7 +444,7 @@ export default function App() {
           </div>
         </div></div></div>
       <div className="terminal-history" aria-live="polite">{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
-        {rxDisplay === 'stream' ? <code className="terminal-stream">{rxText.join('')}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
+        {isContinuous ? <code className={`terminal-continuous ${rxDisplay}`}>{rxDisplay === 'continuous-text' ? rxText.join('') : rxHex}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
           <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :
             rxDisplay === 'hex' ? hex(entry.bytes) :
               rxDisplay === 'text' ? rxText[index] : `${hex(entry.bytes)}  |  ${rxText[index]}`}</code></div>)}

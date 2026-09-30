@@ -54,7 +54,7 @@ Disconnect. Each interval starts after the preceding send completes; delayed
 sends are not replayed in a burst. Continuous RX remains active. Payload source,
 payload, format, Auto TX file, and interval are locked while Auto TX runs.
 Manual Send, Send File, and Run Sequence are disabled until it stops;
-Disconnect, RX display, and Clear View remain available. A connection error
+Disconnect, Display Mode, and Clear View remain available. A connection error
 stops Auto TX automatically. Start Auto TX requires a nonempty Text/Hex payload
 for Input or a selected file for File (Raw); the two sources are never combined
 and Core keeps other TX requests Busy while Auto TX runs.
@@ -76,19 +76,29 @@ excludes other TX and Sequence operations until it finishes. This first version
 reads the complete file into memory and has no progress, cancellation, chunk
 delay, XMODEM, or YMODEM support.
 
-The terminal keeps up to 5000 TX/RX entries in memory. RX display can be Hex,
-lossy UTF-8 Text with escaped controls, Both, or Stream; switching only rerenders
-stored bytes. Clear View only clears the on-screen history. It does not clear
-serial buffers or affect the device.
+The terminal keeps up to 5000 TX/RX entries in memory. Display Mode offers
+Events (Hex, lossy UTF-8 Text with escaped controls, or Both) and Continuous RX
+(Text or Hex). Switching modes only rerenders stored raw bytes; it never sends
+data, reconnects, changes the Send Text/Hex format, or changes the Auto TX
+payload. Events keep separate TX/RX rows; TX rows use their existing Hex format.
+Clear View only clears the on-screen history. It does not clear serial buffers
+or affect the device.
 
-Stream is RX-only presentation without direction badges or event rows. RX
-fragments concatenate without added line breaks; LF creates a newline and CR
-is omitted. Other control characters remain escaped. The existing streaming
-UTF-8 decoder is retained; this is not an ANSI/VT100 terminal emulator.
-Show TX defaults to On. Turning it Off hides TX rows in Hex, Text, and Both
-without affecting Send or stored history. The control is disabled in Stream;
-its preference applies again when returning to a log view. Sequence Result
-continues to offer only Hex, Text, and Both.
+Continuous RX Text retains the former Stream presentation: RX-only content
+without direction badges or event rows. RX fragments concatenate without
+event-boundary line breaks; LF creates a newline and CR is omitted. Other
+control characters remain escaped, and the streaming UTF-8 decoder handles
+characters split across RX events. This is not an ANSI/VT100 terminal emulator.
+Continuous RX Hex joins received bytes across event boundaries as two-digit
+uppercase hex pairs with exactly one space between bytes; empty RX events add
+no separator. CR, LF, NUL, and non-text bytes are displayed literally as hex.
+Neither Continuous RX mode includes TX events, event labels, or timestamps.
+
+Show TX defaults to On. Turning it Off hides TX rows in Events modes without
+affecting Send or stored history. The control is disabled in both Continuous RX
+modes without resetting its preference; the preference applies again upon
+returning to an Events mode. Sequence Result continues to offer only Hex, Text,
+and Both.
 
 Export writes a snapshot of the current Terminal history in one of three formats.
 Terminal Log (Hex) preserves the existing human-readable uppercase hex transcript,
@@ -98,7 +108,7 @@ bytes in history order to a `.bin` file. Raw exports contain no direction labels
 separators, line endings, event boundaries, timestamps, or other metadata. Their
 default filenames include the local export time as `YYYYMMDD_HHmmss`.
 
-RX display and Show TX only affect presentation and do not filter exports. RX Raw
+Display Mode and Show TX only affect presentation and do not filter exports. RX Raw
 is unavailable until at least one RX byte exists. Clear View clears the current
 Terminal history, so cleared data is no longer available for any export. Entries
 evicted by the 5000-entry history limit are likewise unavailable. Export is a
