@@ -79,6 +79,8 @@ export default function App() {
   const [lastRun, setLastRun] = useState<RunResult | null>(null)
   const [resultDisplay, setResultDisplay] = useState<Display>('hex')
   const terminalEnd = useRef<HTMLDivElement>(null)
+  const connectionOptionsWrap = useRef<HTMLDivElement>(null)
+  const connectionOptionsToggle = useRef<HTMLButtonElement>(null)
   const currentConnection = useRef(0)
 
   const connected = status === 'connected' || status === 'running'
@@ -124,6 +126,24 @@ export default function App() {
     const view = terminalEnd.current?.parentElement
     if (view) view.scrollTop = view.scrollHeight
   }, [history, tab, rxDisplay, showTx])
+
+  useEffect(() => {
+    if (!connectionOptionsOpen) return
+    const dismiss = (event: PointerEvent) => {
+      if (!connectionOptionsWrap.current?.contains(event.target as Node | null)) setConnectionOptionsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setConnectionOptionsOpen(false)
+      connectionOptionsToggle.current?.focus()
+    }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [connectionOptionsOpen])
 
   async function refreshPorts() {
     try {
@@ -347,8 +367,8 @@ export default function App() {
     <section className="connection panel">
       <div className="section-heading"><h2>Connection Setup</h2><div className="connection-header-actions">
         <span className={`status ${status}`}>{mode === 'live' ? 'Live' : 'Simulation'} · {statusLabels[status]}</span>
-        <div className="connection-options-wrap">
-          <button type="button" className="connection-options-toggle" title="Connection options" aria-label="Connection options"
+        <div className="connection-options-wrap" ref={connectionOptionsWrap}>
+          <button type="button" ref={connectionOptionsToggle} className="connection-options-toggle" title="Connection options" aria-label="Connection options"
             aria-expanded={connectionOptionsOpen} aria-controls="connection-options" onClick={() => setConnectionOptionsOpen(previous => !previous)}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="m9 3-.7 2.7-2 .9-2.5-.7-2 3.4 1.9 2v2.4l-1.9 2 2 3.4 2.5-.7 2 .9L9 22h4l.7-2.7 2-.9 2.5.7 2-3.4-1.9-2v-2.4l1.9-2-2-3.4-2.5.7-2-.9L13 3Z" />

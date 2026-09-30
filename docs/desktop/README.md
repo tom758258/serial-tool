@@ -35,8 +35,11 @@ Simulation, and the selected port is retained when switching modes. Set baud
 rate, data bits, parity, stop bits, flow control, and timeout, then Connect.
 Connection settings, including execution mode, are locked while connecting,
 connected, running, or disconnecting. The gear remains available to view the
-options. The header shows the current mode and connection status. The app
-automatically receives available bytes while connected.
+options; the panel closes on a second gear click, on a click outside it, or on
+Escape, which also returns focus to the gear. Closing the panel only hides it
+and never resets the selected mode. The header shows the current mode and
+connection status. The app automatically receives available bytes while
+connected.
 
 Send Text transmits the exact UTF-8 bytes entered without adding CR or LF.
 Send Hex accepts ASCII whitespace and case-insensitive pairs of hex digits.
