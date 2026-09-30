@@ -49,11 +49,17 @@ function themeLabel(theme: Theme): string {
   return theme[0].toUpperCase() + theme.slice(1)
 }
 
+function exportTimestamp(date = new Date()): string {
+  const pad = (value: number) => value.toString().padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+}
+
 export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [applicationVersion, setApplicationVersion] = useState<string | null>(null)
   const [mode, setMode] = useState<'live' | 'simulation'>('live')
   const [connectionOptionsOpen, setConnectionOptionsOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   const [settings, setSettings] = useState<ConnectionSettings>({ port: '', ...defaultLine })
   const [ports, setPorts] = useState<Port[]>([])
   const [status, setStatus] = useState<Status>('disconnected')
@@ -78,6 +84,7 @@ export default function App() {
   const txLocked = busy || autoTxRunning || txPending
   const canTransmit = status === 'connected' && !txLocked
   const settingsLocked = connected || busy
+  const hasRxBytes = history.some(entry => entry.direction === 'rx' && entry.bytes.length > 0)
   const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'stream'), [history, rxDisplay])
   const nextThemePreference = nextTheme(theme)
   const nextThemeLabel = themeLabel(nextThemePreference)
@@ -225,12 +232,34 @@ export default function App() {
     finally { setTxPending(false) }
   }
 
-  async function saveLog() {
+  async function exportTerminalLog() {
     const content = history.map(entry => `${entry.direction.toUpperCase()} ${hex(entry.bytes)}`).join('\n') + '\n'
+    const timestamp = exportTimestamp()
     try {
-      const path = await save({ defaultPath: 'terminal.log', filters: [{ name: 'Terminal Log', extensions: ['log'] }] })
+      const path = await save({
+        defaultPath: `terminal-log_${timestamp}.log`,
+        filters: [{ name: 'Terminal Log (Hex)', extensions: ['log'] }],
+      })
       if (!path) return
       await invoke('save_text_file', { path, content })
+      setNotice({ message: `Saved ${path}`, kind: 'success' })
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
+  }
+
+  async function exportRaw(kind: 'rx' | 'tx-rx') {
+    const bytes = history.flatMap(entry => kind === 'tx-rx' || entry.direction === 'rx' ? entry.bytes : [])
+    if (!bytes.length) return
+    const timestamp = exportTimestamp()
+    const defaultPath = kind === 'rx'
+      ? `terminal-rx_${timestamp}.bin`
+      : `terminal-tx-rx_${timestamp}.bin`
+    try {
+      const path = await save({
+        defaultPath,
+        filters: [{ name: 'Raw Binary', extensions: ['bin'] }],
+      })
+      if (!path) return
+      await invoke('save_binary_file', { path, bytes })
       setNotice({ message: `Saved ${path}`, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
@@ -357,8 +386,16 @@ export default function App() {
       <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>RX Display <select value={rxDisplay} onChange={event => setRxDisplay(event.target.value as TerminalDisplay)}>
         <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option><option value="stream">Stream</option></select></label>
         <label className="show-tx"><input type="checkbox" checked={showTx} disabled={rxDisplay === 'stream'} onChange={event => setShowTx(event.target.checked)} />Show TX</label>
-        <button onClick={() => setHistory([])}>Clear View</button>
-        <button disabled={!history.length} onClick={() => void saveLog()}>Save Log...</button></div></div>
+        <button onClick={() => { setHistory([]); setExportOpen(false) }}>Clear View</button>
+        <div className="export-menu-wrap">
+          <button type="button" disabled={!history.length} aria-expanded={exportOpen} aria-controls="terminal-export-menu"
+            onClick={() => setExportOpen(previous => !previous)}>Export ▼</button>
+          <div id="terminal-export-menu" className="export-menu" hidden={!exportOpen}>
+            <button type="button" onClick={() => { setExportOpen(false); void exportTerminalLog() }}>Terminal Log (Hex)...</button>
+            <button type="button" disabled={!hasRxBytes} onClick={() => { setExportOpen(false); void exportRaw('rx') }}>RX Raw (.bin)...</button>
+            <button type="button" onClick={() => { setExportOpen(false); void exportRaw('tx-rx') }}>TX + RX Raw (.bin)...</button>
+          </div>
+        </div></div></div>
       <div className="terminal-history" aria-live="polite">{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
         {rxDisplay === 'stream' ? <code className="terminal-stream">{rxText.join('')}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
           <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :

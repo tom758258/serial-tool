@@ -204,6 +204,15 @@ async fn save_text_file(path: String, content: String) -> Result<(), String> {
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn save_binary_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(path, bytes).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn send_bytes(input: String, format: &str) -> Result<Vec<u8>, String> {
     let bytes = match format {
         "text" => input.into_bytes(),
@@ -291,6 +300,7 @@ fn main() {
             stop_periodic_serial,
             send_serial_file,
             save_text_file,
+            save_binary_file,
             load_sequence,
             save_sequence,
             validate_sequence,

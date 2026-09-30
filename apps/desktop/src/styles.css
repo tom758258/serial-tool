@@ -54,6 +54,9 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .toolbar label, .section-heading label { flex-direction: row; align-items: center; gap: .6rem; white-space: nowrap; }
 .toolbar label select, .section-heading label select { width: auto; }
 .toolbar .show-tx input { width: auto; min-height: auto; margin: 0; }
+.export-menu-wrap { position: relative; }
+.export-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 210px; padding: .35rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.export-menu button { display: block; width: 100%; border: 0; text-align: left; background: transparent; }
 .terminal { display: flex; flex-direction: column; min-height: 500px; }
 .terminal .section-heading { margin-bottom: .7rem; }
 .terminal-history { flex: 1; min-height: 220px; max-height: 47vh; overflow: auto; border: 1px solid var(--line); background: var(--bg); padding: .55rem; border-radius: 6px; }
