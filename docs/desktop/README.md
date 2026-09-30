@@ -33,6 +33,8 @@ and USB metadata without opening them. Simulation uses deterministic loopback
 without opening a physical serial port. Port and Refresh ports are disabled in
 Simulation, and the selected port is retained when switching modes. Set baud
 rate, data bits, parity, stop bits, flow control, and timeout, then Connect.
+Numeric inputs hide the native up/down spinner while retaining number input
+semantics; select dropdowns remain unchanged.
 Connection settings, including execution mode, are locked while connecting,
 connected, running, or disconnecting. The gear remains available to view the
 options; the panel closes on a second gear click, on a click outside it, or on
@@ -112,13 +114,19 @@ Repeat. Select a step to edit its properties. New, Load, Save, Validate,
 Add Step, Add Child, Delete, Move Up, and Move Down are available. Drafts may
 be temporarily invalid while editing. Validate, Save, and Run all use Core's
 Sequence v1 parser and validation. A Sequence file stores line settings and
-steps, never a port or mode. Use Current Connection Settings copies line
-settings into the draft without reconnecting. Communication Requirements names
-these saved line settings; port and execution mode are still chosen at runtime.
+steps, never a port or mode. Required Serial Settings names these saved line
+settings; port and execution mode are selected separately at runtime. New copies
+current Connection Setup line settings into the draft; Load preserves those in
+the Sequence file. Copy from Connection Setup replaces the draft line settings
+without reconnecting or automatically changing the active connection.
 
-Run requires a connected session whose line settings exactly match the
-Sequence. It uses the existing Core `StepRunner` on that session. The last
-result, including completed steps, raw-byte transcript, and failure partial
+The editor shows Not connected, Settings match, or Settings mismatch (with each
+differing field and value). Run Sequence is disabled unless a connected session
+matches all six line settings; mismatch does not prevent editing, Validate, or
+saving an otherwise valid Sequence. Run still checks the same requirements in
+Core before any steps execute. It uses the existing Core `StepRunner` on that
+session. The last result, including completed steps, raw-byte transcript, and
+failure partial
 bytes when available, is held only in application memory. Save Result exports
 that complete result as JSON with its original byte arrays, regardless of RX
 display. Failed runs retain the failing step, error, completed results,

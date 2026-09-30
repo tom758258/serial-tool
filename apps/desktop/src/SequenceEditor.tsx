@@ -6,6 +6,8 @@ type Props = {
   onChange: (next: Sequence) => void
   connection: ConnectionSettings
   disabled: boolean
+  isConnected: boolean
+  serialDifferences: (keyof LineSettings)[]
   onNew: () => void
   onLoad: () => void
   onSave: () => void
@@ -16,6 +18,10 @@ type Props = {
 
 const kinds: Step['type'][] = ['send_text', 'send_bytes', 'wait', 'read', 'read_until', 'repeat']
 const label = (kind: Step['type']) => kind.replace('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+const serialFieldLabels: Record<keyof LineSettings, string> = {
+  baud_rate: 'Baud rate', data_bits: 'Data bits', parity: 'Parity',
+  stop_bits: 'Stop bits', flow_control: 'Flow control', timeout_ms: 'Timeout (ms)',
+}
 
 function atPath(steps: Step[], path: number[]): Step {
   let current = steps[path[0]]
@@ -64,7 +70,7 @@ function numeric(value: string): number {
 }
 
 export default function SequenceEditor(props: Props) {
-  const { draft, onChange, connection, disabled } = props
+  const { draft, onChange, connection, disabled, isConnected, serialDifferences } = props
   const [selected, setSelected] = useState<number[] | null>(null)
   const [addKind, setAddKind] = useState<Step['type']>('send_text')
   const step = selected ? (() => { try { return atPath(draft.steps, selected) } catch { return null } })() : null
@@ -139,13 +145,13 @@ export default function SequenceEditor(props: Props) {
       <button className="primary" disabled={!props.canRun || disabled} onClick={props.onRun}>Run Sequence</button>
     </div>
     <div className="sequence-serial panel">
-      <div className="section-heading"><h3>Communication Requirements</h3>
+      <div className="section-heading"><h3>Required Serial Settings</h3>
         <button disabled={disabled} onClick={() => edit(next => { next.serial = {
           baud_rate: connection.baud_rate, data_bits: connection.data_bits,
           parity: connection.parity, stop_bits: connection.stop_bits,
           flow_control: connection.flow_control, timeout_ms: connection.timeout_ms,
-        } })}>Use Current Connection Settings</button></div>
-      <p className="muted">Saved with this Sequence. Port and execution mode are selected at runtime.</p>
+        } })}>Copy from Connection Setup</button></div>
+      <p className="muted">Saved with this Sequence; these settings must match the active connection before running. Port and execution mode are selected separately in Connection Setup.</p>
       <div className="field-grid">
         <label>Baud rate<input disabled={disabled} type="number" value={draft.serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
         <label>Data bits<select disabled={disabled} value={draft.serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
@@ -153,6 +159,14 @@ export default function SequenceEditor(props: Props) {
         <label>Stop bits<select disabled={disabled} value={draft.serial.stop_bits} onChange={event => updateSerial('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
         <label>Flow control<select disabled={disabled} value={draft.serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
         <label>Timeout (ms)<input disabled={disabled} type="number" value={draft.serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
+      </div>
+      <div className="sequence-serial-status" role="status" aria-live="polite">
+        {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
+          : serialDifferences.length === 0 ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
+            : <div><span className="sequence-serial-mismatch">Settings mismatch with current connection:</span>
+              <ul className="sequence-serial-differences">{serialDifferences.map(field =>
+                <li key={field}>{serialFieldLabels[field]}: Sequence {String(draft.serial[field])} / Connection {String(connection[field])}</li>)}</ul>
+            </div>}
       </div>
     </div>
     <div className="editor-columns">

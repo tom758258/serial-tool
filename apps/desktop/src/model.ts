@@ -9,6 +9,11 @@ export type LineSettings = {
 
 export type ConnectionSettings = LineSettings & { port: string }
 
+export function serialSettingDifferences(required: LineSettings, current: LineSettings): (keyof LineSettings)[] {
+  const fields: (keyof LineSettings)[] = ['baud_rate', 'data_bits', 'parity', 'stop_bits', 'flow_control', 'timeout_ms']
+  return fields.filter(field => required[field] !== current[field])
+}
+
 export type Step =
   | { id: string; type: 'send_text'; text: string }
   | { id: string; type: 'send_bytes'; hex: string }

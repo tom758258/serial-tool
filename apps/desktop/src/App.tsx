@@ -4,7 +4,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
-import { defaultLine, display, freshSequence, hex, rxTextFragments } from './model'
+import { defaultLine, display, freshSequence, hex, rxTextFragments, serialSettingDifferences } from './model'
 import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent, TerminalDisplay } from './model'
 
 type Status = 'disconnected' | 'connecting' | 'connected' | 'running' | 'disconnecting' | 'error'
@@ -87,6 +87,7 @@ export default function App() {
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
   const txLocked = busy || autoTxRunning || txPending
   const canTransmit = status === 'connected' && !txLocked
+  const serialDifferences = serialSettingDifferences(draft.serial, settings)
   const autoTxPayloadReady = autoTxSource === 'file' ? Boolean(autoTxFilePath) : Boolean(txInput)
   const settingsLocked = connected || busy
   const hasRxBytes = history.some(entry => entry.direction === 'rx' && entry.bytes.length > 0)
@@ -340,7 +341,7 @@ export default function App() {
   }
 
   async function runSequence() {
-    if (!canTransmit) return
+    if (!canTransmit || serialDifferences.length !== 0) return
     setStatus('running')
     setNotice({ message: 'Running sequence…', kind: 'info' })
     setLastRun(null)
@@ -451,8 +452,9 @@ export default function App() {
             <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !autoTxPayloadReady))} onClick={() => void toggleAutoTx()}>{autoTxRunning ? 'Stop Auto TX' : 'Start Auto TX'}</button></div></div>
       </div>
     </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} disabled={status === 'running'}
+      isConnected={connected} serialDifferences={serialDifferences}
       onNew={() => setDraft(freshSequence(settings))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
-      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit} />
+      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && serialDifferences.length === 0} />
       <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>Save Result...</button><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
         <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div></div>
         {!lastRun ? <p className="muted">No sequence run in this session.</p> : <>
