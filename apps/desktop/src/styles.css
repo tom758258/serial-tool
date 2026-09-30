@@ -11,6 +11,10 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 650; }
 button.primary:hover:not(:disabled) { filter: brightness(1.09); background: var(--accent); }
 input, select { min-height: 34px; padding: .36rem .55rem; }
+/* Keep numeric input semantics while hiding the native up/down spinner. */
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 textarea { padding: .6rem; resize: vertical; min-height: 70px; }
 label { display: flex; flex-direction: column; gap: .28rem; color: var(--muted); font-size: .85rem; font-weight: 600; }
 label > input, label > select, label > textarea { width: 100%; color: var(--text); font-weight: 400; }
@@ -78,6 +82,10 @@ code { font-family: Consolas, "Cascadia Code", monospace; overflow-wrap: anywher
 .sequence-serial { margin-bottom: .75rem; }
 .sequence-serial .field-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .sequence-serial .section-heading { margin-bottom: .8rem; }
+.sequence-serial-status { margin-top: .75rem; font-size: .85rem; }
+.sequence-serial-match { color: var(--accent); font-weight: 700; }
+.sequence-serial-mismatch { color: var(--error); font-weight: 700; }
+.sequence-serial-differences { color: var(--text); margin: .35rem 0 0; padding-left: 1.4rem; }
 .editor-columns { display: grid; grid-template-columns: minmax(150px, .8fr) minmax(260px, 1.8fr) minmax(230px, 1.2fr); gap: .75rem; align-items: stretch; }
 .editor-columns > .panel { min-height: 300px; }
 .palette { display: flex; flex-direction: column; gap: .6rem; align-items: stretch; }
