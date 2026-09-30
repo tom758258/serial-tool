@@ -69,11 +69,22 @@ without affecting Send or stored history. The control is disabled in Stream;
 its preference applies again when returning to a log view. Sequence Result
 continues to offer only Hex, Text, and Both.
 
-Save Log writes a snapshot of the current raw history as canonical uppercase
-hex, one entry per line, for example `TX 00 FF` followed by `RX 00 FF`. RX display
-and Show TX do not filter the saved bytes. Clear View removes those entries
-from future saves. Save Log is disabled for empty history; this is a manual
-export, not a continuous capture writer.
+Export writes a snapshot of the current Terminal history in one of three formats.
+Terminal Log (Hex) preserves the existing human-readable uppercase hex transcript,
+one entry per line, for example `TX 00 FF` followed by `RX 00 FF`. RX Raw writes
+only received bytes to a `.bin` file. TX + RX Raw writes every TX and RX entry's
+bytes in history order to a `.bin` file. Raw exports contain no direction labels,
+separators, line endings, event boundaries, timestamps, or other metadata. Their
+default filenames include the local export time as `YYYYMMDD_HHmmss`.
+
+RX display and Show TX only affect presentation and do not filter exports. RX Raw
+is unavailable until at least one RX byte exists. Clear View clears the current
+Terminal history, so cleared data is no longer available for any export. Entries
+evicted by the 5000-entry history limit are likewise unavailable. Export is a
+manual snapshot, not a continuous capture writer. TX + RX Raw is a flattened byte
+history and is not a protocol/session replay format; bytes that originally came
+from the device are transmitted as TX if that file is later sent with Send File
+(Raw).
 
 ## Sequence
 

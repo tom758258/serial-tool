@@ -25,7 +25,8 @@ It uses Core's persistent runtime through a thin backend adapter. Its Terminal
 provides a persistent Live or Simulation connection, continuous RX, exact Text
 or Hex TX, periodic Auto TX with continuous RX, Send File (Raw), Hex, Text,
 Both, or Stream RX display, and a Show TX control. Terminal history can be
-manually saved as a raw hex log; the last Sequence result can be saved as JSON.
+exported as a TX/RX hexadecimal text log, RX raw binary, or flattened TX+RX raw
+binary; the last Sequence result can be saved as JSON.
 The Sequence editor loads, saves, validates, and runs the six
 Core step types on the current connection. System, Light, and Dark themes are
 available.
