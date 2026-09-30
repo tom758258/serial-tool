@@ -171,6 +171,23 @@ async fn start_periodic_serial(
 }
 
 #[tauri::command]
+async fn start_periodic_serial_file(
+    manager: State<'_, Arc<SessionManager>>,
+    path: String,
+    interval_ms: u64,
+) -> Result<(), String> {
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.start_periodic(
+            periodic_file_payload(&path)?,
+            Duration::from_millis(interval_ms),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn stop_periodic_serial(manager: State<'_, Arc<SessionManager>>) -> Result<(), String> {
     let manager = Arc::clone(&manager);
     tauri::async_runtime::spawn_blocking(move || manager.stop_periodic())
@@ -211,6 +228,15 @@ async fn save_binary_file(path: String, bytes: Vec<u8>) -> Result<(), String> {
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+// Reads the whole file once; the returned bytes are the Auto TX snapshot.
+fn periodic_file_payload(path: &str) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
+    if bytes.is_empty() {
+        return Err("Auto TX (File Raw): file must not be empty".into());
+    }
+    Ok(bytes)
 }
 
 fn send_bytes(input: String, format: &str) -> Result<Vec<u8>, String> {
@@ -297,6 +323,7 @@ fn main() {
             disconnect_serial,
             send_serial,
             start_periodic_serial,
+            start_periodic_serial_file,
             stop_periodic_serial,
             send_serial_file,
             save_text_file,

@@ -67,6 +67,8 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 code { font-family: Consolas, "Cascadia Code", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .send-box { border-top: 1px solid var(--line); margin-top: .9rem; padding-top: .9rem; }
 .send-box textarea { width: 100%; min-height: 86px; }
+.send-box .auto-tx-source { margin: .55rem 0; }
+.auto-tx-file { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
 .send-actions { margin-top: .55rem; flex-wrap: wrap; }
 .send-actions .toolbar { margin-left: auto; }
 .send-actions input { width: 100px; }

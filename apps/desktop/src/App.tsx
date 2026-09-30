@@ -68,6 +68,8 @@ export default function App() {
   const [txFormat, setTxFormat] = useState<'text' | 'hex'>('text')
   const [txInput, setTxInput] = useState('')
   const [autoTxRunning, setAutoTxRunning] = useState(false)
+  const [autoTxSource, setAutoTxSource] = useState<'input' | 'file'>('input')
+  const [autoTxFilePath, setAutoTxFilePath] = useState<string | null>(null)
   const [txPending, setTxPending] = useState(false)
   const [intervalMs, setIntervalMs] = useState('1000')
   const [rxDisplay, setRxDisplay] = useState<TerminalDisplay>('hex')
@@ -83,6 +85,7 @@ export default function App() {
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
   const txLocked = busy || autoTxRunning || txPending
   const canTransmit = status === 'connected' && !txLocked
+  const autoTxPayloadReady = autoTxSource === 'file' ? Boolean(autoTxFilePath) : Boolean(txInput)
   const settingsLocked = connected || busy
   const hasRxBytes = history.some(entry => entry.direction === 'rx' && entry.bytes.length > 0)
   const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'stream'), [history, rxDisplay])
@@ -210,6 +213,10 @@ export default function App() {
       if (autoTxRunning) {
         await invoke('stop_periodic_serial')
         setAutoTxRunning(false)
+      } else if (autoTxSource === 'file') {
+        if (!autoTxFilePath) return
+        await invoke('start_periodic_serial_file', { path: autoTxFilePath, intervalMs: interval })
+        if (connectionId === currentConnection.current) setAutoTxRunning(true)
       } else {
         await invoke('start_periodic_serial', { input: txInput, format: txFormat, intervalMs: interval })
         if (connectionId === currentConnection.current) setAutoTxRunning(true)
@@ -217,6 +224,14 @@ export default function App() {
       setNotice(null)
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
     finally { setTxPending(false) }
+  }
+
+  async function chooseAutoTxFile() {
+    if (txLocked) return
+    try {
+      const path = await open({ multiple: false, title: 'Auto TX File (Raw)' })
+      if (path && typeof path === 'string') setAutoTxFilePath(path)
+    } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function sendFile() {
@@ -404,11 +419,16 @@ export default function App() {
         <div ref={terminalEnd} /></div>
       <div className="send-box"><div className="section-heading"><h3>Send</h3><div className="segmented"><button disabled={txLocked} className={txFormat === 'text' ? 'active' : ''} onClick={() => setTxFormat('text')}>Text</button><button disabled={txLocked} className={txFormat === 'hex' ? 'active' : ''} onClick={() => setTxFormat('hex')}>Hex</button></div></div>
         <textarea aria-label="Send data" value={txInput} onChange={event => setTxInput(event.target.value)} placeholder={txFormat === 'hex' ? '4F 4B 0D 0A' : 'Exact UTF-8 text; no line ending added'} disabled={!connected || txLocked} />
+        <div className="toolbar auto-tx-source"><label>Auto TX Source <select aria-label="Auto TX source" disabled={txLocked} value={autoTxSource} onChange={event => setAutoTxSource(event.target.value as 'input' | 'file')}>
+          <option value="input">Input</option><option value="file">File (Raw)</option></select></label>
+          {autoTxSource === 'file' && <><button disabled={txLocked} onClick={() => void chooseAutoTxFile()}>Choose File...</button>
+            <span className="muted auto-tx-file">{autoTxFilePath ?? 'No file selected'}</span></>}
+        </div>
         <div className="send-actions"><span className="muted">{txFormat === 'text' ? 'Text sends exact UTF-8 bytes.' : 'Hex accepts digits and ASCII whitespace.'} Send File sends raw bytes unchanged.</span>
           <div className="toolbar"><label>Interval <input aria-label="Auto TX interval (ms)" type="number" min="1" step="1" disabled={!connected || txLocked} value={intervalMs} onChange={event => setIntervalMs(event.target.value)} /> ms</label>
             <button className="primary" disabled={!canTransmit || !txInput} onClick={() => void send()}>Send</button>
             <button disabled={!canTransmit} onClick={() => void sendFile()}>Send File (Raw)...</button>
-            <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !txInput))} onClick={() => void toggleAutoTx()}>{autoTxRunning ? 'Stop Auto TX' : 'Start Auto TX'}</button></div></div>
+            <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !autoTxPayloadReady))} onClick={() => void toggleAutoTx()}>{autoTxRunning ? 'Stop Auto TX' : 'Start Auto TX'}</button></div></div>
       </div>
     </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} disabled={status === 'running'}
       onNew={() => setDraft(freshSequence(settings))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}

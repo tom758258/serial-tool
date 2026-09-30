@@ -40,13 +40,29 @@ automatically receives available bytes while connected.
 
 Send Text transmits the exact UTF-8 bytes entered without adding CR or LF.
 Send Hex accepts ASCII whitespace and case-insensitive pairs of hex digits.
-Start Auto TX sends the current Text/Hex payload immediately, then repeats
-with the specified positive integer interval in milliseconds until Stop Auto TX
-or Disconnect. Each interval starts after the preceding send completes; delayed
-sends are not replayed in a burst. Continuous RX remains active. Payload, format,
-and interval are locked while Auto TX runs. Manual Send, Send File, and Run
-Sequence are disabled until it stops; Disconnect, RX display, and Clear View
-remain available. A connection error stops Auto TX automatically.
+Auto TX Source selects the Auto TX payload and defaults to Input. Input uses
+the Text/Hex payload; switching sources never clears the Send payload, because
+the same control also serves Manual Send.
+Start Auto TX sends the selected payload immediately, then repeats with the
+specified positive integer interval in milliseconds until Stop Auto TX or
+Disconnect. Each interval starts after the preceding send completes; delayed
+sends are not replayed in a burst. Continuous RX remains active. Payload source,
+payload, format, Auto TX file, and interval are locked while Auto TX runs.
+Manual Send, Send File, and Run Sequence are disabled until it stops;
+Disconnect, RX display, and Clear View remain available. A connection error
+stops Auto TX automatically. Start Auto TX requires a nonempty Text/Hex payload
+for Input or a selected file for File (Raw); the two sources are never combined
+and Core keeps other TX requests Busy while Auto TX runs.
+
+Auto TX Source File (Raw) selects any file without restricting its extension and
+records only its path. Start Auto TX then reads the whole file once in the Rust
+backend and transmits that fixed byte snapshot, so the bytes are the same as
+Send File (Raw): no UTF-8 conversion, newline conversion, or hex-text parsing.
+Empty files, missing files, and unreadable files are rejected with an error and
+do not start Auto TX or reserve the connection. Editing the file while Auto TX
+runs has no effect; Stop and Start reads it again. Stop does not interrupt a
+send that is already in progress. There is no chunking, progress display,
+playlist, per-cycle re-read, file-change monitoring, or mid-file cancellation.
 
 Send File (Raw) reads a selected file in the Rust backend and transmits its exact
 bytes. Empty files are rejected. There is no UTF-8 conversion, newline conversion,

@@ -312,6 +312,65 @@ mod tests {
     }
 
     #[test]
+    fn auto_tx_file_repeats_the_snapshot_until_restart() {
+        let (manager, events) = connect();
+        let path =
+            std::env::temp_dir().join(format!("serial-desktop-auto-tx-{}.bin", std::process::id()));
+        std::fs::write(&path, [0, 0x41, 0xff, 0x80, 0x0d, 0x0a]).unwrap();
+        let bytes = crate::periodic_file_payload(path.to_str().unwrap()).unwrap();
+        manager
+            .start_periodic(bytes.clone(), Duration::from_millis(40))
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(next_data(&events), ("tx", bytes.clone()));
+            assert_eq!(next_data(&events), ("rx", bytes.clone()));
+        }
+        // Rewriting the source mid-run must not change the payload.
+        std::fs::write(&path, b"changed").unwrap();
+        for _ in 0..2 {
+            assert_eq!(next_data(&events), ("tx", bytes.clone()));
+            assert_eq!(next_data(&events), ("rx", bytes.clone()));
+        }
+        manager.stop_periodic().unwrap();
+        while events.try_recv().is_ok() {}
+        // Restart re-reads the file.
+        let bytes = crate::periodic_file_payload(path.to_str().unwrap()).unwrap();
+        assert_eq!(bytes, b"changed".to_vec());
+        manager
+            .start_periodic(bytes.clone(), Duration::from_millis(40))
+            .unwrap();
+        assert_eq!(next_data(&events), ("tx", bytes));
+        manager.stop_periodic().unwrap();
+        let _ = std::fs::remove_file(&path);
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
+    fn auto_tx_file_rejects_empty_and_missing_files() {
+        let (manager, events) = connect();
+        let empty = std::env::temp_dir().join(format!(
+            "serial-desktop-auto-tx-empty-{}.bin",
+            std::process::id()
+        ));
+        std::fs::write(&empty, b"").unwrap();
+        assert!(
+            crate::periodic_file_payload(empty.to_str().unwrap())
+                .unwrap_err()
+                .contains("must not be empty")
+        );
+        let _ = std::fs::remove_file(&empty);
+        let missing = std::env::temp_dir().join(format!(
+            "serial-desktop-auto-tx-missing-{}.bin",
+            std::process::id()
+        ));
+        assert!(crate::periodic_file_payload(missing.to_str().unwrap()).is_err());
+        manager.send(vec![1]).unwrap();
+        assert_eq!(next_data(&events), ("tx", vec![1]));
+        assert_eq!(next_data(&events), ("rx", vec![1]));
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
     fn failed_sequence_json_retains_partial_bytes_and_completed_transcript() {
         let (manager, _events) = connect();
         let sequence = Sequence::from_json_str(r#"{
