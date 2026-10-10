@@ -587,7 +587,9 @@ fn send_file_file_errors_are_job_failures_and_cleanup_succeeds() {
     let empty = SendFileFixture::new(&[]);
     let missing = std::env::temp_dir().join(format!("missing-{}.bin", uuid::Uuid::new_v4()));
     let directory = std::env::temp_dir();
-    let mut paths = vec![missing, empty.0.clone(), directory];
+    let paths = vec![missing, empty.0.clone(), directory];
+    #[cfg(windows)]
+    let mut paths = paths;
     let locked_fixture = SendFileFixture::new(&[0xff]);
     #[cfg(windows)]
     let _locked_file = {
