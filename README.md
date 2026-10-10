@@ -215,7 +215,20 @@ closes the session without sending device-specific bytes. See the
 [Serial Worker contract](docs/contracts/serial-worker-contract.md) for requests,
 events, and lifecycle details.
 
-Worker commands are `send`, `receive`, `query`, and `run-sequence`.
+Worker commands are `send`, `send-file`, `receive`, `query`, and `run-sequence`.
+Submit raw files using `POST /command` with, for example:
+
+```json
+{"schema_version":2,"command":"send-file","arguments":{"path":"C:\\TestData\\payload.bin"},"job_id":"send-file-001"}
+```
+
+The path must be absolute and accessible on the Worker host. `send-file`
+streams raw bytes in chunks of up to 4 KiB and reports `file_bytes` and
+confirmed `bytes_written`, without payload hex. `/stop` cooperatively stops
+remaining chunks after current I/O returns; an already completed transfer
+remains successful. Simulation retains loopback bytes in memory, so prefer
+small files there. See the Worker contract for partial results and errors.
+
 `run-sequence` accepts an inline Sequence object whose line settings must
 match the Worker startup settings. See the
 [Serial Orchestrator workflow contract](docs/contracts/serial-orchestrator-workflows.md)

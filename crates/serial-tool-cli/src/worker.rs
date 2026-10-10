@@ -1,6 +1,8 @@
 use std::{
+    fs::File,
     io::{self, BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc},
     thread,
     time::{Duration, Instant},
@@ -92,14 +94,21 @@ impl State {
 
 enum Operation {
     Send(Vec<u8>),
+    SendFile(PathBuf),
     Receive(usize),
     Query(Vec<u8>, Vec<u8>, usize),
     RunSequence(Sequence),
 }
 
+#[derive(Debug)]
 enum WorkerOperationError {
     Serial(Error),
     Sequence(RunError),
+    SendFile {
+        error: &'static str,
+        message: String,
+        result: Value,
+    },
 }
 
 impl From<Error> for WorkerOperationError {
@@ -119,10 +128,16 @@ enum WorkerSession {
 }
 
 impl WorkerSession {
-    fn execute(&mut self, operation: Operation) -> Result<Value, WorkerOperationError> {
+    fn run_jobs(
+        self,
+        receiver: mpsc::Receiver<Job>,
+        state: Arc<Mutex<State>>,
+        output: Arc<Mutex<io::Stdout>>,
+        run_id: String,
+    ) {
         match self {
-            Self::Live(session) => execute(session, operation),
-            Self::Simulate(session) => execute(session, operation),
+            Self::Live(session) => run_jobs(session, receiver, state, output, run_id),
+            Self::Simulate(session) => run_jobs(session, receiver, state, output, run_id),
         }
     }
 }
@@ -130,6 +145,7 @@ impl WorkerSession {
 fn execute<T: Transport>(
     session: &mut SerialSession<T>,
     operation: Operation,
+    state: &Mutex<State>,
 ) -> Result<Value, WorkerOperationError> {
     match operation {
         Operation::Send(tx) => {
@@ -137,6 +153,7 @@ fn execute<T: Transport>(
             session.flush()?;
             Ok(json!({ "tx_hex": hex(&tx), "tx_bytes": tx.len() }))
         }
+        Operation::SendFile(path) => send_file(session, &path, state),
         Operation::Receive(limit) => {
             let mut rx = vec![0; limit];
             let count = session.read(&mut rx)?;
@@ -166,11 +183,100 @@ fn execute<T: Transport>(
     }
 }
 
+fn send_file_failure(
+    error: &'static str,
+    message: impl ToString,
+    result: &Value,
+) -> WorkerOperationError {
+    WorkerOperationError::SendFile {
+        error,
+        message: message.to_string(),
+        result: result.clone(),
+    }
+}
+
+fn send_file<T: Transport>(
+    session: &mut SerialSession<T>,
+    path: &Path,
+    state: &Mutex<State>,
+) -> Result<Value, WorkerOperationError> {
+    let mut result = json!({ "bytes_written": 0 });
+    if state.lock().unwrap().stopping {
+        return Err(send_file_failure(
+            "stopped_by_request",
+            "send-file stopped by request",
+            &result,
+        ));
+    }
+    let mut file =
+        File::open(path).map_err(|error| send_file_failure("file_error", error, &result))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| send_file_failure("file_error", error, &result))?;
+    if !metadata.is_file() {
+        return Err(send_file_failure(
+            "file_error",
+            "path must refer to a regular file",
+            &result,
+        ));
+    }
+    result["file_bytes"] = json!(metadata.len());
+    if metadata.len() == 0 {
+        return Err(send_file_failure(
+            "file_error",
+            "file must not be empty",
+            &result,
+        ));
+    }
+    send_file_chunks(session, &mut file, state, result)
+}
+
+fn send_file_chunks<T: Transport, R: Read>(
+    session: &mut SerialSession<T>,
+    file: &mut R,
+    state: &Mutex<State>,
+    mut result: Value,
+) -> Result<Value, WorkerOperationError> {
+    let mut buffer = [0; 4096];
+    let mut bytes_written = 0u64;
+    loop {
+        // Resolve EOF before stop so a completed final chunk remains successful.
+        let count = match file.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            read => read.map_err(|error| send_file_failure("file_error", error, &result))?,
+        };
+        if count == 0 {
+            return if bytes_written == 0 {
+                Err(send_file_failure(
+                    "file_error",
+                    "file must not be empty",
+                    &result,
+                ))
+            } else {
+                Ok(result)
+            };
+        }
+        if state.lock().unwrap().stopping {
+            return Err(send_file_failure(
+                "stopped_by_request",
+                "send-file stopped by request",
+                &result,
+            ));
+        }
+        session
+            .write_all(&buffer[..count])
+            .and_then(|()| session.flush())
+            .map_err(|error| send_file_failure("serial_error", error, &result))?;
+        bytes_written += count as u64;
+        result["bytes_written"] = json!(bytes_written);
+    }
+}
+
 fn event(name: &str, run_id: &str) -> Value {
     json!({ "event": name, "schema_version": 2, "run_id": run_id, "timestamp_utc": timestamp() })
 }
 
-fn emit(output: &Mutex<io::Stdout>, value: &Value) {
+fn emit<W: Write>(output: &Mutex<W>, value: &Value) {
     let mut stdout = output.lock().expect("stdout lock poisoned");
     writeln!(stdout, "{value}").expect("stdout write failed");
     stdout.flush().expect("stdout flush failed");
@@ -305,7 +411,7 @@ impl WorkerArgs {
         let runner_output = Arc::clone(&output);
         let runner_id = run_id.clone();
         let runner = thread::spawn(move || {
-            run_jobs(session, receiver, runner_state, runner_output, runner_id)
+            session.run_jobs(receiver, runner_state, runner_output, runner_id)
         });
         if let Err(error) = listener.set_nonblocking(true) {
             drop(sender);
@@ -383,18 +489,18 @@ impl WorkerArgs {
     }
 }
 
-fn run_jobs(
-    mut session: WorkerSession,
+fn run_jobs<T: Transport, W: Write>(
+    mut session: SerialSession<T>,
     receiver: mpsc::Receiver<Job>,
     state: Arc<Mutex<State>>,
-    output: Arc<Mutex<io::Stdout>>,
+    output: Arc<Mutex<W>>,
     run_id: String,
 ) {
     for job in receiver {
         let mut started = job_event("job_started", &run_id, &job.identity);
         started["status"] = json!("running");
         emit(&output, &started);
-        let result = session.execute(job.operation);
+        let result = execute(&mut session, job.operation, &state);
         let mut terminal = job_event(
             if result.is_ok() {
                 "job_finished"
@@ -420,6 +526,15 @@ fn run_jobs(
                             terminal["partial_hex"] = json!(hex(partial));
                             terminal["partial_bytes"] = json!(partial.len());
                         }
+                    }
+                    WorkerOperationError::SendFile {
+                        error,
+                        message,
+                        result,
+                    } => {
+                        terminal["error"] = json!(error);
+                        terminal["message"] = json!(message);
+                        terminal["result"] = result;
                     }
                     WorkerOperationError::Sequence(error) => {
                         terminal["error"] = json!("sequence_execution_error");
@@ -626,6 +741,25 @@ fn parse_command(
         "send" => {
             exact_keys(arguments, &["tx_hex"]).map_err(reject)?;
             Operation::Send(required_hex(arguments, "tx_hex").map_err(reject)?)
+        }
+        "send-file" => {
+            exact_keys(arguments, &["path"]).map_err(reject)?;
+            let value = arguments
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|path| !path.trim().is_empty() && !path.contains('\0'))
+                .ok_or_else(|| reject("path must be a non-empty string"))?;
+            let path = Path::new(value);
+            if !path.is_absolute() {
+                return Err(reject("path must be an absolute local file path"));
+            }
+            #[cfg(windows)]
+            if !matches!(path.components().next(), Some(std::path::Component::Prefix(prefix))
+                if matches!(prefix.kind(), std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)))
+            {
+                return Err(reject("path must be an absolute local file path"));
+            }
+            Operation::SendFile(path.to_owned())
         }
         "receive" => {
             exact_keys(arguments, &["max_bytes"]).map_err(reject)?;
@@ -834,5 +968,416 @@ mod tests {
         );
         assert!(receiver.try_recv().is_err());
         assert_eq!(state.lock().unwrap().accepted, 0);
+    }
+
+    struct SendFileFixture(PathBuf);
+
+    impl SendFileFixture {
+        fn new(size: usize) -> Self {
+            let path = std::env::temp_dir().join(format!("serial-worker-{}.bin", Uuid::new_v4()));
+            let mut file = File::create(&path).unwrap();
+            let buffer: [u8; 4096] = std::array::from_fn(|index| index as u8);
+            let mut remaining = size;
+            while remaining > 0 {
+                let count = remaining.min(buffer.len());
+                file.write_all(&buffer[..count]).unwrap();
+                remaining -= count;
+            }
+            Self(path)
+        }
+    }
+
+    impl Drop for SendFileFixture {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).unwrap();
+        }
+    }
+
+    struct SendFileGate {
+        call: usize,
+        on_flush: bool,
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    }
+
+    #[derive(Default)]
+    struct SendFileTransport {
+        written: usize,
+        writes: usize,
+        flushes: usize,
+        fail_write: Option<usize>,
+        fail_flush: Option<usize>,
+        gate: Option<SendFileGate>,
+        state: Option<Arc<Mutex<State>>>,
+        dropped: Option<Arc<std::sync::atomic::AtomicBool>>,
+    }
+
+    impl SendFileTransport {
+        fn gate(&self, call: usize, on_flush: bool) {
+            if let Some(state) = &self.state {
+                assert!(
+                    state.try_lock().is_ok(),
+                    "State mutex held during serial I/O"
+                );
+            }
+            if let Some(gate) = &self.gate
+                && gate.call == call
+                && gate.on_flush == on_flush
+            {
+                gate.entered.send(()).unwrap();
+                gate.release.recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+        }
+    }
+
+    impl Transport for SendFileTransport {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            panic!("send-file must not read the serial session")
+        }
+
+        fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+            self.writes += 1;
+            self.gate(self.writes, false);
+            assert!(!bytes.is_empty() && bytes.len() <= 4096);
+            for (index, byte) in bytes.iter().enumerate() {
+                assert_eq!(*byte, (self.written + index) as u8);
+            }
+            if self.fail_write == Some(self.writes) {
+                // An unconfirmed partial write must never enter bytes_written.
+                self.written += bytes.len() / 2;
+                return Err(io::Error::other("test write failure"));
+            }
+            self.written += bytes.len();
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            self.gate(self.flushes, true);
+            if self.fail_flush == Some(self.flushes) {
+                return Err(io::Error::other("test flush failure"));
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for SendFileTransport {
+        fn drop(&mut self) {
+            if let Some(dropped) = &self.dropped {
+                dropped.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[test]
+    fn send_file_chunks_and_large_file_use_bounded_transport() {
+        for size in [6, 4095, 4096, 4097, 12299, 8 * 1024 * 1024 + 17] {
+            let fixture = SendFileFixture::new(size);
+            let state = Arc::new(Mutex::new(State::new()));
+            let mut session = SerialSession::new(SendFileTransport {
+                state: Some(state.clone()),
+                written: 0,
+                writes: 0,
+                flushes: 0,
+                fail_write: None,
+                fail_flush: None,
+                gate: None,
+                dropped: None,
+            });
+            let result =
+                execute(&mut session, Operation::SendFile(fixture.0.clone()), &state).unwrap();
+            assert_eq!(result, json!({"file_bytes": size, "bytes_written": size}));
+            assert_eq!(session.transport().written, size);
+            assert_eq!(session.transport().writes, size.div_ceil(4096));
+            assert_eq!(session.transport().flushes, size.div_ceil(4096));
+        }
+    }
+
+    #[test]
+    fn send_file_serial_failures_count_only_flushed_chunks() {
+        let fixture = SendFileFixture::new(3 * 4096);
+        for (fail_write, fail_flush, expected) in [
+            (Some(1), None, 0),
+            (None, Some(1), 0),
+            (Some(2), None, 4096),
+            (None, Some(2), 4096),
+        ] {
+            let mut session = SerialSession::new(SendFileTransport {
+                fail_write,
+                fail_flush,
+                written: 0,
+                writes: 0,
+                flushes: 0,
+                gate: None,
+                state: None,
+                dropped: None,
+            });
+            let error = send_file(&mut session, &fixture.0, &Mutex::new(State::new())).unwrap_err();
+            let WorkerOperationError::SendFile {
+                error,
+                message,
+                result,
+            } = error
+            else {
+                panic!("expected send-file error");
+            };
+            assert_eq!(error, "serial_error");
+            assert!(message.contains("test"));
+            assert_eq!(
+                result,
+                json!({"file_bytes": 12288, "bytes_written": expected})
+            );
+            assert_eq!(
+                session.transport().writes,
+                if expected == 0 { 1 } else { 2 }
+            );
+        }
+    }
+
+    #[test]
+    fn send_file_read_failure_preserves_confirmed_bytes() {
+        struct FailingReader {
+            read_once: bool,
+            state: Arc<Mutex<State>>,
+        }
+        impl Read for FailingReader {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                assert!(
+                    self.state.try_lock().is_ok(),
+                    "State mutex held during file I/O"
+                );
+                if self.read_once {
+                    return Err(io::Error::other("test file read failure"));
+                }
+                self.read_once = true;
+                for (index, byte) in buffer.iter_mut().enumerate() {
+                    *byte = index as u8;
+                }
+                Ok(buffer.len())
+            }
+        }
+        let state = Arc::new(Mutex::new(State::new()));
+        let mut reader = FailingReader {
+            read_once: false,
+            state: state.clone(),
+        };
+        let mut session = SerialSession::new(SendFileTransport::default());
+        let error = send_file_chunks(
+            &mut session,
+            &mut reader,
+            &state,
+            json!({"file_bytes": 8192, "bytes_written": 0}),
+        )
+        .unwrap_err();
+        let WorkerOperationError::SendFile { error, result, .. } = error else {
+            panic!("expected file error");
+        };
+        assert_eq!(error, "file_error");
+        assert_eq!(result, json!({"file_bytes": 8192, "bytes_written": 4096}));
+        assert_eq!(session.transport().writes, 1);
+    }
+
+    fn send_file_http(
+        state: &Arc<Mutex<State>>,
+        sender: &mpsc::Sender<Job>,
+        path: &str,
+        body: Value,
+    ) -> (u16, Value) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let body = body.to_string();
+        write!(
+            client,
+            "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let output = Mutex::new(io::stdout());
+        let urls = json!({});
+        let settings = SerialSettings {
+            port: "simulation".into(),
+            baud_rate: 115200,
+            data_bits: DataBits::Eight,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+            flow_control: FlowControl::None,
+            timeout: Duration::from_millis(1000),
+        };
+        let serial_settings = settings_json(&settings);
+        handle_http(
+            &mut server,
+            &HttpContext {
+                state,
+                sender,
+                output: &output,
+                run_id: "send-file-run",
+                urls: &urls,
+                mode: "simulate",
+                serial_settings: &serial_settings,
+                settings: &settings,
+                port: None,
+            },
+        )
+        .unwrap();
+        drop(server);
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        let (head, body) = response.split_once("\r\n\r\n").unwrap();
+        (
+            head.split_whitespace().nth(1).unwrap().parse().unwrap(),
+            serde_json::from_str(body).unwrap(),
+        )
+    }
+
+    #[test]
+    fn send_file_http_stop_at_write_flush_and_completion_boundaries() {
+        for (size, call, on_flush, stopped) in [
+            (12288, 1, false, true),
+            (12288, 2, true, true),
+            (4096, 1, true, false),
+            (4097, 2, true, false),
+        ] {
+            let fixture = SendFileFixture::new(size);
+            let state = Arc::new(Mutex::new(State::new()));
+            let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+            let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel();
+            let session = SerialSession::new(SendFileTransport {
+                gate: Some(SendFileGate {
+                    call,
+                    on_flush,
+                    entered: entered_tx,
+                    release: release_rx,
+                }),
+                state: Some(state.clone()),
+                dropped: Some(dropped.clone()),
+                ..Default::default()
+            });
+            let (sender, receiver) = mpsc::channel();
+            let runner_state = state.clone();
+            let runner_output = output.clone();
+            let runner = thread::spawn(move || {
+                run_jobs(
+                    session,
+                    receiver,
+                    runner_state,
+                    runner_output,
+                    "send-file-run".into(),
+                )
+            });
+            let body = json!({"schema_version": 2, "command": "send-file", "arguments": {"path": fixture.0}, "job_id": "client-file"});
+            let (code, accepted) = send_file_http(&state, &sender, "/command", body.clone());
+            assert_eq!(code, 202);
+            entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            let (code, busy) = send_file_http(&state, &sender, "/command", body.clone());
+            assert_eq!(code, 409);
+            assert_eq!(busy["reason"], "busy");
+            let (code, response) = send_file_http(&state, &sender, "/stop", json!({}));
+            assert_eq!(code, 200);
+            assert_eq!(response["status"], "stopping");
+            let (code, response) = send_file_http(&state, &sender, "/stop", json!({}));
+            assert_eq!(code, 200);
+            assert_eq!(response["status"], "stopping");
+            let (code, rejected) = send_file_http(&state, &sender, "/command", body);
+            assert_eq!(code, 409);
+            assert_eq!(rejected["reason"], "stopping");
+            assert!(!runner.is_finished());
+            release_tx.send(()).unwrap();
+            drop(sender);
+            runner.join().unwrap();
+            assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
+            let current = state.lock().unwrap();
+            assert!(current.active.is_none());
+            assert_eq!(current.accepted, 1);
+            assert_eq!(current.failed, u64::from(stopped));
+            assert_eq!(current.succeeded, u64::from(!stopped));
+            emit(&output, &summary("send-file-run", &current, true));
+            let bytes = output.lock().unwrap();
+            let events: Vec<Value> = std::str::from_utf8(&bytes)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events[0]["event"], "job_started");
+            let terminal = &events[1];
+            assert_eq!(terminal, current.last_job.as_ref().unwrap());
+            assert_eq!(terminal["worker_job_id"], accepted["worker_job_id"]);
+            assert_eq!(terminal["job_id"], "client-file");
+            assert_eq!(terminal["run_id"], "send-file-run");
+            assert_eq!(terminal["schema_version"], 2);
+            assert_eq!(
+                terminal["event"],
+                if stopped {
+                    "job_failed"
+                } else {
+                    "job_finished"
+                }
+            );
+            assert_eq!(
+                terminal["result"],
+                json!({"file_bytes": size, "bytes_written": if stopped {call * 4096} else {size}})
+            );
+            if stopped {
+                assert_eq!(terminal["error"], "stopped_by_request");
+                assert_eq!(terminal["exit_code"], 3);
+            }
+            assert_eq!(events[2]["event"], "summary");
+            assert_eq!(events[2]["ok"], true);
+            assert_eq!(events[2]["exit_code"], 0);
+            assert!(terminal.get("tx_hex").is_none());
+        }
+    }
+
+    #[test]
+    fn send_file_stop_before_runner_starts_emits_one_failure() {
+        let fixture = SendFileFixture::new(4097);
+        let state = Arc::new(Mutex::new(State::new()));
+        let (sender, receiver) = mpsc::channel();
+        let body =
+            json!({"schema_version": 2, "command": "send-file", "arguments": {"path": fixture.0}});
+        assert_eq!(send_file_http(&state, &sender, "/command", body).0, 202);
+        assert_eq!(send_file_http(&state, &sender, "/stop", json!({})).0, 200);
+        drop(sender);
+        let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+        // Failing the first write would expose any I/O after this stop.
+        let session = SerialSession::new(SendFileTransport {
+            fail_write: Some(1),
+            fail_flush: None,
+            written: 0,
+            writes: 0,
+            flushes: 0,
+            gate: None,
+            state: None,
+            dropped: None,
+        });
+        run_jobs(
+            session,
+            receiver,
+            state.clone(),
+            output.clone(),
+            "send-file-run".into(),
+        );
+        let current = state.lock().unwrap();
+        assert_eq!(current.failed, 1);
+        assert_eq!(current.succeeded, 0);
+        let terminal = current.last_job.as_ref().unwrap();
+        assert_eq!(terminal["event"], "job_failed");
+        assert_eq!(terminal["error"], "stopped_by_request");
+        assert_eq!(terminal["result"], json!({"bytes_written": 0}));
+        assert_eq!(
+            output
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count(),
+            2
+        );
     }
 }

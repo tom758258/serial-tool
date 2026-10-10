@@ -1,6 +1,8 @@
 use std::{
+    fs::File,
     io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
+    path::PathBuf,
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
@@ -456,5 +458,191 @@ fn active_sequence_is_busy_and_stop_waits_for_completion() {
             break;
         }
     }
+    assert_eq!(child.wait().unwrap().code(), Some(0));
+}
+
+struct SendFileFixture(PathBuf);
+
+impl SendFileFixture {
+    fn new(bytes: &[u8]) -> Self {
+        let path =
+            std::env::temp_dir().join(format!("serial-worker-{}.data", uuid::Uuid::new_v4()));
+        File::create(&path).unwrap().write_all(bytes).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for SendFileFixture {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.0).unwrap();
+    }
+}
+
+fn send_file_request(path: &std::path::Path) -> Value {
+    json!({"schema_version": 2, "command": "send-file", "arguments": {"path": path}, "job_id": "file-client"})
+}
+
+#[test]
+fn send_file_request_validation_does_not_admit_invalid_jobs() {
+    let (mut child, receiver, ready) = spawn();
+    let url = ready["command_url"].as_str().unwrap();
+    let fixture = SendFileFixture::new(&[0x55]);
+    for arguments in [
+        json!({}),
+        json!({"path": null}),
+        json!({"path": 42}),
+        json!({"path": true}),
+        json!({"path": []}),
+        json!({"path": {}}),
+        json!({"path": ""}),
+        json!({"path": " \t "}),
+        json!({"path": "payload.bin"}),
+        json!({"path": "C:payload.bin"}),
+        json!({"path": fixture.0, "extra": 1}),
+    ] {
+        let body = json!({"schema_version": 2, "command": "send-file", "arguments": arguments});
+        let (code, response) = request(url, "POST", &body.to_string());
+        assert_eq!(code, 400, "{body}");
+        assert_eq!(response["error"], "validation_error");
+    }
+    #[cfg(windows)]
+    for path in [
+        r"\\server\share\payload.bin",
+        r"\\?\UNC\server\share\payload.bin",
+        r"\\.\COM4",
+    ] {
+        assert_eq!(
+            request(
+                url,
+                "POST",
+                &send_file_request(std::path::Path::new(path)).to_string()
+            )
+            .0,
+            400
+        );
+    }
+    let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(status["active_job"], Value::Null);
+    assert_eq!(status["last_job"], Value::Null);
+    assert!(receiver.try_recv().is_err());
+    let (code, accepted) = request(url, "POST", &send_file_request(&fixture.0).to_string());
+    assert_eq!(code, 202);
+    assert_eq!(accepted["worker_job_id"], "job-1");
+    assert_eq!(accepted["job_id"], "file-client");
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["event"],
+        "job_finished"
+    );
+    stop(&mut child, &receiver, &ready, "");
+}
+
+#[test]
+fn send_file_raw_binary_chunk_boundaries_and_success_result() {
+    let (mut child, receiver, ready) = spawn();
+    let url = ready["command_url"].as_str().unwrap();
+    let run_id = ready["run_id"].as_str().unwrap();
+    for size in [6, 4095, 4096, 4097, 12299] {
+        let bytes: Vec<u8> = (0..size)
+            .map(|index| [0x00, 0xff, 0x0d, 0x0a, 0x80, 0xc0][index % 6])
+            .collect();
+        let fixture = SendFileFixture::new(&bytes);
+        let (code, accepted) = request(url, "POST", &send_file_request(&fixture.0).to_string());
+        assert_eq!(code, 202);
+        let terminal = wait_terminal(&receiver, run_id);
+        assert_eq!(terminal["event"], "job_finished");
+        assert_eq!(terminal["worker_job_id"], accepted["worker_job_id"]);
+        assert_eq!(terminal["job_id"], "file-client");
+        assert_eq!(
+            terminal["result"],
+            json!({"file_bytes": size, "bytes_written": size})
+        );
+        assert!(terminal.to_string().len() < 512);
+        assert!(terminal.get("tx_hex").is_none());
+        let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+        assert_eq!(status["last_job"], terminal);
+        assert_eq!(status["status"], "ready");
+        let mut received = Vec::new();
+        while received.len() < size {
+            let (code, _) = request(url, "POST", &json!({"schema_version": 2, "command": "receive", "arguments": {"max_bytes": size - received.len()}}).to_string());
+            assert_eq!(code, 202);
+            let terminal = wait_terminal(&receiver, run_id);
+            assert_eq!(terminal["event"], "job_finished");
+            let hex = terminal["result"]["rx_hex"].as_str().unwrap();
+            received.extend(
+                hex.as_bytes().as_chunks::<2>().0.iter().map(|pair| {
+                    u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()
+                }),
+            );
+        }
+        assert_eq!(received, bytes);
+    }
+    stop(&mut child, &receiver, &ready, "{}");
+}
+
+#[test]
+fn send_file_file_errors_are_job_failures_and_cleanup_succeeds() {
+    let (mut child, receiver, ready) = spawn();
+    let url = ready["command_url"].as_str().unwrap();
+    let run_id = ready["run_id"].as_str().unwrap();
+    let empty = SendFileFixture::new(&[]);
+    let missing = std::env::temp_dir().join(format!("missing-{}.bin", uuid::Uuid::new_v4()));
+    let directory = std::env::temp_dir();
+    let mut paths = vec![missing, empty.0.clone(), directory];
+    let locked_fixture = SendFileFixture::new(&[0xff]);
+    #[cfg(windows)]
+    let _locked_file = {
+        use std::os::windows::fs::OpenOptionsExt;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&locked_fixture.0)
+            .unwrap();
+        paths.push(locked_fixture.0.clone());
+        file
+    };
+    #[cfg(not(windows))]
+    let _ = &locked_fixture;
+    for path in &paths {
+        let (code, accepted) = request(url, "POST", &send_file_request(path).to_string());
+        assert_eq!(code, 202);
+        let terminal = wait_terminal(&receiver, run_id);
+        assert_eq!(terminal["event"], "job_failed");
+        assert_eq!(terminal["worker_job_id"], accepted["worker_job_id"]);
+        assert_eq!(terminal["error"], "file_error");
+        assert_eq!(terminal["exit_code"], 3);
+        assert_eq!(terminal["result"]["bytes_written"], 0);
+        if path == &empty.0 {
+            assert_eq!(terminal["result"]["file_bytes"], 0);
+        } else {
+            assert!(terminal["result"].get("file_bytes").is_none());
+        }
+        let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+        assert_eq!(status["last_job"], terminal);
+        assert_eq!(status["status"], "ready");
+        assert!(child.try_wait().unwrap().is_none());
+    }
+    let fixture = SendFileFixture::new(&[0x55]);
+    assert_eq!(
+        request(url, "POST", &send_file_request(&fixture.0).to_string()).0,
+        202
+    );
+    assert_eq!(wait_terminal(&receiver, run_id)["event"], "job_finished");
+    let (code, response) = request(ready["stop_url"].as_str().unwrap(), "POST", "");
+    assert_eq!(code, 200);
+    assert_eq!(response["status"], "stopping");
+    let mut summaries = 0;
+    while let Ok(event) = receiver.recv_timeout(Duration::from_secs(5)) {
+        assert_ne!(event["event"], "job_finished");
+        assert_ne!(event["event"], "job_failed");
+        if event["event"] == "summary" {
+            summaries += 1;
+            assert_eq!(event["ok"], true);
+            assert_eq!(event["exit_code"], 0);
+            assert_eq!(event["accepted"], paths.len() + 1);
+            assert_eq!(event["failed"], paths.len());
+            assert_eq!(event["succeeded"], 1);
+        }
+    }
+    assert_eq!(summaries, 1);
     assert_eq!(child.wait().unwrap().code(), Some(0));
 }

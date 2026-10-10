@@ -47,12 +47,13 @@ event; there is no persistent history.
 forbidden. `schema_version` must be the exact JSON integer `2`; `command` must
 be a non-empty string; `arguments` may be omitted or must be an object; and
 `job_id`, when present, must be a string. Commands cannot override startup
-context. Machine arguments use raw bytes encoded as hex. ASCII whitespace in
+context. Inline byte arguments use raw bytes encoded as hex. ASCII whitespace in
 hex is ignored; an empty value, odd digit count, or non-hex digit is rejected.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `send` | required `tx_hex` string | `tx_hex`, `tx_bytes` |
+| `send-file` | required absolute local `path` string | `file_bytes`, `bytes_written` |
 | `receive` | optional `max_bytes` integer | `rx_hex`, `rx_bytes` |
 | `query` | required `tx_hex`, `delimiter_hex` strings; optional `max_bytes` integer | `tx_hex`, `tx_bytes`, `rx_hex`, `rx_bytes`, `delimiter_hex` |
 | `run-sequence` | required `sequence` inline Sequence v1 JSON object | `sequence_version`, `step_results`, `transcript` |
@@ -98,14 +99,106 @@ For `run-sequence`, the same runner thread executes the existing Core
 leaves the Worker ready for another command. The single active slot and busy
 rejection apply to `run-sequence` and all other commands alike.
 
+## Raw binary file sending
+
+Submit a Worker-local path through the existing `POST /command` envelope:
+
+```json
+{
+  "schema_version": 2,
+  "command": "send-file",
+  "arguments": { "path": "C:\\TestData\\payload.bin" },
+  "job_id": "send-file-001"
+}
+```
+
+`arguments` accepts only `path`, a nonempty, non-whitespace string containing
+an absolute local file path. Relative paths, wrong types, embedded NULs, and
+unknown fields return HTTP `400` without creating a job. On Windows, drive
+paths (including verbatim drive paths) are accepted; UNC shares and device
+namespace paths are rejected. The file must exist on the Worker host and be
+accessible under the Worker's operating-system permissions. There is no
+upload endpoint, path expansion, or file snapshot. Do not modify the file
+while sending; a local path is not an access-control sandbox or a guarantee
+that a mapped drive or symbolic link points to local storage.
+
+Syntactically valid paths return HTTP `202`. Only the runner opens the file,
+checks metadata and reads it; nonexistent, inaccessible, non-regular, empty,
+or unreadable files fail as `job_failed` with `error: "file_error"`.
+Every extension is raw binary: no decoding, hex conversion, line-ending
+conversion, or appended bytes occur. The runner uses one fixed 4 KiB buffer,
+reads chunks of up to 4096 bytes until EOF, and calls the existing Core
+`SerialSession.write_all()` followed by `flush()` for each chunk. It owns the
+session exclusively and never holds the State mutex during file or serial
+I/O. There are no progress events, retransmissions, retries, or delivery
+acknowledgments. The 16 MiB HTTP body limit is unchanged.
+
+Success is one `job_finished` event with `ok: true` and, for example:
+
+```json
+{ "file_bytes": 20971520, "bytes_written": 20971520 }
+```
+
+`file_bytes` is the regular file's size from the initial opened-file metadata,
+not a snapshot or a promised transfer length. Reads continue to EOF; changes
+or truncation during transmission may make `bytes_written` differ from
+`file_bytes`. `bytes_written` counts only chunks whose entire Write and Flush
+both succeeded. It confirms Worker-side completion, not device receipt or
+processing. A failed Write or Flush may have sent some bytes, but no bytes
+from that unconfirmed chunk enter the count.
+
+Failures use the existing `job_failed` envelope with `ok: false`,
+`exit_code: 3`, `error`, `message`, and `result`. Its `result` always contains
+`bytes_written` and includes `file_bytes` only after regular-file metadata
+was obtained. For example, a stop after one confirmed chunk may report:
+
+```json
+{
+  "error": "stopped_by_request",
+  "message": "send-file stopped by request",
+  "result": { "file_bytes": 20971520, "bytes_written": 4096 }
+}
+```
+
+| Outcome | Terminal event | Error |
+| --- | --- | --- |
+| EOF after all read chunks were written and flushed | `job_finished` | none |
+| Stop before sending or before a remaining chunk | `job_failed` | `stopped_by_request` |
+| File open, metadata, empty-file, or read failure | `job_failed` | `file_error` |
+| Serial Write or Flush failure | `job_failed` | `serial_error` |
+
+Results, status, and JSONL never contain the file payload or a complete
+`tx_hex`. The transfer buffer and counters have bounded memory usage. The
+existing `loopback-v1` SimulationTransport still captures TX and retains
+pending RX in memory; its storage grows with bytes sent. Use small simulation
+files for loopback checks. Large-file validation uses a bounded test transport
+that checks byte order without accumulating TX or RX. Live transmission does
+not retain the complete payload.
+
 `POST /stop` accepts an empty body or empty JSON object and returns a
 structured `stopping` response. Repeated calls succeed while the endpoint is
-reachable. New commands are rejected. An active command is allowed to finish
-or time out before the runner and control plane close. The session is then
+reachable. New commands are rejected. An active `send`, `receive`, `query`,
+or `run-sequence` is allowed to finish or time out before the runner and
+control plane close. The session is then
 dropped and a final summary is emitted. Stop performs no device-specific
 command, reset, RX clear, or output-off action. Normal stop exits `0`.
 `/stop` does not interrupt an active Sequence; it waits for the currently
 admitted job to terminate under existing StepRunner/Serial timeout semantics.
+
+For `send-file`, stop is cooperative: it is checked before file access and at
+each chunk boundary before Write. Already started file/serial I/O is allowed
+to return; stop cannot forcibly interrupt a blocking read, Write, or Flush.
+After the current chunk completes, the runner reads the next chunk to resolve
+EOF before checking stop. No remaining chunk is sent once stop is observed.
+EOF after a successful final Flush remains `job_finished`, even if stop
+arrived during that Flush; this also applies to exact multiples of 4096
+bytes. A remaining chunk instead produces `stopped_by_request` with confirmed
+partial bytes. An actual I/O error remains `file_error` or `serial_error`,
+even when stop is also pending. Each admitted job emits exactly one terminal
+event. Stopped or failed file jobs count as ordinary job failures; successful
+Worker cleanup still emits a normal summary and exits `0`. Common schema v2,
+Common event types, identities, and the other commands' stop behavior remain
+unchanged.
 
 ## Runtime JSONL
 
