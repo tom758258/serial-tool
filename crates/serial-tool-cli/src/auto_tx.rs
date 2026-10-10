@@ -195,10 +195,9 @@ mod tests {
                         if direction == Direction::Tx
                             && data.is_empty()
                             && let Some(path) = file
+                            && std::fs::write(path, b"changed").is_err()
                         {
-                            if std::fs::write(path, b"changed").is_err() {
-                                break;
-                            }
+                            break;
                         }
                         if direction == Direction::Rx {
                             rx_count += 1;
