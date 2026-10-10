@@ -6,7 +6,7 @@ targets Windows first, and keeps its Core portable where practical.
 The root workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
 settings, port discovery, raw byte transport, deterministic simulation,
 session RX buffering, and a shared persistent runtime with one I/O owner and
-continuous RX. Desktop and the interactive terminal use this runtime.
+continuous RX. Desktop, the interactive terminal, and CLI Auto TX use this runtime.
 The `serial-tool` CLI provides engineering commands and machine-readable output
 through Core, including a persistent Serial Worker.
 
@@ -70,13 +70,20 @@ serial-tool list-ports
 serial-tool list-ports --json
 serial-tool send --port COM4 --baud 115200 --text "STATUS?"
 serial-tool send --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A"
+serial-tool send --port COM4 --baud 115200 --file payload.bin
+serial-tool send --port COM4 --baud 115200 --file payload.bin --dry-run --json
 serial-tool receive --port COM4 --baud 115200 --max-bytes 256
 serial-tool query --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A" --until-hex "0D 0A" --max-bytes 1024
 serial-tool query --port COM4 --baud 115200 --text "STATUS?" --until-text "OK" --max-bytes 1024 --dry-run --json
 ```
 
-`send` and `query` require exactly one of `--text` or `--hex`; `query` also
-requires exactly one of `--until-text` or `--until-hex`. Text uses UTF-8 bytes
+`send` requires exactly one of `--text`, `--hex`, or `--file`. File input reads
+the entire nonempty file as raw bytes, without decoding, hex parsing, or line
+ending conversion. Missing or unreadable files are input errors (exit 2).
+Dry-run reads and validates the file without opening a port. File input uses
+the same TX machine fields as text and hex input.
+`query` requires exactly one of `--text` or `--hex` and exactly one of
+`--until-text` or `--until-hex`; it does not accept `--file`. Text uses UTF-8 bytes
 exactly as supplied and does not append CR or LF. Use hex for explicit control
 bytes. Raw bytes are authoritative; machine output represents them as lowercase
 hex without separators.
@@ -106,7 +113,7 @@ serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopb
 ```
 
 It accepts the same serial line settings as the one-shot commands, plus
-`--rx-display hex|text|both|stream` (default `hex`), `--tx-display hex|off`
+`--rx-display hex|text|both|stream|hex-stream` (default `hex`), `--tx-display hex|off`
 (default `hex`), `--tx-format text|hex` (default `text`), and
 `--line-ending none|lf|crlf` (default `none`). Enter submits a line;
 its stdin CR/LF is removed before applying the requested text line ending.
@@ -127,6 +134,40 @@ presentation; bytes are still sent. For an RX-only capture, use:
 ```sh
 serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display stream --tx-display off > rx.txt
 ```
+
+Hex Stream presents every RX byte as two uppercase hex digits, separated by
+exactly one space across events, with no prefix, trailing space, or newline.
+For example, events `AA 55` and `0D 0A` produce `AA 55 0D 0A`. It flushes each
+RX event and routes lifecycle messages and TX logs to stderr, like Stream:
+
+```sh
+serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display hex-stream --tx-display off > rx.hex
+```
+
+## CLI Auto TX
+
+`auto-tx` keeps one Live or Simulation connection open, sends a fixed payload
+periodically, and continues receiving RX until Ctrl+C:
+
+```sh
+serial-tool auto-tx --mode live --port COM4 --baud 115200 --text "STATUS?" --interval-ms 1000
+serial-tool auto-tx --mode live --port COM4 --baud 115200 --hex "AA 55" --interval-ms 500
+serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --file payload.bin --interval-ms 1000
+```
+
+Live requires `--port` and forbids `--simulation-profile-id`; Simulation
+requires `--simulation-profile-id loopback-v1` and forbids `--port`. The command
+accepts Terminal's serial settings, `--rx-display`, and `--tx-display` options.
+Exactly one of `--text`, `--hex`, or `--file` is required; payloads must be
+nonempty. Text and hex use the same exact-byte rules as `send`. File input is
+read once before connecting; changes to the file do not affect the running
+payload. `--interval-ms` is a required positive integer in milliseconds.
+
+Core's persistent runtime sends the first payload immediately and measures each
+subsequent interval from completion of the previous send and flush. It does
+not catch up missed intervals. Ctrl+C stops periodic TX and disconnects;
+connection or serial I/O failures exit 3 and release the connection. There is
+no stdin interaction, dry-run, or JSON/JSONL contract for `auto-tx`.
 
 ## Sequences
 

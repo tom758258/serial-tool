@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use chrono::{SecondsFormat, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -8,6 +8,7 @@ use serial_tool_core::{
     SequenceError, SerialSession, SerialSettings, SerialTransport, StopBits, Transport, list_ports,
 };
 
+mod auto_tx;
 mod sequence;
 mod sequence_result;
 mod terminal;
@@ -40,6 +41,8 @@ enum Command {
     Worker(WorkerArgs),
     /// Open a persistent human-interactive serial terminal.
     Terminal(terminal::TerminalArgs),
+    /// Repeatedly send a payload while continuously receiving until Ctrl+C.
+    AutoTx(auto_tx::AutoTxArgs),
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, Default)]
@@ -153,6 +156,34 @@ impl TxArgs {
 }
 
 #[derive(Debug, Args)]
+#[group(id = "payload", required = true, multiple = false, args = ["text", "hex", "file"])]
+struct PayloadArgs {
+    #[arg(long)]
+    text: Option<String>,
+    #[arg(long)]
+    hex: Option<String>,
+    #[arg(long, help = "Read raw bytes from a nonempty file")]
+    file: Option<PathBuf>,
+}
+
+impl PayloadArgs {
+    fn bytes(&self) -> Result<Vec<u8>, CliError> {
+        if let Some(path) = &self.file {
+            let bytes = std::fs::read(path).map_err(|error| CliError::FileInput {
+                path: path.clone(),
+                error,
+            })?;
+            if bytes.is_empty() {
+                return Err(CliError::Input("file input must not be empty"));
+            }
+            Ok(bytes)
+        } else {
+            parse_bytes(self.text.as_deref(), self.hex.as_deref())
+        }
+    }
+}
+
+#[derive(Debug, Args)]
 #[group(id = "delimiter", required = true, multiple = false, args = ["until_text", "until_hex"])]
 struct DelimiterArgs {
     #[arg(long)]
@@ -172,7 +203,7 @@ struct SendArgs {
     #[command(flatten)]
     serial: SerialArgs,
     #[command(flatten)]
-    tx: TxArgs,
+    tx: PayloadArgs,
     #[command(flatten)]
     output: OutputArgs,
     #[arg(long)]
@@ -215,6 +246,10 @@ struct QueryArgs {
 enum CliError {
     Validation(Error),
     Input(&'static str),
+    FileInput {
+        path: PathBuf,
+        error: std::io::Error,
+    },
     Sequence(SequenceError),
     SequenceExecution(ExecutionFailure),
     Runtime(Error),
@@ -223,7 +258,7 @@ enum CliError {
 impl CliError {
     fn exit_code(&self) -> i32 {
         match self {
-            Self::Validation(_) | Self::Input(_) | Self::Sequence(_) => 2,
+            Self::Validation(_) | Self::Input(_) | Self::FileInput { .. } | Self::Sequence(_) => 2,
             Self::Runtime(_) | Self::SequenceExecution(_) => 3,
         }
     }
@@ -242,6 +277,9 @@ impl std::fmt::Display for CliError {
         match self {
             Self::Validation(error) | Self::Runtime(error) => write!(f, "{error}"),
             Self::Input(message) => write!(f, "{message}"),
+            Self::FileInput { path, error } => {
+                write!(f, "Cannot read file {}: {error}", path.display())
+            }
             Self::Sequence(error) => write!(f, "{error}"),
             Self::SequenceExecution(error) => write!(f, "{error}"),
         }
@@ -373,6 +411,7 @@ impl Cli {
         let command = match self.command {
             Command::Worker(args) => return args.run(),
             Command::Terminal(args) => return args.run(),
+            Command::AutoTx(args) => return args.run(),
             command => command,
         };
         let self_ = Self { command };
@@ -383,7 +422,7 @@ impl Cli {
             Command::Receive(args) => ("receive", &args.output),
             Command::Query(args) => ("query", &args.output),
             Command::Sequence(args) => (args.command_name(), args.output()),
-            Command::Worker(_) | Command::Terminal(_) => unreachable!(),
+            Command::Worker(_) | Command::Terminal(_) | Command::AutoTx(_) => unreachable!(),
         };
         let machine = output.machine();
         match self_.execute() {
@@ -567,7 +606,7 @@ impl Cli {
                 Ok((value, text))
             }
             Command::Sequence(args) => args.execute(),
-            Command::Worker(_) | Command::Terminal(_) => unreachable!(),
+            Command::Worker(_) | Command::Terminal(_) | Command::AutoTx(_) => unreachable!(),
         }
     }
 }

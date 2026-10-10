@@ -33,6 +33,7 @@ enum TerminalRxDisplay {
     Text,
     Both,
     Stream,
+    HexStream,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, ValueEnum)]
@@ -49,7 +50,7 @@ enum LineEnding {
 }
 
 #[derive(Debug, Args)]
-pub(super) struct TerminalArgs {
+pub(super) struct ConnectionArgs {
     #[arg(long, value_enum)]
     mode: TerminalMode,
     #[arg(long)]
@@ -68,10 +69,22 @@ pub(super) struct TerminalArgs {
     flow_control: CliFlowControl,
     #[arg(long, default_value_t = 1000)]
     timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, Args)]
+pub(super) struct DisplayArgs {
     #[arg(long, value_enum, default_value_t = TerminalRxDisplay::Hex)]
     rx_display: TerminalRxDisplay,
     #[arg(long, value_enum, default_value_t = TxDisplay::Hex)]
     tx_display: TxDisplay,
+}
+
+#[derive(Debug, Args)]
+pub(super) struct TerminalArgs {
+    #[command(flatten)]
+    connection: ConnectionArgs,
+    #[command(flatten)]
+    display: DisplayArgs,
     #[arg(long, value_enum, default_value_t = TxFormat::Text)]
     tx_format: TxFormat,
     #[arg(long, value_enum, default_value_t = LineEnding::None)]
@@ -85,8 +98,8 @@ enum Message {
     Stop,
 }
 
-impl TerminalArgs {
-    fn settings(&self) -> Result<(Mode, SerialSettings), CliError> {
+impl ConnectionArgs {
+    pub(super) fn settings(&self) -> Result<(Mode, SerialSettings), CliError> {
         let (mode, port) = match (
             self.mode,
             self.port.as_deref(),
@@ -122,9 +135,11 @@ impl TerminalArgs {
         .settings()?;
         Ok((mode, settings))
     }
+}
 
+impl TerminalArgs {
     pub(super) fn run(self) -> i32 {
-        let (mode, settings) = match self.settings() {
+        let (mode, settings) = match self.connection.settings() {
             Ok(settings) => settings,
             Err(error) => {
                 eprintln!("{error}");
@@ -187,6 +202,8 @@ impl TerminalArgs {
         mut eof_deadline: Option<Instant>,
     ) -> i32 {
         let mut code = 0;
+        let mut display = self.display.renderer();
+        let hint = "enter one line to send; EOF or Ctrl+C disconnects";
         loop {
             if eof_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 break;
@@ -221,11 +238,11 @@ impl TerminalArgs {
                 }
                 Some(Message::Stop) | None => break,
                 Some(Message::Event(Event::Disconnected)) => {
-                    self.display(Event::Disconnected, mode);
+                    display.show(Event::Disconnected, mode, hint);
                     return code;
                 }
                 Some(Message::Event(event)) => {
-                    if !self.display(event, mode) {
+                    if !display.show(event, mode, hint) {
                         code = 3;
                         break;
                     }
@@ -238,21 +255,63 @@ impl TerminalArgs {
         }
         for message in receiver.try_iter() {
             if let Message::Event(event) = message
-                && !self.display(event, mode)
+                && !display.show(event, mode, hint)
             {
                 code = 3;
             }
         }
         code
     }
+}
 
-    fn display(&self, event: Event, mode: Mode) -> bool {
-        let stream = self.rx_display == TerminalRxDisplay::Stream;
+pub(super) struct EventDisplay {
+    args: DisplayArgs,
+    hex_started: bool,
+}
+
+impl DisplayArgs {
+    pub(super) fn renderer(self) -> EventDisplay {
+        EventDisplay {
+            args: self,
+            hex_started: false,
+        }
+    }
+}
+
+impl EventDisplay {
+    pub(super) fn show(&mut self, event: Event, mode: Mode, hint: &str) -> bool {
+        match self.render(
+            event,
+            mode,
+            hint,
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        ) {
+            Ok(healthy) => healthy,
+            Err(error) => {
+                eprintln!("output error: {error}");
+                false
+            }
+        }
+    }
+
+    fn render(
+        &mut self,
+        event: Event,
+        mode: Mode,
+        hint: &str,
+        stdout: &mut impl Write,
+        stderr: &mut impl Write,
+    ) -> io::Result<bool> {
+        let stream = matches!(
+            self.args.rx_display,
+            TerminalRxDisplay::Stream | TerminalRxDisplay::HexStream
+        );
         match event {
             Event::Connected | Event::Disconnected => {
                 let message = if matches!(event, Event::Connected) {
                     format!(
-                        "Connected ({}) — enter one line to send; EOF or Ctrl+C disconnects",
+                        "Connected ({}) — {hint}",
                         if mode == Mode::Live {
                             "live"
                         } else {
@@ -263,20 +322,20 @@ impl TerminalArgs {
                     "Disconnected".into()
                 };
                 if stream {
-                    eprintln!("{message}");
+                    writeln!(stderr, "{message}")?;
                 } else {
-                    println!("{message}");
+                    writeln!(stdout, "{message}")?;
                 }
             }
             Event::Data {
                 direction: Direction::Tx,
                 bytes,
             } => {
-                if self.tx_display == TxDisplay::Hex {
+                if self.args.tx_display == TxDisplay::Hex {
                     if stream {
-                        eprintln!("TX: {}", spaced_hex(&bytes));
+                        writeln!(stderr, "TX: {}", spaced_hex(&bytes))?;
                     } else {
-                        println!("TX: {}", spaced_hex(&bytes));
+                        writeln!(stdout, "TX: {}", spaced_hex(&bytes))?;
                     }
                 }
             }
@@ -284,10 +343,21 @@ impl TerminalArgs {
                 direction: Direction::Rx,
                 bytes,
             } => {
-                let display = match self.rx_display {
+                let display = match self.args.rx_display {
                     TerminalRxDisplay::Hex => RxDisplay::Hex,
                     TerminalRxDisplay::Text => RxDisplay::Text,
                     TerminalRxDisplay::Both => RxDisplay::Both,
+                    TerminalRxDisplay::HexStream => {
+                        if !bytes.is_empty() {
+                            if self.hex_started {
+                                stdout.write_all(b" ")?;
+                            }
+                            stdout.write_all(spaced_hex(&bytes).as_bytes())?;
+                            self.hex_started = true;
+                        }
+                        stdout.flush()?;
+                        return Ok(true);
+                    }
                     TerminalRxDisplay::Stream => {
                         let mut rendered = String::new();
                         for char in String::from_utf8_lossy(&bytes).chars() {
@@ -300,30 +370,24 @@ impl TerminalArgs {
                                 printable => rendered.push(printable),
                             }
                         }
-                        let mut stdout = io::stdout().lock();
-                        if let Err(error) = stdout
-                            .write_all(rendered.as_bytes())
-                            .and_then(|()| stdout.flush())
-                        {
-                            eprintln!("stdout error: {error}");
-                            return false;
-                        }
-                        return true;
+                        stdout.write_all(rendered.as_bytes())?;
+                        stdout.flush()?;
+                        return Ok(true);
                     }
                 };
                 let rendered = render_rx(&bytes, display, "RX ");
                 if display == RxDisplay::Both {
-                    println!("{rendered}");
+                    writeln!(stdout, "{rendered}")?;
                 } else {
-                    println!("RX: {rendered}");
+                    writeln!(stdout, "RX: {rendered}")?;
                 }
             }
             Event::ConnectionError { message } => {
-                eprintln!("Connection error: {message}");
-                return false;
+                writeln!(stderr, "Connection error: {message}")?;
+                return Ok(false);
             }
         }
-        true
+        Ok(true)
     }
 }
 
@@ -353,6 +417,91 @@ fn tx_bytes(line: &str, format: TxFormat, ending: LineEnding) -> Result<Vec<u8>,
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct Capture {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn hex_stream_preserves_bytes_spacing_and_flushes_each_rx_event() {
+        let mut display = DisplayArgs {
+            rx_display: TerminalRxDisplay::HexStream,
+            tx_display: TxDisplay::Hex,
+        }
+        .renderer();
+        let mut stdout = Capture::default();
+        let mut stderr = Vec::new();
+        let chunks = [vec![], vec![0xaa, 0x55], vec![], vec![0, 0xff, 13, 10]];
+        for bytes in &chunks {
+            assert!(
+                display
+                    .render(
+                        Event::Data {
+                            direction: Direction::Rx,
+                            bytes: bytes.clone()
+                        },
+                        Mode::Simulation,
+                        "",
+                        &mut stdout,
+                        &mut stderr
+                    )
+                    .unwrap()
+            );
+        }
+        assert_eq!(stdout.bytes, b"AA 55 00 FF 0D 0A");
+        assert_eq!(stdout.flushes, chunks.len());
+        assert!(stderr.is_empty());
+        assert_eq!(chunks[3], [0, 255, 13, 10]);
+    }
+
+    #[test]
+    fn event_rx_modes_keep_existing_presentation() {
+        for (mode, expected) in [
+            (TerminalRxDisplay::Hex, "RX: 00 FF 0D 0A\n"),
+            (TerminalRxDisplay::Text, "RX: \\u{0}�\\r\\n\n"),
+            (
+                TerminalRxDisplay::Both,
+                "RX HEX: 00 FF 0D 0A\nRX TEXT: \\u{0}�\\r\\n\n",
+            ),
+        ] {
+            let mut display = DisplayArgs {
+                rx_display: mode,
+                tx_display: TxDisplay::Off,
+            }
+            .renderer();
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            assert!(
+                display
+                    .render(
+                        Event::Data {
+                            direction: Direction::Rx,
+                            bytes: vec![0, 255, 13, 10]
+                        },
+                        Mode::Simulation,
+                        "",
+                        &mut stdout,
+                        &mut stderr
+                    )
+                    .unwrap()
+            );
+            assert_eq!(String::from_utf8(stdout).unwrap(), expected);
+            assert!(stderr.is_empty());
+        }
+    }
+
     #[test]
     fn terminal_eof_final_drain_connection_error_exits_three() {
         use clap::Parser;
@@ -371,7 +520,7 @@ mod tests {
         else {
             unreachable!();
         };
-        let (mode, settings) = args.settings().unwrap();
+        let (mode, settings) = args.connection.settings().unwrap();
         // An expired EOF deadline skips the main loop, leaving the error for final drain.
         for eof_deadline in [None, Some(Instant::now())] {
             let runtime = PersistentRuntime::default();

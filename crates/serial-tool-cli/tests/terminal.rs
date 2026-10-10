@@ -159,3 +159,26 @@ fn terminal_validates_mode_resources_and_rejects_machine_output() {
         assert!(!output.stderr.is_empty());
     }
 }
+
+#[test]
+fn hex_stream_terminal_joins_binary_rx_and_routes_diagnostics_to_stderr() {
+    for tx_display in ["hex", "off"] {
+        let output = terminal(
+            &[
+                "--tx-format",
+                "hex",
+                "--rx-display",
+                "hex-stream",
+                "--tx-display",
+                tx_display,
+            ],
+            b"AA 55\n00 FF 0D 0A\n",
+        );
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, b"AA 55 00 FF 0D 0A");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains("Connected (simulate: loopback-v1)"));
+        assert!(stderr.contains("Disconnected"));
+        assert_eq!(stderr.contains("TX:"), tx_display == "hex");
+    }
+}

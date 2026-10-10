@@ -31,8 +31,31 @@ Runtime result objects include `event`, `schema_version`, UTC ISO 8601
 includes `delimiter_hex`. Hex is lowercase, has two digits per byte, and has
 no separators. Raw bytes remain authoritative; UTF-8 decoding is not required.
 
-`terminal` is a human-interactive persistent command. It does not accept
-`--json` or `--format` and is outside this one-shot JSON/JSONL contract.
+`send` accepts exactly one of `--text`, `--hex`, or `--file`. File input reads
+a complete nonempty file as raw bytes, without text decoding, hex parsing,
+or newline conversion, then uses the existing send-and-flush operation.
+Dry-run may read and validate the file but performs no serial I/O. Empty,
+missing, or unreadable files are input errors (exit 2). File input does not add
+machine fields or change Schema 2; `tx_hex` and `tx_bytes` describe the loaded
+bytes exactly. `query` continues to accept only `--text` or `--hex` for TX.
+
+`terminal` and `auto-tx` are human-facing persistent commands. Neither accepts
+`--json` or `--format`; both are outside this one-shot JSON/JSONL contract.
+Both accept `--rx-display hex|text|both|stream|hex-stream` and
+`--tx-display hex|off`. Hex Stream emits uppercase two-digit RX bytes to
+stdout with exactly one space between bytes across events, no prefix or
+event-boundary newline, and flushes each RX event. Stream and Hex Stream send
+lifecycle diagnostics and TX logs to stderr; `--tx-display off` hides only TX
+presentation.
+
+`auto-tx` requires Live mode with `--port`, or Simulation mode with
+`--simulation-profile-id loopback-v1`, the serial settings used by Terminal,
+one of `--text`, `--hex`, or `--file`, and a positive integer `--interval-ms`.
+It reads file input once before connecting and repeats the loaded bytes.
+Core's existing periodic runtime sends immediately, then waits the interval
+after each completed send and flush, without catch-up sends. RX monitoring
+continues during Auto TX. Ctrl+C stops periodic TX and disconnects. Input
+errors exit 2; connection or serial I/O errors exit 3.
 The Worker machine contract remains unchanged.
 
 ## Events
