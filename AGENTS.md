@@ -103,6 +103,11 @@ Architecture rules:
 - Prefer focused unit tests for parsing, validation, execution decisions, error mapping, and simulation behavior.
 - Add integration tests when they validate an actual cross-component boundary such as CLI-to-Core or worker-to-contract behavior.
 - Do not create large test matrices for trivial code or test implementation details that provide little regression value.
+- Do not automatically add permanent regression tests for every minor bug fix.
+  Prefer improving or consolidating existing coverage. Avoid tests coupled to
+  private implementation details, source text, incidental execution order, or
+  non-contractual wording unless they protect an explicit contract or safety
+  requirement. Keep test complexity and maintenance cost proportional to risk.
 - Use real-hardware validation only when the behavior cannot be meaningfully verified otherwise.
 - When only worker/common-contract integration changes and transport/device behavior is unchanged, do not require real-hardware validation unless the change could affect actual I/O behavior.
 
