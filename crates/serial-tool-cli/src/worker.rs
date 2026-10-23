@@ -69,10 +69,10 @@ struct State {
     failed: u64,
 }
 
-struct HttpContext<'a> {
+struct HttpContext<'a, W: Write> {
     state: &'a Arc<Mutex<State>>,
     sender: &'a mpsc::Sender<Job>,
-    output: &'a Mutex<io::Stdout>,
+    output: &'a Mutex<W>,
     run_id: &'a str,
     urls: &'a Value,
     mode: &'a str,
@@ -602,7 +602,7 @@ fn job_event(name: &str, run_id: &str, identity: &JobIdentity) -> Value {
     value
 }
 
-fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<()> {
+fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -> io::Result<()> {
     stream.set_nonblocking(false)?;
     let HttpContext {
         state,
@@ -688,7 +688,6 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
             });
             let mut accepted = job_event("job_accepted", run_id, &identity);
             accepted["status"] = json!("accepted");
-            emit(output, &accepted);
             if sender
                 .send(Job {
                     identity,
@@ -709,6 +708,8 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
                     }),
                 );
             }
+            // The runner takes this State lock before emitting job_started.
+            emit(output, &accepted);
             drop(current);
             write_response(stream, 202, &response)
         }
@@ -991,7 +992,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn active_slot_rejects_another_command() {
+    fn active_slot_rejects_busy_or_unavailable_runner() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (mut server, _) = listener.accept().unwrap();
@@ -1012,7 +1013,7 @@ mod tests {
             timestamp_utc: timestamp(),
         });
         let (sender, receiver) = mpsc::channel();
-        let output = Mutex::new(io::stdout());
+        let output = Mutex::new(Vec::<u8>::new());
         let urls = json!({});
         let settings = SerialSettings {
             port: "simulation".into(),
@@ -1047,6 +1048,35 @@ mod tests {
         );
         assert!(receiver.try_recv().is_err());
         assert_eq!(state.lock().unwrap().accepted, 0);
+
+        drop(receiver);
+        state.lock().unwrap().active = None;
+        let (code, response) = send_file_http(
+            &state,
+            &sender,
+            &output,
+            "/command",
+            json!({"schema_version": 3, "command": "send", "arguments": {"tx_hex": "01"}, "job_id": "closed-runner"}),
+        );
+        assert_eq!(code, 500);
+        assert_eq!(response["schema_version"], 3);
+        assert_eq!(response["run_id"], "send-file-run");
+        assert_eq!(response["status"], "error");
+        assert_eq!(response["command"], "send");
+        assert_eq!(response["job_id"], "closed-runner");
+        assert_eq!(response["kind"], "async_job");
+        assert!(response.get("worker_job_id").unwrap().is_null());
+        assert_eq!(response["error"]["category"], "worker");
+        assert_eq!(response["error"]["code"], "runtime_error");
+        assert!(!response["error"]["message"].as_str().unwrap().is_empty());
+        assert!(response["error"]["details"].is_object());
+        let current = state.lock().unwrap();
+        assert!(current.active.is_none());
+        assert!(current.last_job.is_none());
+        assert_eq!(current.accepted, 0);
+        assert_eq!(current.succeeded, 0);
+        assert_eq!(current.failed, 0);
+        assert!(output.lock().unwrap().is_empty());
     }
 
     struct SendFileFixture(PathBuf);
@@ -1259,6 +1289,7 @@ mod tests {
     fn send_file_http(
         state: &Arc<Mutex<State>>,
         sender: &mpsc::Sender<Job>,
+        output: &Mutex<Vec<u8>>,
         path: &str,
         body: Value,
     ) -> (u16, Value) {
@@ -1275,7 +1306,6 @@ mod tests {
             body.len()
         )
         .unwrap();
-        let output = Mutex::new(io::stdout());
         let urls = json!({});
         let settings = SerialSettings {
             port: "simulation".into(),
@@ -1292,7 +1322,7 @@ mod tests {
             &HttpContext {
                 state,
                 sender,
-                output: &output,
+                output,
                 run_id: "send-file-run",
                 urls: &urls,
                 mode: "simulate",
@@ -1350,19 +1380,20 @@ mod tests {
                 )
             });
             let body = json!({"schema_version": 3, "command": "send-file", "arguments": {"path": fixture.0}, "job_id": "client-file"});
-            let (code, accepted) = send_file_http(&state, &sender, "/command", body.clone());
+            let (code, accepted) =
+                send_file_http(&state, &sender, &output, "/command", body.clone());
             assert_eq!(code, 202);
             entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-            let (code, busy) = send_file_http(&state, &sender, "/command", body.clone());
+            let (code, busy) = send_file_http(&state, &sender, &output, "/command", body.clone());
             assert_eq!(code, 409);
             assert_eq!(busy["reason"], "busy");
-            let (code, response) = send_file_http(&state, &sender, "/stop", json!({}));
+            let (code, response) = send_file_http(&state, &sender, &output, "/stop", json!({}));
             assert_eq!(code, 200);
             assert_eq!(response["status"], "accepted");
-            let (code, response) = send_file_http(&state, &sender, "/stop", json!({}));
+            let (code, response) = send_file_http(&state, &sender, &output, "/stop", json!({}));
             assert_eq!(code, 200);
             assert_eq!(response["status"], "accepted");
-            let (code, rejected) = send_file_http(&state, &sender, "/command", body);
+            let (code, rejected) = send_file_http(&state, &sender, &output, "/command", body);
             assert_eq!(code, 409);
             assert_eq!(rejected["reason"], "stopping");
             assert!(!runner.is_finished());
@@ -1382,9 +1413,14 @@ mod tests {
                 .lines()
                 .map(|line| serde_json::from_str(line).unwrap())
                 .collect();
-            assert_eq!(events.len(), 3);
-            assert_eq!(events[0]["event"], "job_started");
-            let terminal = &events[1];
+            assert_eq!(events.len(), 5);
+            assert_eq!(events[0]["event"], "job_accepted");
+            assert_eq!(events[0]["worker_job_id"], "job-1");
+            assert_eq!(events[0]["worker_job_id"], accepted["worker_job_id"]);
+            assert_eq!(events[1]["event"], "job_started");
+            assert_eq!(events[1]["worker_job_id"], accepted["worker_job_id"]);
+            assert_eq!(events[2]["event"], "stop_requested");
+            let terminal = &events[3];
             assert_eq!(terminal, current.last_job.as_ref().unwrap());
             assert_eq!(terminal["worker_job_id"], accepted["worker_job_id"]);
             assert_eq!(terminal["job_id"], "client-file");
@@ -1407,9 +1443,9 @@ mod tests {
                 assert_eq!(terminal["error"]["code"], "stopped_by_request");
                 assert_eq!(terminal["exit_code"], 3);
             }
-            assert_eq!(events[2]["event"], "summary");
-            assert_eq!(events[2]["ok"], true);
-            assert_eq!(events[2]["exit_code"], 0);
+            assert_eq!(events[4]["event"], "summary");
+            assert_eq!(events[4]["ok"], true);
+            assert_eq!(events[4]["exit_code"], 0);
             assert!(terminal.get("tx_hex").is_none());
         }
     }
@@ -1421,10 +1457,16 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let body =
             json!({"schema_version": 3, "command": "send-file", "arguments": {"path": fixture.0}});
-        assert_eq!(send_file_http(&state, &sender, "/command", body).0, 202);
-        assert_eq!(send_file_http(&state, &sender, "/stop", json!({})).0, 200);
-        drop(sender);
         let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+        assert_eq!(
+            send_file_http(&state, &sender, &output, "/command", body).0,
+            202
+        );
+        assert_eq!(
+            send_file_http(&state, &sender, &output, "/stop", json!({})).0,
+            200
+        );
+        drop(sender);
         // Failing the first write would expose any I/O after this stop.
         let session = SerialSession::new(SendFileTransport {
             fail_write: Some(1),
@@ -1457,7 +1499,7 @@ mod tests {
                 .iter()
                 .filter(|byte| **byte == b'\n')
                 .count(),
-            2
+            4
         );
     }
 }

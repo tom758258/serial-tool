@@ -811,7 +811,7 @@ mod tests {
         assert_eq!(value["event"], "tool_manifest");
         assert_eq!(value["schema_version"].as_i64(), Some(2));
         assert_eq!(value["tool_id"], "serial");
-        assert_eq!(value["worker_protocol"]["schema_versions"], json!([2]));
+        assert_eq!(value["worker_protocol"]["schema_versions"], json!([3]));
     }
 
     #[test]
