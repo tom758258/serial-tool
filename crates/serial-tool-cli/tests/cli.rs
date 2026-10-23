@@ -51,7 +51,34 @@ fn one_shot_machine_modes_emit_one_object() {
     ] {
         let output = run(&args);
         assert_eq!(output.status.code(), Some(0));
-        assert_eq!(object(&output)["schema_version"].as_i64(), Some(2));
+        let value = object(&output);
+        assert_eq!(value["schema_version"].as_i64(), Some(2));
+        if args[0] == "manifest" {
+            assert_eq!(value["event"], "tool_manifest");
+            assert_eq!(value["tool_id"], "serial");
+            assert!(!value["tool_version"].as_str().unwrap().is_empty());
+            assert_eq!(value["worker_protocol"]["compatibility_policy"], "v3-only");
+            assert_eq!(
+                value["worker_protocol"]["schema_versions"],
+                serde_json::json!([3])
+            );
+            assert_eq!(
+                value["execution"],
+                serde_json::json!({"model": "multi_job", "context_binding": "startup"})
+            );
+            assert_eq!(
+                value["features"],
+                serde_json::json!({"common.async_jobs": {"contract_version": 1}})
+            );
+            assert_eq!(
+                value["commands"],
+                serde_json::json!({
+                    "send": {"kind": "async_job"}, "send-file": {"kind": "async_job"},
+                    "receive": {"kind": "async_job"}, "query": {"kind": "async_job"},
+                    "run-sequence": {"kind": "async_job"}
+                })
+            );
+        }
     }
 }
 

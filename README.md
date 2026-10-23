@@ -207,6 +207,12 @@ serial-tool worker --mode live --port COM4 --baud 115200 --control-port 0
 serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
 ```
 
+Worker implements Common v3.0 (`v3-only`): HTTP and runtime JSONL use schema 3,
+while Manifest and ordinary CLI results remain schema 2. `manifest --json`
+declares `multi_job` / `startup` execution and `common.async_jobs` version 1.
+All five commands are `async_job`; there is one active slot, with no extra
+queue, parallel jobs, cancellation, or streaming.
+
 Worker stdout is JSONL. Its HTTP control plane binds only to `127.0.0.1`, and
 the `ready` event supplies the selected endpoint URLs. A live Worker holds one
 COM port through a persistent session. Simulation profile `loopback-v1` makes
@@ -219,7 +225,7 @@ Worker commands are `send`, `send-file`, `receive`, `query`, and `run-sequence`.
 Submit raw files using `POST /command` with, for example:
 
 ```json
-{"schema_version":2,"command":"send-file","arguments":{"path":"C:\\TestData\\payload.bin"},"job_id":"send-file-001"}
+{"schema_version":3,"command":"send-file","arguments":{"path":"C:\\TestData\\payload.bin"},"job_id":"send-file-001"}
 ```
 
 The path must be absolute and accessible on the Worker host. `send-file`
@@ -228,6 +234,12 @@ confirmed `bytes_written`, without payload hex. `/stop` cooperatively stops
 remaining chunks after current I/O returns; an already completed transfer
 remains successful. Simulation retains loopback bytes in memory, so prefer
 small files there. See the Worker contract for partial results and errors.
+
+HTTP `202` acknowledges admission. Completion uses `job_finished` with
+`state: "succeeded"` or `"failed"`, `ok`, `result`, and a Common Error or null;
+`GET /status` exposes the same terminal in `last_job`. `/stop` returns HTTP
+`200`, `status: "accepted"`; shutdown still requires summary, stdout EOF,
+and actual process exit.
 
 `run-sequence` accepts an inline Sequence object whose line settings must
 match the Worker startup settings. See the

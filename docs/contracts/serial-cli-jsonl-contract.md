@@ -1,9 +1,11 @@
 # Serial CLI JSON / JSONL Contract
 
 This document defines the current `serial-tool` command-line machine surface.
-All objects follow the [Common CLI JSON / JSONL contract](common-cli-jsonl-contract.md)
-with exact integer `schema_version: 2`. Consumers should ignore unknown optional
-fields.
+Ordinary one-shot results and Manifest keep exact integer `schema_version: 2`.
+Worker runtime JSONL and HTTP use exact integer `schema_version: 3` under the
+[Common CLI JSON / JSONL contract](common-cli-jsonl-contract.md) revision 3.0.
+Dry-run, Sequence v1, and other independent contracts are unchanged.
+Consumers should ignore unknown optional fields.
 
 ## Commands and output
 
@@ -62,8 +64,12 @@ The Worker machine contract remains unchanged.
 
 - `tool_manifest`: static tool identity with `tool_id: "serial"`,
   `tool_version`, and `worker_protocol` containing
-  `compatibility_policy: "v2-only"` and `schema_versions: [2]`. This command
-  performs no port discovery, HTTP bind, or device I/O. The Worker surface is
+  `compatibility_policy: "v3-only"` and `schema_versions: [3]`,
+  `execution: {"model":"multi_job","context_binding":"startup"}`,
+  and `features: {"common.async_jobs":{"contract_version":1}}`.
+  `commands` contains exactly `send`, `send-file`, `receive`, `query`, and
+  `run-sequence`, each with `kind: "async_job"`. Manifest schema remains 2.
+  This command performs no port discovery, HTTP bind, or device I/O. The Worker surface is
   defined in the [Serial Worker contract](serial-worker-contract.md).
 - `list-ports`: discovery result with `count` and `ports`. Each port has `port`
   and `type` (`usb`, `pci`, `bluetooth`, or `unknown`). USB ports also have
@@ -96,6 +102,20 @@ The Worker machine contract remains unchanged.
   A `sequence run` StepRunner failure also includes the failing `step_id`,
   completed `step_results`, and completed logical `transcript`. The underlying
   error remains in `message`; Core partial RX appears when available.
+
+## Worker runtime
+
+Worker uses `ready` with runtime features and control URLs, Common Status
+with `worker_state` and job snapshots, and one `job_finished` terminal for
+each normally controlled job termination. Its `state` is `succeeded` or
+`failed`, with required `ok`, `result`, and Common `error` fields. Domain
+partial results and diagnostics remain available. Serial-specific
+`job_accepted`, `job_started`, and `stop_requested` are non-terminal.
+Worker fatal errors use Common `scope`, `fatal`, and Error fields, and
+summary includes `fatal_error` and intended `exit_code`. Consumers must also
+observe stdout EOF, subsequent errors, and actual exit. See the
+[Serial Worker contract](serial-worker-contract.md) for the complete surface;
+the one-shot `error` event above retains its schema-2 contract.
 
 ## Exit codes
 

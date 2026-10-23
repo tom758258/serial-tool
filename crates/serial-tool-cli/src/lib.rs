@@ -452,12 +452,21 @@ impl Cli {
                 let value = json!({
                     "event": "tool_manifest", "schema_version": 2, "tool_id": "serial",
                     "tool_version": env!("CARGO_PKG_VERSION"),
-                    "worker_protocol": { "compatibility_policy": "v2-only", "schema_versions": [2] },
+                    "worker_protocol": { "compatibility_policy": "v3-only", "schema_versions": [3] },
+                    "execution": { "model": "multi_job", "context_binding": "startup" },
+                    "features": { "common.async_jobs": { "contract_version": 1 } },
+                    "commands": {
+                        "send": { "kind": "async_job" },
+                        "send-file": { "kind": "async_job" },
+                        "receive": { "kind": "async_job" },
+                        "query": { "kind": "async_job" },
+                        "run-sequence": { "kind": "async_job" },
+                    },
                 });
                 Ok((
                     value,
                     format!(
-                        "serial {}\nWorker protocol: schema 2",
+                        "serial {}\nWorker protocol: schema 3",
                         env!("CARGO_PKG_VERSION")
                     ),
                 ))

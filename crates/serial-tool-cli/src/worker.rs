@@ -56,6 +56,8 @@ struct JobIdentity {
     worker_job_id: String,
     command: String,
     job_id: Option<String>,
+    state: &'static str,
+    timestamp_utc: String,
 }
 
 struct State {
@@ -273,7 +275,15 @@ fn send_file_chunks<T: Transport, R: Read>(
 }
 
 fn event(name: &str, run_id: &str) -> Value {
-    json!({ "event": name, "schema_version": 2, "run_id": run_id, "timestamp_utc": timestamp() })
+    json!({ "event": name, "schema_version": 3, "run_id": run_id, "timestamp_utc": timestamp() })
+}
+
+fn features() -> Value {
+    json!({ "common.async_jobs": { "contract_version": 1 } })
+}
+
+fn common_error(category: &str, code: &str, message: &str) -> Value {
+    json!({ "category": category, "code": code, "message": message, "details": {} })
 }
 
 fn emit<W: Write>(output: &Mutex<W>, value: &Value) {
@@ -287,9 +297,12 @@ fn fatal(output: &Mutex<io::Stdout>, run_id: &str, message: &str, state: &State)
     error["ok"] = json!(false);
     error["exit_code"] = json!(3);
     error["message"] = json!(message);
+    error["scope"] = json!("worker");
+    error["fatal"] = json!(true);
+    error["error"] = common_error("worker", "runtime_error", message);
     emit(output, &error);
     let mut summary = summary(run_id, state, false);
-    summary["fatal_error"] = json!(message);
+    summary["fatal_error"] = error["error"].clone();
     emit(output, &summary);
     3
 }
@@ -301,6 +314,7 @@ fn summary(run_id: &str, state: &State, ok: bool) -> Value {
     value["accepted"] = json!(state.accepted);
     value["succeeded"] = json!(state.succeeded);
     value["failed"] = json!(state.failed);
+    value["fatal_error"] = Value::Null;
     value
 }
 
@@ -362,6 +376,9 @@ impl WorkerArgs {
                 value["ok"] = json!(false);
                 value["exit_code"] = json!(2);
                 value["message"] = json!(error.to_string());
+                value["scope"] = json!("request");
+                value["fatal"] = json!(false);
+                value["error"] = common_error("validation", "validation_error", &error.to_string());
                 emit(&output, &value);
                 return 2;
             }
@@ -426,6 +443,7 @@ impl WorkerArgs {
         let mut ready = event("ready", &run_id);
         ready["service"] = json!("serial-tool");
         ready["mode"] = json!(mode);
+        ready["features"] = features();
         for (key, value) in urls.as_object().unwrap() {
             ready[key] = value.clone();
         }
@@ -499,28 +517,32 @@ fn run_jobs<T: Transport, W: Write>(
     for job in receiver {
         let mut started = job_event("job_started", &run_id, &job.identity);
         started["status"] = json!("running");
+        {
+            let mut current = state.lock().unwrap();
+            if let Some(active) = current.active.as_mut() {
+                active.state = "running";
+                active.timestamp_utc = started["timestamp_utc"].as_str().unwrap().to_owned();
+            }
+        }
         emit(&output, &started);
         let result = execute(&mut session, job.operation, &state);
-        let mut terminal = job_event(
-            if result.is_ok() {
-                "job_finished"
-            } else {
-                "job_failed"
-            },
-            &run_id,
-            &job.identity,
-        );
+        let mut terminal = job_event("job_finished", &run_id, &job.identity);
+        terminal["result"] = Value::Null;
+        terminal["error"] = Value::Null;
         match result {
             Ok(value) => {
+                terminal["state"] = json!("succeeded");
                 terminal["ok"] = json!(true);
                 terminal["result"] = value;
             }
             Err(error) => {
+                terminal["state"] = json!("failed");
                 terminal["ok"] = json!(false);
                 terminal["exit_code"] = json!(3);
                 match error {
                     WorkerOperationError::Serial(error) => {
-                        terminal["error"] = json!("serial_error");
+                        terminal["error"] =
+                            common_error("execution", "serial_error", &error.to_string());
                         terminal["message"] = json!(error.to_string());
                         if let Some(partial) = error.partial() {
                             terminal["partial_hex"] = json!(hex(partial));
@@ -532,12 +554,16 @@ fn run_jobs<T: Transport, W: Write>(
                         message,
                         result,
                     } => {
-                        terminal["error"] = json!(error);
+                        terminal["error"] = common_error("execution", error, &message);
                         terminal["message"] = json!(message);
                         terminal["result"] = result;
                     }
                     WorkerOperationError::Sequence(error) => {
-                        terminal["error"] = json!("sequence_execution_error");
+                        terminal["error"] = common_error(
+                            "execution",
+                            "sequence_execution_error",
+                            &error.to_string(),
+                        );
                         terminal["message"] = json!(error.to_string());
                         if let RunError::Execution(failure) = error {
                             terminal["step_id"] = json!(failure.step_id.as_str());
@@ -596,7 +622,7 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
             write_response(
                 stream,
                 400,
-                &json!({"schema_version": 2, "status": "error", "command": null, "job_id": null, "error": "validation_error", "message": error.to_string()}),
+                &validation(run_id, None, None, &error.to_string()),
             )?;
             return Ok(());
         }
@@ -605,8 +631,10 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
         ("GET", "/status") => {
             let current = state.lock().unwrap();
             let mut value = json!({
-                "schema_version": 2, "service": "serial-tool", "run_id": run_id,
+                "schema_version": 3, "service": "serial-tool", "run_id": run_id,
                 "status": if current.stopping { "stopping" } else if current.active.is_some() { "busy" } else { "ready" },
+                "worker_state": if current.stopping { "stopping" } else { "running" },
+                "features": features(),
                 "mode": mode, "active_job": current.active.as_ref().map(identity_json),
                 "last_job": current.last_job, "fatal_error": null,
                 "timestamp_utc": timestamp(), "serial_settings": serial_settings,
@@ -622,7 +650,7 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
             write_response(stream, 200, &value)
         }
         ("POST", "/command") => {
-            let (identity, operation) = match parse_command(&body, settings) {
+            let (identity, operation) = match parse_command(&body, settings, run_id) {
                 Ok(parsed) => parsed,
                 Err(value) => return write_response(stream, 400, &value),
             };
@@ -638,16 +666,26 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
                 return write_response(
                     stream,
                     409,
-                    &json!({"schema_version": 2, "status": "rejected", "command": identity.command, "job_id": identity.job_id, "reason": reason}),
+                    &json!({
+                        "schema_version": 3, "run_id": run_id, "status": "rejected",
+                        "command": identity.command, "job_id": identity.job_id,
+                        "kind": "async_job", "worker_job_id": null, "reason": reason,
+                        "error": common_error("admission", reason, reason),
+                    }),
                 );
             }
             current.accepted += 1;
             let identity = JobIdentity {
                 worker_job_id: format!("job-{}", current.accepted),
+                timestamp_utc: timestamp(),
                 ..identity
             };
             current.active = Some(identity.clone());
-            let response = json!({"schema_version": 2, "status": "accepted", "command": identity.command, "job_id": identity.job_id, "worker_job_id": identity.worker_job_id});
+            let response = json!({
+                "schema_version": 3, "run_id": run_id, "status": "accepted",
+                "command": identity.command, "job_id": identity.job_id,
+                "kind": "async_job", "worker_job_id": identity.worker_job_id, "error": null,
+            });
             let mut accepted = job_event("job_accepted", run_id, &identity);
             accepted["status"] = json!("accepted");
             emit(output, &accepted);
@@ -663,20 +701,26 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
                 return write_response(
                     stream,
                     500,
-                    &json!({"schema_version": 2, "status": "error", "command": response["command"], "job_id": response["job_id"], "error": "runtime_error", "message": "runner unavailable"}),
+                    &json!({
+                        "schema_version": 3, "run_id": run_id, "status": "error",
+                        "command": response["command"], "job_id": response["job_id"],
+                        "kind": "async_job", "worker_job_id": null,
+                        "error": common_error("worker", "runtime_error", "runner unavailable"),
+                    }),
                 );
             }
             drop(current);
             write_response(stream, 202, &response)
         }
         ("POST", "/stop") => {
-            if !body.is_empty()
-                && !matches!(serde_json::from_slice::<Value>(&body), Ok(Value::Object(ref object)) if object.is_empty())
-            {
+            if !valid_stop_body(&body) {
                 return write_response(
                     stream,
                     400,
-                    &json!({"schema_version": 2, "status": "error", "command": null, "job_id": null, "error": "validation_error", "message": "stop body must be empty or {}"}),
+                    &json!({
+                        "schema_version": 3, "run_id": run_id, "status": "error",
+                        "error": common_error("validation", "validation_error", "stop body must be empty or an object with optional integer schema_version 3 and string reason"),
+                    }),
                 );
             }
             let mut current = state.lock().unwrap();
@@ -687,33 +731,51 @@ fn handle_http(stream: &mut TcpStream, context: &HttpContext<'_>) -> io::Result<
             write_response(
                 stream,
                 200,
-                &json!({"schema_version": 2, "status": "stopping"}),
+                &json!({"schema_version": 3, "run_id": run_id, "status": "accepted", "error": null}),
             )
         }
         _ => write_response(
             stream,
             404,
-            &json!({"schema_version": 2, "status": "error", "command": null, "job_id": null, "error": "not_found", "message": "unknown endpoint"}),
+            &json!({"schema_version": 3, "run_id": run_id, "status": "error", "error": common_error("validation", "not_found", "unknown endpoint")}),
         ),
     }
 }
 
 fn identity_json(identity: &JobIdentity) -> Value {
-    json!({"worker_job_id": identity.worker_job_id, "command": identity.command, "job_id": identity.job_id})
+    json!({
+        "worker_job_id": identity.worker_job_id, "command": identity.command, "job_id": identity.job_id,
+        "state": identity.state, "timestamp_utc": identity.timestamp_utc,
+    })
+}
+
+fn valid_stop_body(body: &[u8]) -> bool {
+    if body.is_empty() {
+        return true;
+    }
+    let Ok(Value::Object(object)) = serde_json::from_slice::<Value>(body) else {
+        return false;
+    };
+    object.iter().all(|(key, value)| match key.as_str() {
+        "schema_version" => value.as_u64() == Some(3),
+        "reason" => value.is_string(),
+        _ => false,
+    })
 }
 
 fn parse_command(
     body: &[u8],
     settings: &SerialSettings,
+    run_id: &str,
 ) -> Result<(JobIdentity, Operation), Value> {
-    let parsed: Value =
-        serde_json::from_slice(body).map_err(|_| validation(None, None, "malformed JSON"))?;
+    let parsed: Value = serde_json::from_slice(body)
+        .map_err(|_| validation(run_id, None, None, "malformed JSON"))?;
     let object = parsed
         .as_object()
-        .ok_or_else(|| validation(None, None, "request must be an object"))?;
+        .ok_or_else(|| validation(run_id, None, None, "request must be an object"))?;
     let command = object.get("command").and_then(Value::as_str);
     let job_id = object.get("job_id").and_then(Value::as_str);
-    let reject = |message| validation(command, job_id, message);
+    let reject = |message| validation(run_id, command, job_id, message);
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
@@ -722,14 +784,19 @@ fn parse_command(
     }) {
         return Err(reject("unknown top-level field"));
     }
-    if object.get("schema_version").and_then(Value::as_u64) != Some(2) {
-        return Err(reject("schema_version must be integer 2"));
+    if object.get("schema_version").and_then(Value::as_u64) != Some(3) {
+        return Err(reject("schema_version must be integer 3"));
     }
     let command = command
         .filter(|name| !name.is_empty())
-        .ok_or_else(|| validation(None, job_id, "command must be a non-empty string"))?;
+        .ok_or_else(|| validation(run_id, None, job_id, "command must be a non-empty string"))?;
     if object.contains_key("job_id") && job_id.is_none() {
-        return Err(validation(Some(command), None, "job_id must be a string"));
+        return Err(validation(
+            run_id,
+            Some(command),
+            None,
+            "job_id must be a string",
+        ));
     }
     let arguments = match object.get("arguments") {
         Some(value) => value
@@ -782,7 +849,7 @@ fn parse_command(
                 .filter(|value| value.is_object())
                 .ok_or_else(|| reject("sequence must be an object"))?;
             let sequence = Sequence::from_json_str(&value.to_string())
-                .map_err(|error| validation(Some(command), job_id, &error.to_string()))?;
+                .map_err(|error| validation(run_id, Some(command), job_id, &error.to_string()))?;
             if !sequence.serial.matches_serial_settings(settings) {
                 return Err(reject(
                     "sequence serial settings must match Worker startup settings",
@@ -797,6 +864,8 @@ fn parse_command(
             worker_job_id: String::new(),
             command: command.into(),
             job_id: job_id.map(str::to_owned),
+            state: "queued",
+            timestamp_utc: String::new(),
         },
         operation,
     ))
@@ -829,8 +898,16 @@ fn read_limit(arguments: &Map<String, Value>) -> Result<usize, &'static str> {
     }
 }
 
-fn validation(command: Option<&str>, job_id: Option<&str>, message: &str) -> Value {
-    json!({"schema_version": 2, "status": "error", "command": command, "job_id": job_id, "error": "validation_error", "message": message})
+fn validation(run_id: &str, command: Option<&str>, job_id: Option<&str>, message: &str) -> Value {
+    let kind = match command {
+        Some("send" | "send-file" | "receive" | "query" | "run-sequence") => Some("async_job"),
+        _ => None,
+    };
+    json!({
+        "schema_version": 3, "run_id": run_id, "status": "error", "command": command,
+        "job_id": job_id, "kind": kind, "worker_job_id": null,
+        "error": common_error("validation", "validation_error", message),
+    })
 }
 
 fn read_request(stream: &mut TcpStream) -> io::Result<(String, String, Vec<u8>)> {
@@ -918,7 +995,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (mut server, _) = listener.accept().unwrap();
-        let body = json!({"schema_version": 2, "command": "send", "arguments": {"tx_hex": "01"}})
+        let body = json!({"schema_version": 3, "command": "send", "arguments": {"tx_hex": "01"}})
             .to_string();
         write!(
             client,
@@ -931,6 +1008,8 @@ mod tests {
             worker_job_id: "job-1".into(),
             command: "receive".into(),
             job_id: None,
+            state: "running",
+            timestamp_utc: timestamp(),
         });
         let (sender, receiver) = mpsc::channel();
         let output = Mutex::new(io::stdout());
@@ -1270,7 +1349,7 @@ mod tests {
                     "send-file-run".into(),
                 )
             });
-            let body = json!({"schema_version": 2, "command": "send-file", "arguments": {"path": fixture.0}, "job_id": "client-file"});
+            let body = json!({"schema_version": 3, "command": "send-file", "arguments": {"path": fixture.0}, "job_id": "client-file"});
             let (code, accepted) = send_file_http(&state, &sender, "/command", body.clone());
             assert_eq!(code, 202);
             entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1279,10 +1358,10 @@ mod tests {
             assert_eq!(busy["reason"], "busy");
             let (code, response) = send_file_http(&state, &sender, "/stop", json!({}));
             assert_eq!(code, 200);
-            assert_eq!(response["status"], "stopping");
+            assert_eq!(response["status"], "accepted");
             let (code, response) = send_file_http(&state, &sender, "/stop", json!({}));
             assert_eq!(code, 200);
-            assert_eq!(response["status"], "stopping");
+            assert_eq!(response["status"], "accepted");
             let (code, rejected) = send_file_http(&state, &sender, "/command", body);
             assert_eq!(code, 409);
             assert_eq!(rejected["reason"], "stopping");
@@ -1310,21 +1389,22 @@ mod tests {
             assert_eq!(terminal["worker_job_id"], accepted["worker_job_id"]);
             assert_eq!(terminal["job_id"], "client-file");
             assert_eq!(terminal["run_id"], "send-file-run");
-            assert_eq!(terminal["schema_version"], 2);
+            assert_eq!(terminal["schema_version"], 3);
+            assert_eq!(terminal["event"], "job_finished");
             assert_eq!(
-                terminal["event"],
-                if stopped {
-                    "job_failed"
-                } else {
-                    "job_finished"
-                }
+                terminal["state"],
+                if stopped { "failed" } else { "succeeded" }
             );
+            assert_eq!(terminal["ok"], !stopped);
+            if !stopped {
+                assert_eq!(terminal["error"], Value::Null);
+            }
             assert_eq!(
                 terminal["result"],
                 json!({"file_bytes": size, "bytes_written": if stopped {call * 4096} else {size}})
             );
             if stopped {
-                assert_eq!(terminal["error"], "stopped_by_request");
+                assert_eq!(terminal["error"]["code"], "stopped_by_request");
                 assert_eq!(terminal["exit_code"], 3);
             }
             assert_eq!(events[2]["event"], "summary");
@@ -1340,7 +1420,7 @@ mod tests {
         let state = Arc::new(Mutex::new(State::new()));
         let (sender, receiver) = mpsc::channel();
         let body =
-            json!({"schema_version": 2, "command": "send-file", "arguments": {"path": fixture.0}});
+            json!({"schema_version": 3, "command": "send-file", "arguments": {"path": fixture.0}});
         assert_eq!(send_file_http(&state, &sender, "/command", body).0, 202);
         assert_eq!(send_file_http(&state, &sender, "/stop", json!({})).0, 200);
         drop(sender);
@@ -1367,8 +1447,8 @@ mod tests {
         assert_eq!(current.failed, 1);
         assert_eq!(current.succeeded, 0);
         let terminal = current.last_job.as_ref().unwrap();
-        assert_eq!(terminal["event"], "job_failed");
-        assert_eq!(terminal["error"], "stopped_by_request");
+        assert_eq!(terminal["event"], "job_finished");
+        assert_eq!(terminal["error"]["code"], "stopped_by_request");
         assert_eq!(terminal["result"], json!({"bytes_written": 0}));
         assert_eq!(
             output

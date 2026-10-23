@@ -6,6 +6,13 @@ defined by the [Serial Sequence contract](serial-sequence-contract.md).
 
 ## Worker startup
 
+Validate the actual `manifest --json` output first: Manifest schema 2,
+`v3-only` Worker schemas `[3]`, `multi_job` / `startup` execution, and
+`common.async_jobs` contract version 1. The five declared commands are `send`,
+`send-file`, `receive`, `query`, and `run-sequence`, all `async_job`.
+Cancellation and streaming are not adopted. Apply the Common loopback URL
+validation and same-origin rules before contacting any control endpoint.
+
 1. Read and validate the Serial Sequence. Use its baud rate, data bits,
    parity, stop bits, flow control, and timeout as the Worker startup line
    settings. Do not add orchestration defaults.
@@ -16,7 +23,10 @@ defined by the [Serial Sequence contract](serial-sequence-contract.md).
 3. For simulation, use `simulation_profile_id: "loopback-v1"`. This is the
    Worker-specific deterministic simulation identity; do not synthesize a
    physical `planning_model_id`.
-4. Start the Worker and wait for `ready` with its `run_id` and endpoint URLs.
+4. Start the Worker and wait for schema-3 `ready` with its `run_id`, endpoint
+   URLs, and matching runtime `common.async_jobs` feature. HTTP readiness
+   fallback requires matching `run_id`, validated URLs/features,
+   `worker_state: "running"`, and `fatal_error: null`.
    Representative launches for a Sequence with 115200, 8-N-1, no flow control,
    and a 1000 ms timeout are:
 
@@ -31,7 +41,7 @@ Submit the canonical inline Sequence object to `POST /command`:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "command": "run-sequence",
   "arguments": {
     "sequence": {
@@ -55,9 +65,22 @@ Submit the canonical inline Sequence object to `POST /command`:
 ```
 
 Omit request-level `context` because Serial execution context is bound at
-Worker startup. HTTP `202` means admission only. Save the accepted
-`worker_job_id`, then poll non-mutating `GET /status` or consume stdout JSONL
-until a matching `job_finished` or `job_failed` terminal event arrives. Match
-the event's `run_id` and `worker_job_id`. Request cooperative `POST /stop`,
-then require a final `summary` and normal process exit. Stop waits for an
-active Sequence to finish or fail; it does not interrupt its steps.
+Worker startup. HTTP `202` means admission only; the response includes
+`schema_version: 3`, `run_id`, `kind: "async_job"`, and `error: null`.
+Save the accepted `worker_job_id`, then poll non-mutating `GET /status` or consume stdout JSONL
+until a matching `job_finished` terminal or complete `last_job` snapshot
+arrives. Match `run_id`, `worker_job_id`, `job_id`, and command. Check `state`
+(`succeeded` or `failed`), `ok`, `result`, and Common Error; retain partial RX,
+Sequence results/transcript, and partial file counts. A normal job failure
+does not make this multi-job Worker fatal. Common job correlation and terminal
+tracking belong in the shared Orchestrator layer, with Serial domain results
+handled by a thin adapter; this repository does not implement that tracker.
+
+Request cooperative `POST /stop` with an empty body, `{}`, or optional
+`schema_version: 3` and string `reason`. HTTP `200`, `status: "accepted"`,
+`error: null` acknowledges stop only. Require summary, stdout EOF, and actual
+process exit, retaining fatal or cleanup failure evidence even after a
+successful summary. Stop waits for an active Sequence to finish or fail; it
+does not interrupt its steps or cancel jobs. `send-file` retains its existing
+chunk-boundary cooperative stop and `stopped_by_request` failure. Do not retry
+side-effecting commands after a missing response, HTTP `500`, or disconnect.
