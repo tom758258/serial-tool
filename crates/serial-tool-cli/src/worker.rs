@@ -395,7 +395,9 @@ fn stream_event<W: Write>(
                 data["rx_bytes"] = json!(bytes.len());
                 if let Err(error) = try_emit(output, &data) {
                     let mut current = control.state.lock().unwrap();
-                    current.error.get_or_insert_with(|| format!("RX output failed: {error}"));
+                    current
+                        .error
+                        .get_or_insert_with(|| format!("RX output failed: {error}"));
                     control.changed.notify_all();
                 }
             }
@@ -1037,7 +1039,9 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
                 value["features"] = stream_features();
                 value["stream"] = json!({ "lifecycle": "run_bound", "state": state });
                 if let Some(message) = current.error.as_deref().or_else(|| {
-                    current.disconnected.then_some("Serial RX owner disconnected unexpectedly")
+                    current
+                        .disconnected
+                        .then_some("Serial RX owner disconnected unexpectedly")
                 }) {
                     value["worker_state"] = json!("failed");
                     value["fatal_error"] = common_error("worker", "runtime_error", message);
@@ -1450,7 +1454,10 @@ mod tests {
         struct BrokenOutput;
         impl Write for BrokenOutput {
             fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
-                Err(io::Error::new(io::ErrorKind::BrokenPipe, "injected failure"))
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "injected failure",
+                ))
             }
 
             fn flush(&mut self) -> io::Result<()> {
