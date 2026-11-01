@@ -68,7 +68,10 @@ fn one_shot_machine_modes_emit_one_object() {
             );
             assert_eq!(
                 value["features"],
-                serde_json::json!({"common.async_jobs": {"contract_version": 1}})
+                serde_json::json!({
+                    "common.async_jobs": {"contract_version": 1},
+                    "common.streaming": {"contract_version": 1, "lifecycles": ["run_bound"]}
+                })
             );
             assert_eq!(
                 value["commands"],

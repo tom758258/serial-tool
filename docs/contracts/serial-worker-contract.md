@@ -9,8 +9,11 @@ document defines the Serial-specific behavior.
 `execution.model: "multi_job"`, and `execution.context_binding: "startup"`.
 Its five commands below all have `kind: "async_job"`. Manifest and runtime
 features contain only `common.async_jobs` with `contract_version: 1`.
-Cancellation and streaming are not adopted. Multi-job means repeated jobs on
-one session, with one active slot and no additional queue or parallel jobs.
+Cancellation is not adopted. Optional RX streaming is available with `--streaming`,
+using `common.streaming` version 1 and the `run_bound` lifecycle. Without
+`--streaming`, runtime features and the existing five commands are unchanged.
+Multi-job means repeated jobs on one session, with one active slot and no
+additional queue or parallel jobs.
 Ordinary CLI results, dry-run output, and Sequence v1 retain their independent
 versions.
 
@@ -40,6 +43,69 @@ parity, 1 stop bit, no flow control, and 1000 ms timeout. `--baud` is required.
 In simulation these settings describe the logical session and do not represent
 hardware configuration. `--control-port` defaults to `0` (OS-selected) and
 accepts `0..65535`. HTTP binds only to `127.0.0.1`.
+
+## Optional full-duplex RX streaming
+
+`worker --streaming` explicitly adopts the Common Optional Streaming
+Extension. It is available for both Live and `loopback-v1` Simulation.
+The Manifest declares `common.streaming` contract version 1 with lifecycle
+`run_bound`, alongside `common.async_jobs`; non-streaming runtime adoption
+continues to include only `common.async_jobs`.
+
+Streaming retains a single Serial Session and a single I/O owner, which
+continuously services RX while send jobs may execute. It does not create a
+second COM reader, second Common stream, multiple active jobs, or a Worker
+RX FIFO. The Core owner's first Connected notification establishes RX source
+readiness after the transport is open. A separate HTTP Ready or the existence
+of a thread alone does not establish active monitoring.
+
+A streaming Ready declares the runtime features and
+`stream: {"lifecycle":"run_bound"}` without `stream.state`. JSONL and HTTP
+status include the same lifecycle and `stream.state`, progressing to
+`active` when the RX owner is ready, then `ended` on shutdown. Normal
+event order is Ready, status(active), zero or more RX data events, status(ended),
+summary, stdout EOF and process exit. No data may appear after ended.
+HTTP status is an in-memory observation and performs no additional serial I/O.
+
+Each Core RX observation emits one Serial-specific JSONL data event:
+
+```json
+{
+  "event": "rx",
+  "schema_version": 3,
+  "run_id": "the-current-runtime-id",
+  "timestamp_utc": "2026-11-01T10:00:00Z",
+  "rx_hex": "00ff0d0a",
+  "rx_bytes": 4
+}
+```
+
+`rx_hex` is lowercase hex without separators; `rx_bytes` is the number of
+raw bytes. Boundaries reflect available reads, not device frames. No text
+decoding, CR/LF insertion, protocol interpretation, replay, or retained
+Workflow buffer is supplied. Timestamps represent host event observation.
+The stream contains **RX only**; TX completion/failure remains an ordinary
+`job_finished` event for `send` or `send-file`.
+
+Streaming mode accepts **only** `send` and `send-file`. Requests for
+`receive`, `query`, or `run-sequence` return HTTP 400 with the existing
+Common validation-error shape before admission, do not consume the active
+job slot and never read from the serial port. This applies even to
+TX-only sequences. In non-streaming mode all five commands remain available
+with their original results and stop behavior. Streaming does not introduce
+job cancellation or a TX job queue.
+
+During streaming, `send-file` retains the existing 4096-byte chunk,
+write/flush confirmation, partial `bytes_written`, and cooperative stop
+semantics. The Core owner services pending RX between queued TX chunks;
+this does not guarantee arbitrary rates, nonblocking OS writes, or zero
+loss under saturation. No additional high-throughput buffer or FIFO is
+introduced. Known transport failures abort monitoring and lead to failed
+Worker cleanup evidence rather than an apparently healthy Active stream.
+An explicitly requested stop finishes any accepted job under existing
+rules, shuts down the RX owner, emits ended and then the existing summary.
+Data not observed by the host before the receive service stops cannot be
+guaranteed to have been captured.
 
 ## HTTP control plane
 

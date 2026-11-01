@@ -10,7 +10,12 @@ Validate the actual `manifest --json` output first: Manifest schema 2,
 `v3-only` Worker schemas `[3]`, `multi_job` / `startup` execution, and
 `common.async_jobs` contract version 1. The five declared commands are `send`,
 `send-file`, `receive`, `query`, and `run-sequence`, all `async_job`.
-Cancellation and streaming are not adopted. Apply the Common loopback URL
+Cancellation is not adopted. Optional `common.streaming` contract version 1
+with `run_bound` is supported only when the Worker is started with
+`--streaming`. That mode continuously emits Serial-specific `rx` JSONL
+events while allowing only `send` and `send-file` Async Jobs. There is no
+`receive`, `query` or `run-sequence` job in an opted-in runtime.
+The ordinary mode retains the five existing commands. Apply the Common loopback URL
 validation and same-origin rules before contacting any control endpoint.
 
 1. Read and validate the Serial Sequence. Use its baud rate, data bits,
@@ -84,3 +89,20 @@ successful summary. Stop waits for an active Sequence to finish or fail; it
 does not interrupt its steps or cancel jobs. `send-file` retains its existing
 chunk-boundary cooperative stop and `stopped_by_request` failure. Do not retry
 side-effecting commands after a missing response, HTTP `500`, or disconnect.
+
+## Optional RX Streaming Worker
+
+For a continuous Serial receiver, explicitly add `--streaming` to Worker
+startup. Verify Manifest Streaming capability and runtime adoption, then
+wait for JSONL status `stream.state: "active"` before relying on RX events
+or submitting TX. The Worker outputs only RX data events (`rx_hex`,
+`rx_bytes`); TX is sent with the existing asynchronous `send` or
+`send-file` commands and observed using their normal `job_finished`
+terminals. `run_bound` needs no separate source-start command.
+
+Stop and correlate events as required by Common v3, including ended,
+summary, stdout EOF and actual process exit. RX event chunks are raw
+observations, not protocol frames or a query response API. Any Workflow
+TX/RX FIFO, Background capture and Foreground-to-Background routing belong
+to Orchestrator, not Serial Tool. No Orchestrator integration is implemented
+by this contract update.
