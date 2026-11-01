@@ -366,12 +366,13 @@ fn owner_loop(
             Err(mpsc::TryRecvError::Disconnected) => break,
             Err(mpsc::TryRecvError::Empty) => None,
         };
-        if let Some(command) = command {
-            if handle_command(&mut session, &settings, command, &events, &mut periodic) {
-                break;
-            }
-            continue;
+        if let Some(command) = command
+            && handle_command(&mut session, &settings, command, &events, &mut periodic)
+        {
+            break;
         }
+        // Poll RX before taking another queued TX command, so a multi-chunk
+        // sender cannot indefinitely starve the receive side.
         if let Some(tx) = periodic.as_mut()
             && Instant::now() >= tx.next_send
         {

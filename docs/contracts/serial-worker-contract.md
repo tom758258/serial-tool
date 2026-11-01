@@ -7,10 +7,14 @@ document defines the Serial-specific behavior.
 
 `manifest --json` keeps Manifest schema `2`, declares Worker schemas `[3]`,
 `execution.model: "multi_job"`, and `execution.context_binding: "startup"`.
-Its five commands below all have `kind: "async_job"`. Manifest and runtime
-features contain only `common.async_jobs` with `contract_version: 1`.
-Cancellation and streaming are not adopted. Multi-job means repeated jobs on
-one session, with one active slot and no additional queue or parallel jobs.
+Its five commands below all have `kind: "async_job"`. The Manifest
+advertises `common.async_jobs` and optional `common.streaming`; a runtime
+without `--streaming` adopts only `common.async_jobs` contract version 1.
+Cancellation is not adopted. Optional RX streaming is available with `--streaming`,
+using `common.streaming` version 1 and the `run_bound` lifecycle. Without
+`--streaming`, runtime features and the existing five commands are unchanged.
+Multi-job means repeated jobs on one session, with one active slot and no
+additional queue or parallel jobs.
 Ordinary CLI results, dry-run output, and Sequence v1 retain their independent
 versions.
 
@@ -31,15 +35,83 @@ write's exact bytes become pending RX bytes in order. Reading without pending
 RX deterministically times out.
 
 Each Worker owns one persistent `SerialSession` for its entire lifetime. The
-session alone owns the serial transport and shared RX buffer. The sole runner
-thread performs serial operations; the HTTP control plane does not touch the
-transport. The startup mode, port or simulation profile, baud, data bits,
+session alone owns the serial transport and internal RX buffer. In ordinary
+mode, the sole Job Runner performs serial operations; in Streaming mode, the
+Core `PersistentRuntime` provides the sole Serial I/O Owner, and the Job Runner
+submits TX through it. The HTTP control plane never reads or writes the COM
+port directly. The startup mode, port or simulation profile, baud, data bits,
 parity, stop bits, flow control, and timeout are fixed for that runtime.
 Defaults for optional line settings match the one-shot CLI: 8 data bits, no
 parity, 1 stop bit, no flow control, and 1000 ms timeout. `--baud` is required.
 In simulation these settings describe the logical session and do not represent
 hardware configuration. `--control-port` defaults to `0` (OS-selected) and
 accepts `0..65535`. HTTP binds only to `127.0.0.1`.
+
+## Optional full-duplex RX streaming
+
+`worker --streaming` explicitly adopts the Common Optional Streaming
+Extension. It is available for both Live and `loopback-v1` Simulation.
+The Manifest declares `common.streaming` contract version 1 with lifecycle
+`run_bound`, alongside `common.async_jobs`; non-streaming runtime adoption
+continues to include only `common.async_jobs`.
+
+Streaming retains a single Serial Session and a single I/O owner, which
+continuously services RX while send jobs may execute. It does not create a
+second COM reader, second Common stream, multiple active jobs, or a Worker
+RX FIFO. The Core owner's first Connected notification establishes RX source
+readiness after the transport is open. A separate HTTP Ready or the existence
+of a thread alone does not establish active monitoring.
+
+A streaming Ready declares the runtime features and
+`stream: {"lifecycle":"run_bound"}` without `stream.state`. JSONL and HTTP
+status include the same lifecycle and `stream.state`, progressing to
+`active` when the RX owner is ready, then `ended` on shutdown. Normal
+event order is Ready, status(active), zero or more RX data events, status(ended),
+summary, stdout EOF and process exit. Streaming JSONL status also contains
+`active_job` and `last_job` from the existing Async Job state. A normal stop
+reports `worker_state: "stopping"` at ended; a known fatal error reports
+`worker_state: "failed"` and the matching Common `fatal_error`. No data may appear after ended.
+HTTP status is an in-memory observation and performs no additional serial I/O.
+
+Each Core RX observation emits one Serial-specific JSONL data event:
+
+```json
+{
+  "event": "rx",
+  "schema_version": 3,
+  "run_id": "the-current-runtime-id",
+  "timestamp_utc": "2026-11-01T10:00:00Z",
+  "rx_hex": "00ff0d0a",
+  "rx_bytes": 4
+}
+```
+
+`rx_hex` is lowercase hex without separators; `rx_bytes` is the number of
+raw bytes. Boundaries reflect available reads, not device frames. No text
+decoding, CR/LF insertion, protocol interpretation, replay, or retained
+Workflow buffer is supplied. Timestamps represent host event observation.
+The stream contains **RX only**; TX completion/failure remains an ordinary
+`job_finished` event for `send` or `send-file`.
+
+Streaming mode accepts **only** `send` and `send-file`. Requests for
+`receive`, `query`, or `run-sequence` return HTTP 400 with the existing
+Common validation-error shape before admission, do not consume the active
+job slot and never read from the serial port. This applies even to
+TX-only sequences. In non-streaming mode all five commands remain available
+with their original results and stop behavior. Streaming does not introduce
+job cancellation or a TX job queue.
+
+During streaming, `send-file` retains the existing 4096-byte chunk,
+write/flush confirmation, partial `bytes_written`, and cooperative stop
+semantics. The Core owner services pending RX between queued TX chunks;
+this does not guarantee arbitrary rates, nonblocking OS writes, or zero
+loss under saturation. No additional high-throughput buffer or FIFO is
+introduced. Known transport failures abort monitoring and lead to failed
+Worker cleanup evidence rather than an apparently healthy Active stream.
+An explicitly requested stop finishes any accepted job under existing
+rules, shuts down the RX owner, emits ended and then the existing summary.
+Data not observed by the host before the receive service stops cannot be
+guaranteed to have been captured.
 
 ## HTTP control plane
 
@@ -110,9 +182,11 @@ Common Error always contains `category`, `code`, non-empty `message`, and an
 object `details`. Never automatically retry a command with possible serial
 side effects after a timeout, disconnect, missing response, or HTTP `500`.
 
-The runner uses Core `write_all` and `flush` for `send`, Core `read` for
-`receive`, and `write_all`, `flush`, and Core `read_until` for `query`. An
-accepted command's HTTP response remains `202` even if execution later fails.
+In ordinary mode, the runner uses Core `write_all` and `flush` for `send`,
+Core `read` for `receive`, and `write_all`, `flush`, and Core `read_until`
+for `query`. Streaming mode routes `send` and `send-file` through Core
+`PersistentRuntime` instead. An accepted command's HTTP response remains
+`202` even if execution later fails.
 Timeouts and serial read/write/flush failures emit `job_finished` with
 `state: "failed"`, Common Error category `execution`, code `serial_error`,
 and update `last_job`; the Worker remains available. Partial RX supplied by Core appears
@@ -124,9 +198,10 @@ For `run-sequence`, the same runner thread executes the existing Core
 `state: "failed"`, Common Error code `sequence_execution_error`,
 `exit_code: 3`, `step_id`, completed `step_results`, and completed `transcript`.
 When Core supplies partial RX,
-`partial_hex` and `partial_bytes` are also present. Ordinary execution failure
-leaves the Worker ready for another command. The single active slot and busy
-rejection apply to `run-sequence` and all other commands alike.
+`partial_hex` and `partial_bytes` are also present. In ordinary mode, execution failure leaves the Worker ready for another
+command. In Streaming mode, an I/O Owner failure ends monitoring and fails
+the Worker rather than leaving the stream healthy. The single active slot and
+busy rejection apply to `run-sequence` and all other commands alike.
 
 ## Raw binary file sending
 
@@ -156,12 +231,12 @@ checks metadata and reads it; nonexistent, inaccessible, non-regular, empty,
 or unreadable files fail as `job_finished`, `state: "failed"`, with Common
 Error code `file_error`.
 Every extension is raw binary: no decoding, hex conversion, line-ending
-conversion, or appended bytes occur. The runner uses one fixed 4 KiB buffer,
-reads chunks of up to 4096 bytes until EOF, and calls the existing Core
-`SerialSession.write_all()` followed by `flush()` for each chunk. It owns the
-session exclusively and never holds the State mutex during file or serial
-I/O. There are no progress events, retransmissions, retries, or delivery
-acknowledgments. The 16 MiB HTTP body limit is unchanged.
+conversion, or appended bytes occur. The runner uses one fixed 4 KiB buffer and reads chunks of up to 4096 bytes
+until EOF. In ordinary mode, it calls Core `SerialSession.write_all()` and
+`flush()` directly; in Streaming mode, it submits each chunk to the sole Core
+I/O Owner via `PersistentRuntime.send()`, which writes and flushes it. The
+runner never holds the State mutex during file or serial I/O. There are no
+progress events, retransmissions, retries, or delivery acknowledgments. The 16 MiB HTTP body limit is unchanged.
 
 Success is one `job_finished` event with `state: "succeeded"`, `ok: true`,
 `error: null`, and, for example, this `result`:

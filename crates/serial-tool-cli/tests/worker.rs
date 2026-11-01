@@ -135,9 +135,17 @@ fn request(url: &str, method: &str, body: &str) -> (u16, Value) {
         assert_eq!(value["fatal_error"], Value::Null);
         assert!(value.get("fatal_error").is_some());
         assert_eq!(
-            value["features"],
-            json!({"common.async_jobs": {"contract_version": 1}})
+            value["features"]["common.async_jobs"],
+            json!({"contract_version": 1})
         );
+        if value.get("stream").is_some() {
+            assert_eq!(
+                value["features"]["common.streaming"],
+                json!({"contract_version": 1, "lifecycles": ["run_bound"]})
+            );
+        } else {
+            assert!(value["features"].get("common.streaming").is_none());
+        }
         assert!(value.get("active_job").is_some());
         assert!(value.get("last_job").is_some());
         if !value["active_job"].is_null() {
@@ -348,7 +356,14 @@ fn simulation_session_lifecycle() {
     let commands = manifest["commands"].as_object().unwrap();
     let mut exercised = Vec::new();
     let (mut child, receiver, ready) = spawn();
-    assert_eq!(ready["features"], manifest["features"]);
+    assert_eq!(
+        manifest["features"]["common.streaming"],
+        json!({"contract_version": 1, "lifecycles": ["run_bound"]})
+    );
+    assert_eq!(
+        ready["features"],
+        json!({"common.async_jobs": {"contract_version": 1}})
+    );
     let run_id = ready["run_id"].as_str().unwrap();
     let status_url = ready["status_url"].as_str().unwrap();
     let command_url = ready["command_url"].as_str().unwrap();
@@ -855,4 +870,199 @@ fn send_file_file_errors_are_job_failures_and_cleanup_succeeds() {
     }
     assert_eq!(summaries, 1);
     assert_eq!(child.wait().unwrap().code(), Some(0));
+}
+
+fn spawn_stream() -> (Child, Receiver<Value>, Value) {
+    let mut child = binary()
+        .args([
+            "worker",
+            "--mode",
+            "simulate",
+            "--baud",
+            "115200",
+            "--simulation-profile-id",
+            "loopback-v1",
+            "--streaming",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let value: Value = serde_json::from_str(&line.unwrap()).unwrap();
+            sender.send(value).unwrap();
+        }
+    });
+    let ready = next(&receiver);
+    assert_eq!(ready["event"], "ready");
+    assert_eq!(
+        ready["features"],
+        json!({
+            "common.async_jobs": {"contract_version": 1},
+            "common.streaming": {"contract_version": 1, "lifecycles": ["run_bound"]}
+        })
+    );
+    assert_eq!(ready["stream"], json!({"lifecycle": "run_bound"}));
+    let active = next(&receiver);
+    assert_eq!(active["event"], "status");
+    assert_eq!(
+        active["stream"],
+        json!({"lifecycle": "run_bound", "state": "active"})
+    );
+    assert_eq!(active["worker_state"], "running");
+    assert_eq!(active["fatal_error"], Value::Null);
+    assert_eq!(active["active_job"], Value::Null);
+    assert_eq!(active["last_job"], Value::Null);
+    (child, receiver, ready)
+}
+
+fn stop_stream(child: &mut Child, receiver: &Receiver<Value>, ready: &Value) {
+    let (code, accepted) = request(ready["stop_url"].as_str().unwrap(), "POST", "{}");
+    assert_eq!(code, 200);
+    assert_eq!(accepted["status"], "accepted");
+    let mut ended = false;
+    let mut summary = false;
+    while !summary {
+        let item = next(receiver);
+        if item["event"] == "status" && item["stream"]["state"] == "ended" {
+            assert!(!ended);
+            assert_eq!(item["worker_state"], "stopping");
+            assert_eq!(item["fatal_error"], Value::Null);
+            assert_eq!(item["active_job"], Value::Null);
+            assert_eq!(item["last_job"]["state"], "succeeded");
+            ended = true;
+        }
+        if ended {
+            assert_ne!(item["event"], "rx", "RX emitted after stream ended");
+        }
+        if item["event"] == "summary" {
+            assert!(ended, "stream must end before summary");
+            assert_eq!(item["ok"], true);
+            summary = true;
+        }
+    }
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn streaming_rx_is_independent_of_receive_jobs() {
+    let (mut child, receiver, ready) = spawn_stream();
+    let url = ready["command_url"].as_str().unwrap();
+    let (code, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(code, 200);
+    assert_eq!(
+        status["stream"],
+        json!({"lifecycle": "run_bound", "state": "active"})
+    );
+    for body in [
+        json!({"schema_version": 3, "command": "receive"}),
+        json!({
+            "schema_version": 3,
+            "command": "query",
+            "arguments": {"tx_hex": "aa", "delimiter_hex": "0d0a"}
+        }),
+        sequence_request(sequence(json!([
+            {"id": "send", "type": "send_bytes", "hex": "aa"}
+        ]))),
+    ] {
+        let (code, rejected) = request(url, "POST", &body.to_string());
+        assert_eq!(code, 400);
+        assert_eq!(rejected["error"]["code"], "validation_error");
+        assert_eq!(rejected["worker_job_id"], Value::Null);
+    }
+    let (code, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(code, 200);
+    assert_eq!(status["active_job"], Value::Null);
+    assert_eq!(status["last_job"], Value::Null);
+    let payload = [0x00, 0xff, 0x0d, 0x0a, 0x55];
+    let (code, admission) = request(
+        url,
+        "POST",
+        &json!({
+            "schema_version": 3,
+            "command": "send",
+            "arguments": {"tx_hex": "00ff0d0a55"}
+        })
+        .to_string(),
+    );
+    assert_eq!(code, 202);
+    let mut received = Vec::new();
+    let mut terminal_seen = false;
+    while received.len() < payload.len() || !terminal_seen {
+        let item = next(&receiver);
+        match item["event"].as_str() {
+            Some("rx") => {
+                assert_eq!(item["run_id"], ready["run_id"]);
+                let hex = item["rx_hex"].as_str().unwrap();
+                assert_eq!(item["rx_bytes"], hex.len() / 2);
+                for pair in hex.as_bytes().as_chunks::<2>().0 {
+                    received
+                        .push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
+                }
+            }
+            Some("job_finished") => {
+                assert_eq!(item["worker_job_id"], admission["worker_job_id"]);
+                assert_eq!(item["state"], "succeeded");
+                assert_eq!(
+                    item["result"],
+                    json!({"tx_hex": "00ff0d0a55", "tx_bytes": 5})
+                );
+                terminal_seen = true;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(received, payload);
+    stop_stream(&mut child, &receiver, &ready);
+}
+
+#[test]
+fn streaming_send_file_polls_rx_between_chunks() {
+    let (mut child, receiver, ready) = spawn_stream();
+    let bytes: Vec<u8> = (0..12299)
+        .map(|index| [0x00, 0xff, 0x0d, 0x0a][index % 4])
+        .collect();
+    let file = SendFileFixture::new(&bytes);
+    let (code, accepted) = request(
+        ready["command_url"].as_str().unwrap(),
+        "POST",
+        &send_file_request(&file.0).to_string(),
+    );
+    assert_eq!(code, 202);
+    let mut received = Vec::new();
+    let mut terminal_seen = false;
+    let mut rx_before_terminal = false;
+    while received.len() < bytes.len() || !terminal_seen {
+        let item = next(&receiver);
+        match item["event"].as_str() {
+            Some("rx") => {
+                if !terminal_seen {
+                    rx_before_terminal = true;
+                }
+                let hex = item["rx_hex"].as_str().unwrap();
+                for pair in hex.as_bytes().as_chunks::<2>().0 {
+                    received
+                        .push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
+                }
+            }
+            Some("job_finished") => {
+                assert_eq!(item["worker_job_id"], accepted["worker_job_id"]);
+                assert_eq!(
+                    item["result"],
+                    json!({"file_bytes": bytes.len(), "bytes_written": bytes.len()})
+                );
+                terminal_seen = true;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(received, bytes);
+    assert!(
+        rx_before_terminal,
+        "RX was deferred until after send-file completed"
+    );
+    stop_stream(&mut child, &receiver, &ready);
 }

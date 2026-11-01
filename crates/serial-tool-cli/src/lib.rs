@@ -454,7 +454,10 @@ impl Cli {
                     "tool_version": env!("CARGO_PKG_VERSION"),
                     "worker_protocol": { "compatibility_policy": "v3-only", "schema_versions": [3] },
                     "execution": { "model": "multi_job", "context_binding": "startup" },
-                    "features": { "common.async_jobs": { "contract_version": 1 } },
+                    "features": {
+                        "common.async_jobs": { "contract_version": 1 },
+                        "common.streaming": { "contract_version": 1, "lifecycles": ["run_bound"] }
+                    },
                     "commands": {
                         "send": { "kind": "async_job" },
                         "send-file": { "kind": "async_job" },

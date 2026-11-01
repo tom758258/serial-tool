@@ -169,6 +169,26 @@ not catch up missed intervals. Ctrl+C stops periodic TX and disconnects;
 connection or serial I/O failures exit 3 and release the connection. There is
 no stdin interaction, dry-run, or JSON/JSONL contract for `auto-tx`.
 
+## Worker RX Streaming (optional)
+
+The persistent Worker also supports opt-in full-duplex RX streaming using the
+Common v3 Optional Streaming Extension:
+
+```sh
+serial-tool worker --mode live --port COM4 --baud 115200 --streaming
+serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --streaming
+```
+
+Streaming starts with the Worker (`run_bound`) and reports raw incoming RX
+as JSONL `rx` events (`rx_hex` / `rx_bytes`). TX is performed through
+existing asynchronous `send` and `send-file` HTTP commands while RX
+continues. `receive`, `query`, and `run-sequence` are available only
+without `--streaming`, and non-streaming Worker operation is unchanged.
+The simulated loopback returns transmitted bytes as RX; unsolicited RX
+requires a source that independently sends data. No orchestration buffer,
+replay, or device protocol decoding is added.
+See [Serial Worker Contract](docs/contracts/serial-worker-contract.md).
+
 ## Sequences
 
 A Sequence JSON file uses `sequence_version: 1` and records all serial line
