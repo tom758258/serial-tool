@@ -388,12 +388,16 @@ fn stream_event<W: Write>(
             while !state.active && !state.disconnected && state.error.is_none() {
                 state = control.changed.wait(state).unwrap();
             }
-            if state.active && !state.disconnected {
+            if state.active && !state.disconnected && state.error.is_none() {
                 drop(state);
                 let mut data = event_json("rx", run_id);
                 data["rx_hex"] = json!(hex(&bytes));
                 data["rx_bytes"] = json!(bytes.len());
-                emit(output, &data);
+                if let Err(error) = try_emit(output, &data) {
+                    let mut current = control.state.lock().unwrap();
+                    current.error.get_or_insert_with(|| format!("RX output failed: {error}"));
+                    control.changed.notify_all();
+                }
             }
         }
         RuntimeEvent::Data { .. } => {}
@@ -427,11 +431,32 @@ fn await_connected(control: &StreamControl) -> Result<(), String> {
     }
 }
 
-fn stream_status(run_id: &str, state: &str) -> Value {
+fn cancel_pending_stream(control: &StreamControl) {
+    let mut current = control.state.lock().unwrap();
+    current.disconnected = true;
+    control.changed.notify_all();
+}
+
+fn abort_stream_start(runtime: &PersistentRuntime, control: &StreamControl) {
+    cancel_pending_stream(control);
+    let _ = runtime.disconnect();
+}
+
+fn stream_status(run_id: &str, stream_state: &str, worker: &State, error: Option<&str>) -> Value {
     let mut value = event_json("status", run_id);
-    value["worker_state"] = json!("running");
-    value["fatal_error"] = Value::Null;
-    value["stream"] = json!({ "lifecycle": "run_bound", "state": state });
+    value["worker_state"] = json!(if error.is_some() {
+        "failed"
+    } else if worker.stopping {
+        "stopping"
+    } else {
+        "running"
+    });
+    value["fatal_error"] = error.map_or(Value::Null, |message| {
+        common_error("worker", "runtime_error", message)
+    });
+    value["active_job"] = json!(worker.active.as_ref().map(identity_json));
+    value["last_job"] = worker.last_job.clone().unwrap_or(Value::Null);
+    value["stream"] = json!({ "lifecycle": "run_bound", "state": stream_state });
     value
 }
 
@@ -450,10 +475,34 @@ fn common_error(category: &str, code: &str, message: &str) -> Value {
     json!({ "category": category, "code": code, "message": message, "details": {} })
 }
 
-fn emit<W: Write>(output: &Mutex<W>, value: &Value) {
+fn try_emit<W: Write>(output: &Mutex<W>, value: &Value) -> io::Result<()> {
     let mut stdout = output.lock().expect("stdout lock poisoned");
-    writeln!(stdout, "{value}").expect("stdout write failed");
-    stdout.flush().expect("stdout flush failed");
+    writeln!(stdout, "{value}")?;
+    stdout.flush()
+}
+
+fn emit<W: Write>(output: &Mutex<W>, value: &Value) {
+    try_emit(output, value).expect("stdout write failed");
+}
+
+fn fatal_stream(output: &Mutex<io::Stdout>, run_id: &str, message: &str, state: &State) -> i32 {
+    let mut error = event("error", run_id);
+    error["ok"] = json!(false);
+    error["exit_code"] = json!(3);
+    error["message"] = json!(message);
+    error["scope"] = json!("worker");
+    error["fatal"] = json!(true);
+    error["error"] = common_error("worker", "runtime_error", message);
+    if let Err(write_error) = try_emit(output, &error) {
+        eprintln!("Worker output unavailable: {write_error}; cause: {message}");
+        return 3;
+    }
+    let mut terminal = summary(run_id, state, false);
+    terminal["fatal_error"] = error["error"].clone();
+    if let Err(write_error) = try_emit(output, &terminal) {
+        eprintln!("Worker summary output unavailable: {write_error}; cause: {message}");
+    }
+    3
 }
 
 fn fatal(output: &Mutex<io::Stdout>, run_id: &str, message: &str, state: &State) -> i32 {
@@ -564,7 +613,7 @@ impl WorkerArgs {
                 return fatal(&output, &run_id, &error.to_string(), &State::new());
             }
             if let Err(error) = await_connected(&control) {
-                let _ = runtime.disconnect();
+                abort_stream_start(&runtime, &control);
                 return fatal(&output, &run_id, &error, &State::new());
             }
             streaming_runtime = Some((runtime, control));
@@ -585,6 +634,9 @@ impl WorkerArgs {
         let listener = match TcpListener::bind(("127.0.0.1", self.control_port)) {
             Ok(listener) => listener,
             Err(error) => {
+                if let Some((runtime, control)) = &streaming_runtime {
+                    abort_stream_start(runtime, control);
+                }
                 return fatal(
                     &output,
                     &run_id,
@@ -629,8 +681,14 @@ impl WorkerArgs {
             })
         };
         if let Err(error) = listener.set_nonblocking(true) {
+            if let Some((_, control)) = &streaming_runtime {
+                cancel_pending_stream(control);
+            }
             drop(sender);
             let _ = runner.join();
+            if let Some((runtime, _)) = &streaming_runtime {
+                let _ = runtime.disconnect();
+            }
             return fatal(
                 &output,
                 &run_id,
@@ -656,10 +714,54 @@ impl WorkerArgs {
             WorkerMode::Live => ready["port"] = json!(settings.port),
             WorkerMode::Simulate => ready["simulation_profile_id"] = json!("loopback-v1"),
         }
-        emit(&output, &ready);
-        if let Some((_, control)) = &streaming_runtime {
+        if self.streaming {
+            if let Err(error) = try_emit(&output, &ready) {
+                if let Some((runtime, control)) = &streaming_runtime {
+                    cancel_pending_stream(control);
+                    drop(sender);
+                    let _ = runner.join();
+                    let _ = runtime.disconnect();
+                }
+                eprintln!("Serial Worker ready output failed: {error}");
+                return 3;
+            }
+        } else {
+            emit(&output, &ready);
+        }
+        if let Some((runtime, control)) = &streaming_runtime {
+            let active = {
+                let current = state.lock().unwrap();
+                stream_status(&run_id, "active", &current, None)
+            };
             let mut current = control.state.lock().unwrap();
-            emit(&output, &stream_status(&run_id, "active"));
+            if current.error.is_some() || current.disconnected {
+                let message = current
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "Serial RX owner disconnected during startup".into());
+                current.disconnected = true;
+                control.changed.notify_all();
+                drop(current);
+                drop(sender);
+                let _ = runner.join();
+                let _ = runtime.disconnect();
+                let ended = {
+                    let worker = state.lock().unwrap();
+                    stream_status(&run_id, "ended", &worker, Some(&message))
+                };
+                let _ = try_emit(&output, &ended);
+                return fatal_stream(&output, &run_id, &message, &state.lock().unwrap());
+            }
+            if let Err(error) = try_emit(&output, &active) {
+                current.disconnected = true;
+                control.changed.notify_all();
+                drop(current);
+                drop(sender);
+                let _ = runner.join();
+                let _ = runtime.disconnect();
+                eprintln!("Serial Worker active status output failed: {error}");
+                return 3;
+            }
             current.active = true;
             control.changed.notify_all();
         }
@@ -730,12 +832,23 @@ impl WorkerArgs {
                 control_error.get_or_insert_with(|| error.clone());
             }
             current.active = false;
-            emit(&output, &stream_status(&run_id, "ended"));
             control.changed.notify_all();
+            drop(current);
+            let ended = {
+                let worker = state.lock().unwrap();
+                stream_status(&run_id, "ended", &worker, control_error.as_deref())
+            };
+            if let Err(error) = try_emit(&output, &ended) {
+                control_error.get_or_insert_with(|| format!("Stream end output failed: {error}"));
+            }
         }
         let current = state.lock().unwrap();
         if let Some(message) = control_error {
-            fatal(&output, &run_id, &message, &current)
+            if self.streaming {
+                fatal_stream(&output, &run_id, &message, &current)
+            } else {
+                fatal(&output, &run_id, &message, &current)
+            }
         } else {
             emit(&output, &summary(&run_id, &current, true));
             0
@@ -923,6 +1036,12 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
                 };
                 value["features"] = stream_features();
                 value["stream"] = json!({ "lifecycle": "run_bound", "state": state });
+                if let Some(message) = current.error.as_deref().or_else(|| {
+                    current.disconnected.then_some("Serial RX owner disconnected unexpectedly")
+                }) {
+                    value["worker_state"] = json!("failed");
+                    value["fatal_error"] = common_error("worker", "runtime_error", message);
+                }
             }
             write_response(stream, 200, &value)
         }
@@ -1281,6 +1400,77 @@ fn write_response(stream: &mut TcpStream, status: u16, value: &Value) -> io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_status_includes_async_job_snapshot_and_shutdown_state() {
+        let mut worker = State::new();
+        let active = stream_status("test", "active", &worker, None);
+        assert_eq!(active["worker_state"], "running");
+        assert_eq!(active["active_job"], Value::Null);
+        assert_eq!(active["last_job"], Value::Null);
+        assert_eq!(active["fatal_error"], Value::Null);
+        worker.stopping = true;
+        worker.last_job = Some(json!({"worker_job_id": "job-1", "state": "succeeded"}));
+        let ended = stream_status("test", "ended", &worker, None);
+        assert_eq!(ended["worker_state"], "stopping");
+        assert_eq!(ended["last_job"], worker.last_job.as_ref().unwrap().clone());
+        assert_eq!(ended["active_job"], Value::Null);
+        let failed = stream_status("test", "ended", &worker, Some("port disconnected"));
+        assert_eq!(failed["worker_state"], "failed");
+        assert_eq!(failed["fatal_error"]["code"], "runtime_error");
+    }
+
+    #[test]
+    fn cancelling_pre_active_rx_unblocks_without_emitting_data() {
+        let control = Arc::new(StreamControl::default());
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let (done, finished) = mpsc::sync_channel(1);
+        let rx_control = Arc::clone(&control);
+        let rx_output = Arc::clone(&output);
+        let handle = thread::spawn(move || {
+            stream_event(
+                RuntimeEvent::Data {
+                    direction: Direction::Rx,
+                    bytes: vec![0xaa],
+                },
+                &rx_control,
+                &rx_output,
+                "test",
+            );
+            done.send(()).unwrap();
+        });
+        cancel_pending_stream(&control);
+        finished.recv_timeout(Duration::from_secs(1)).unwrap();
+        handle.join().unwrap();
+        assert!(output.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn stream_rx_output_error_is_reported_without_panicking() {
+        struct BrokenOutput;
+        impl Write for BrokenOutput {
+            fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::BrokenPipe, "injected failure"))
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let control = StreamControl::default();
+        control.state.lock().unwrap().active = true;
+        stream_event(
+            RuntimeEvent::Data {
+                direction: Direction::Rx,
+                bytes: vec![0xaa, 0xff],
+            },
+            &control,
+            &Mutex::new(BrokenOutput),
+            "test",
+        );
+        let state = control.state.lock().unwrap();
+        assert!(state.error.as_deref().unwrap().contains("RX output failed"));
+    }
 
     #[test]
     fn active_slot_rejects_busy_or_unavailable_runner() {

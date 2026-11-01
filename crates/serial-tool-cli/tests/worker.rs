@@ -912,6 +912,10 @@ fn spawn_stream() -> (Child, Receiver<Value>, Value) {
         active["stream"],
         json!({"lifecycle": "run_bound", "state": "active"})
     );
+    assert_eq!(active["worker_state"], "running");
+    assert_eq!(active["fatal_error"], Value::Null);
+    assert_eq!(active["active_job"], Value::Null);
+    assert_eq!(active["last_job"], Value::Null);
     (child, receiver, ready)
 }
 
@@ -925,6 +929,10 @@ fn stop_stream(child: &mut Child, receiver: &Receiver<Value>, ready: &Value) {
         let item = next(receiver);
         if item["event"] == "status" && item["stream"]["state"] == "ended" {
             assert!(!ended);
+            assert_eq!(item["worker_state"], "stopping");
+            assert_eq!(item["fatal_error"], Value::Null);
+            assert_eq!(item["active_job"], Value::Null);
+            assert_eq!(item["last_job"]["state"], "succeeded");
             ended = true;
         }
         if ended {
