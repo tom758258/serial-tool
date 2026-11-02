@@ -82,6 +82,7 @@ struct HttpContext<'a, W: Write> {
     serial_settings: &'a Value,
     settings: &'a SerialSettings,
     port: Option<&'a str>,
+    simulation_profile_id: Option<&'a str>,
     stream: Option<&'a Arc<StreamControl>>,
 }
 
@@ -543,10 +544,15 @@ impl WorkerArgs {
             }
             WorkerMode::Simulate
                 if self.port.is_some()
-                    || self.simulation_profile_id.as_deref() != Some("loopback-v1") =>
+                    || !matches!(
+                        self.simulation_profile_id.as_deref(),
+                        Some("loopback-v1" | "periodic-rx-v1")
+                    )
+                    || (self.simulation_profile_id.as_deref() == Some("periodic-rx-v1")
+                        && !self.streaming) =>
             {
                 return Err(CliError::Input(
-                    "simulate requires --simulation-profile-id loopback-v1 and forbids --port",
+                    "simulate requires --simulation-profile-id loopback-v1 (or periodic-rx-v1 with --streaming) and forbids --port",
                 ));
             }
             _ => {}
@@ -609,9 +615,19 @@ impl WorkerArgs {
                 WorkerMode::Live => RuntimeMode::Live,
                 WorkerMode::Simulate => RuntimeMode::Simulation,
             };
-            if let Err(error) = runtime.connect(mode, settings.clone(), move |event| {
+            let on_event = move |event| {
                 stream_event(event, &events_control, &events_output, &events_run_id);
-            }) {
+            };
+            let connected = if self.simulation_profile_id.as_deref() == Some("periodic-rx-v1") {
+                runtime.connect_simulation(
+                    settings.clone(),
+                    SimulationTransport::periodic_rx(),
+                    on_event,
+                )
+            } else {
+                runtime.connect(mode, settings.clone(), on_event)
+            };
+            if let Err(error) = connected {
                 return fatal(&output, &run_id, &error.to_string(), &State::new());
             }
             if let Err(error) = await_connected(&control) {
@@ -714,7 +730,9 @@ impl WorkerArgs {
         }
         match self.mode {
             WorkerMode::Live => ready["port"] = json!(settings.port),
-            WorkerMode::Simulate => ready["simulation_profile_id"] = json!("loopback-v1"),
+            WorkerMode::Simulate => {
+                ready["simulation_profile_id"] = json!(self.simulation_profile_id.as_deref())
+            }
         }
         if self.streaming {
             if let Err(error) = try_emit(&output, &ready) {
@@ -777,6 +795,7 @@ impl WorkerArgs {
             serial_settings: &serial_settings,
             settings: &settings,
             port: self.port.as_deref(),
+            simulation_profile_id: self.simulation_profile_id.as_deref(),
             stream: streaming_runtime.as_ref().map(|(_, control)| control),
         };
         let mut control_error = None;
@@ -993,6 +1012,7 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
         serial_settings,
         settings,
         port,
+        simulation_profile_id,
         stream: streaming,
     } = context;
     let port = *port;
@@ -1024,8 +1044,8 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
             }
             if let Some(port) = port {
                 value["port"] = json!(port);
-            } else {
-                value["simulation_profile_id"] = json!("loopback-v1");
+            } else if let Some(profile) = simulation_profile_id {
+                value["simulation_profile_id"] = json!(profile);
             }
             if let Some(streaming) = streaming {
                 let current = streaming.state.lock().unwrap();
@@ -1523,6 +1543,7 @@ mod tests {
             serial_settings: &settings_json,
             settings: &settings,
             port: None,
+            simulation_profile_id: Some("loopback-v1"),
             stream: None,
         };
         handle_http(&mut server, &context).unwrap();
@@ -1818,6 +1839,7 @@ mod tests {
                 serial_settings: &serial_settings,
                 settings: &settings,
                 port: None,
+                simulation_profile_id: Some("loopback-v1"),
                 stream: None,
             },
         )

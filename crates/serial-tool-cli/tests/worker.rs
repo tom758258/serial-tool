@@ -284,6 +284,27 @@ fn startup_validation_and_bind_failure() {
         vec![
             "worker",
             "--mode",
+            "simulate",
+            "--baud",
+            "115200",
+            "--simulation-profile-id",
+            "periodic-rx-v1",
+        ],
+        vec![
+            "worker",
+            "--mode",
+            "simulate",
+            "--baud",
+            "115200",
+            "--simulation-profile-id",
+            "periodic-rx-v1",
+            "--streaming",
+            "--port",
+            "COM4",
+        ],
+        vec![
+            "worker",
+            "--mode",
             "live",
             "--baud",
             "115200",
@@ -873,6 +894,10 @@ fn send_file_file_errors_are_job_failures_and_cleanup_succeeds() {
 }
 
 fn spawn_stream() -> (Child, Receiver<Value>, Value) {
+    spawn_stream_profile("loopback-v1")
+}
+
+fn spawn_stream_profile(profile: &str) -> (Child, Receiver<Value>, Value) {
     let mut child = binary()
         .args([
             "worker",
@@ -881,7 +906,7 @@ fn spawn_stream() -> (Child, Receiver<Value>, Value) {
             "--baud",
             "115200",
             "--simulation-profile-id",
-            "loopback-v1",
+            profile,
             "--streaming",
         ])
         .stdout(Stdio::piped())
@@ -898,6 +923,7 @@ fn spawn_stream() -> (Child, Receiver<Value>, Value) {
     });
     let ready = next(&receiver);
     assert_eq!(ready["event"], "ready");
+    assert_eq!(ready["simulation_profile_id"], profile);
     assert_eq!(
         ready["features"],
         json!({
@@ -1017,6 +1043,86 @@ fn streaming_rx_is_independent_of_receive_jobs() {
     }
     assert_eq!(received, payload);
     stop_stream(&mut child, &receiver, &ready);
+}
+
+#[test]
+fn periodic_rx_streaming_worker_emits_without_tx_and_survives_send_and_stop() {
+    let (mut child, receiver, ready) = spawn_stream_profile("periodic-rx-v1");
+    let (code, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(code, 200);
+    assert_eq!(status["simulation_profile_id"], "periodic-rx-v1");
+    assert_eq!(
+        status["stream"],
+        json!({"lifecycle": "run_bound", "state": "active"})
+    );
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let next_bounded = || {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        assert!(
+            !remaining.is_zero(),
+            "periodic RX test exceeded 10-second deadline"
+        );
+        receiver
+            .recv_timeout(remaining)
+            .expect("timed out waiting for periodic RX or TX completion")
+    };
+    let mut received = Vec::new();
+    while received.len() < 12 {
+        let item = next_bounded();
+        assert_eq!(item["event"], "rx");
+        let hex = item["rx_hex"].as_str().unwrap();
+        assert_eq!(item["rx_bytes"], hex.len() / 2);
+        for pair in hex.as_bytes().as_chunks::<2>().0 {
+            received.push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
+        }
+    }
+    let before_send = received.len();
+    let (code, accepted) = request(
+        ready["command_url"].as_str().unwrap(),
+        "POST",
+        &json!({
+            "schema_version": 3,
+            "command": "send",
+            "arguments": {"tx_hex": "deadbeefff"}
+        })
+        .to_string(),
+    );
+    assert_eq!(code, 202);
+    let mut completed = false;
+    while !completed || received.len() < before_send + 8 {
+        let item = next_bounded();
+        match item["event"].as_str() {
+            Some("rx") => {
+                let hex = item["rx_hex"].as_str().unwrap();
+                assert_eq!(item["rx_bytes"], hex.len() / 2);
+                for pair in hex.as_bytes().as_chunks::<2>().0 {
+                    received
+                        .push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
+                }
+            }
+            Some("job_finished") => {
+                assert_eq!(item["worker_job_id"], accepted["worker_job_id"]);
+                assert_eq!(item["state"], "succeeded");
+                assert_eq!(
+                    item["result"],
+                    json!({"tx_hex": "deadbeefff", "tx_bytes": 5})
+                );
+                completed = true;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(received.len() % 4, 0);
+    for (index, record) in received.as_chunks::<4>().0.iter().enumerate() {
+        assert_eq!(*record, ((index + 1) as u32).to_be_bytes());
+    }
+
+    stop_stream(&mut child, &receiver, &ready);
+    assert!(matches!(
+        receiver.recv_timeout(Duration::from_secs(2)),
+        Err(mpsc::RecvTimeoutError::Disconnected)
+    ));
 }
 
 #[test]

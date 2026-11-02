@@ -177,6 +177,7 @@ Common v3 Optional Streaming Extension:
 ```sh
 serial-tool worker --mode live --port COM4 --baud 115200 --streaming
 serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --streaming
+serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming
 ```
 
 Streaming starts with the Worker (`run_bound`) and reports raw incoming RX
@@ -184,8 +185,10 @@ as JSONL `rx` events (`rx_hex` / `rx_bytes`). TX is performed through
 existing asynchronous `send` and `send-file` HTTP commands while RX
 continues. `receive`, `query`, and `run-sequence` are available only
 without `--streaming`, and non-streaming Worker operation is unchanged.
-The simulated loopback returns transmitted bytes as RX; unsolicited RX
-requires a source that independently sends data. No orchestration buffer,
+The simulated `loopback-v1` returns transmitted bytes as RX. The separate
+`periodic-rx-v1` profile autonomously generates an incrementing 4-byte
+big-endian counter every approximately 100 ms, without TX or TX echo;
+it is only valid for Streaming Simulation Workers. No orchestration buffer,
 replay, or device protocol decoding is added.
 See [Serial Worker Contract](docs/contracts/serial-worker-contract.md).
 
