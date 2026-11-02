@@ -51,6 +51,40 @@ fn simulation_captures_exact_tx_and_reads_chunks_in_order() {
 }
 
 #[test]
+fn periodic_rx_emits_unsolicited_counter_without_echo_or_burst() {
+    let mut session = SerialSession::new(SimulationTransport::periodic_rx());
+    assert_eq!(session.transport().bytes_to_read(), 0);
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while session.transport().bytes_to_read() == 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(session.transport().bytes_to_read(), 4);
+
+    let mut first = [0; 2];
+    assert_eq!(session.read(&mut first).unwrap(), 2);
+    assert_eq!(first, [0, 0]);
+    assert_eq!(session.transport().bytes_to_read(), 2);
+
+    let mut second = [0; 2];
+    assert_eq!(session.read(&mut second).unwrap(), 2);
+    assert_eq!(second, [0, 1]);
+
+    session.write_all(&[0xaa, 0xbb, 0xcc, 0xdd, 0xee]).unwrap();
+    assert_eq!(session.transport().bytes_to_read(), 0);
+
+    std::thread::sleep(Duration::from_millis(350));
+    assert_eq!(session.transport().bytes_to_read(), 4);
+    let mut next = [0; 4];
+    assert_eq!(session.read(&mut next).unwrap(), 4);
+    assert_eq!(next, [0, 0, 0, 2]);
+    assert_eq!(session.transport().bytes_to_read(), 0);
+
+    session.write_all(&[0xff; 5]).unwrap();
+    assert_eq!(session.transport().bytes_to_read(), 0);
+}
+
+#[test]
 fn simulation_splits_a_chunk_for_small_reads() {
     let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([b"ABC".to_vec()]));
     let mut buffer = [0; 2];

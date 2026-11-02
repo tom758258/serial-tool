@@ -25,9 +25,12 @@ validation and same-origin rules before contacting any control endpoint.
    saved orchestrator configuration, or prior explicit discovery and selection.
    The Sequence does not contain a port. Do not scan and guess, cycle through
    ports, or automatically choose the first COM port.
-3. For simulation, use `simulation_profile_id: "loopback-v1"`. This is the
-   Worker-specific deterministic simulation identity; do not synthesize a
-   physical `planning_model_id`.
+3. For ordinary simulation, use `simulation_profile_id: "loopback-v1"`.
+   For Streaming Worker autonomous RX tests, explicitly select
+   `simulation_profile_id: "periodic-rx-v1"` with `--streaming`; this profile
+   generates a 4-byte increasing big-endian counter approximately every 100 ms,
+   without TX or loopback. These are Worker-specific simulation identities;
+   do not synthesize a physical `planning_model_id`.
 4. Start the Worker and wait for schema-3 `ready` with its `run_id`, endpoint
    URLs, and matching runtime `common.async_jobs` feature. HTTP readiness
    fallback requires matching `run_id`, validated URLs/features,

@@ -29,10 +29,11 @@ has been claimed; it does not assert device protocol readiness.
 `serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0`
 creates a session without touching physical ports. Live requires `--port` and
 forbids `--simulation-profile-id`. Simulate requires the profile and forbids
-`--port`. Invalid startup settings exit `2`. The only simulation identity is
-`simulation_profile_id: "loopback-v1"`; it is not a physical model ID. Every
-write's exact bytes become pending RX bytes in order. Reading without pending
-RX deterministically times out.
+`--port`. Invalid startup settings exit `2`. The existing `loopback-v1` simulation identity is not a physical model ID.
+Every write's exact bytes become pending RX bytes in order. Reading without
+pending RX deterministically times out. A separate `periodic-rx-v1` profile
+is supported only for simulated Streaming Worker startup (defined below).
+The actual selected profile is returned in Ready and HTTP status.
 
 Each Worker owns one persistent `SerialSession` for its entire lifetime. The
 session alone owns the serial transport and internal RX buffer. In ordinary
@@ -50,7 +51,16 @@ accepts `0..65535`. HTTP binds only to `127.0.0.1`.
 ## Optional full-duplex RX streaming
 
 `worker --streaming` explicitly adopts the Common Optional Streaming
-Extension. It is available for both Live and `loopback-v1` Simulation.
+Extension. It is available for Live and for both supported Simulation
+profiles. Only `worker --mode simulate --streaming --simulation-profile-id periodic-rx-v1`
+enables autonomous RX simulation: beginning after runtime startup, it generates
+one 4-byte big-endian counter value every approximately 100 ms, starting at
+`00000001` and incrementing for subsequent samples. It does not require TX.
+Writes through `send` and `send-file` succeed normally but are not echoed into
+RX. A delayed poll produces at most one sample without a catch-up burst; the
+interval is not a precision-timing guarantee. `periodic-rx-v1` is invalid
+without `--streaming` and is not available to other CLI or Desktop modes.
+`loopback-v1` remains unchanged.
 The Manifest declares `common.streaming` contract version 1 with lifecycle
 `run_bound`, alongside `common.async_jobs`; non-streaming runtime adoption
 continues to include only `common.async_jobs`.
