@@ -1543,6 +1543,7 @@ mod tests {
             serial_settings: &settings_json,
             settings: &settings,
             port: None,
+            simulation_profile_id: Some("loopback-v1"),
             stream: None,
         };
         handle_http(&mut server, &context).unwrap();
@@ -1838,6 +1839,7 @@ mod tests {
                 serial_settings: &serial_settings,
                 settings: &settings,
                 port: None,
+                simulation_profile_id: Some("loopback-v1"),
                 stream: None,
             },
         )

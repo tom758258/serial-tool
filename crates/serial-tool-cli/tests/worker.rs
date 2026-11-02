@@ -1103,7 +1103,7 @@ fn periodic_rx_streaming_worker_emits_without_tx_and_survives_send_and_stop() {
         }
     }
     assert_eq!(received.len() % 4, 0);
-    for (index, record) in received.chunks_exact(4).enumerate() {
+    for (index, record) in received.as_chunks::<4>().0.iter().enumerate() {
         assert_eq!(record, ((index + 1) as u32).to_be_bytes());
     }
 
