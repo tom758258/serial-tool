@@ -1056,9 +1056,17 @@ fn periodic_rx_streaming_worker_emits_without_tx_and_survives_send_and_stop() {
         json!({"lifecycle": "run_bound", "state": "active"})
     );
 
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let next_bounded = || {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        assert!(!remaining.is_zero(), "periodic RX test exceeded 10-second deadline");
+        receiver
+            .recv_timeout(remaining)
+            .expect("timed out waiting for periodic RX or TX completion")
+    };
     let mut received = Vec::new();
     while received.len() < 12 {
-        let item = next(&receiver);
+        let item = next_bounded();
         assert_eq!(item["event"], "rx");
         let hex = item["rx_hex"].as_str().unwrap();
         assert_eq!(item["rx_bytes"], hex.len() / 2);
@@ -1080,7 +1088,7 @@ fn periodic_rx_streaming_worker_emits_without_tx_and_survives_send_and_stop() {
     assert_eq!(code, 202);
     let mut completed = false;
     while !completed || received.len() < before_send + 8 {
-        let item = next(&receiver);
+        let item = next_bounded();
         match item["event"].as_str() {
             Some("rx") => {
                 let hex = item["rx_hex"].as_str().unwrap();
