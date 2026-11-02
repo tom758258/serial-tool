@@ -2,9 +2,6 @@ name: Build Windows CLI and Desktop
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - build/cli-desktop-windows-exes
 
 permissions:
   contents: read
