@@ -94,6 +94,54 @@ impl SerialSettings {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcpSettings {
+    pub host: String,
+    pub port: u16,
+    pub connect_timeout: Duration,
+    pub io_timeout: Duration,
+}
+
+impl Default for TcpSettings {
+    fn default() -> Self {
+        Self {
+            host: String::new(),
+            port: 0,
+            connect_timeout: Duration::from_millis(3000),
+            io_timeout: Duration::from_millis(1000),
+        }
+    }
+}
+
+impl TcpSettings {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.host.trim().is_empty() {
+            return Err(Error::InvalidConfiguration("TCP host must not be empty"));
+        }
+        if self.host.contains("://") || self.host.contains('/') {
+            return Err(Error::InvalidConfiguration("TCP host must not be a URL"));
+        }
+        if self.port == 0 {
+            return Err(Error::InvalidConfiguration("TCP port must be 1..65535"));
+        }
+        self.validate_timeouts()
+    }
+
+    pub(crate) fn validate_timeouts(&self) -> Result<(), Error> {
+        for timeout in [self.connect_timeout, self.io_timeout] {
+            if timeout.is_zero()
+                || !timeout.subsec_nanos().is_multiple_of(1_000_000)
+                || u64::try_from(timeout.as_millis()).is_err()
+            {
+                return Err(Error::InvalidConfiguration(
+                    "TCP timeouts must be positive integer milliseconds",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

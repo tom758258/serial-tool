@@ -7,7 +7,7 @@ pub mod session;
 pub mod step;
 pub mod transport;
 
-pub use config::{DataBits, FlowControl, Parity, SerialSettings, StopBits};
+pub use config::{DataBits, FlowControl, Parity, SerialSettings, StopBits, TcpSettings};
 pub use discovery::{PortInfo, PortType, UsbInfo, list_ports};
 pub use error::Error;
 pub use sequence::{Sequence, SequenceError, SequenceSerialConfig};
@@ -17,4 +17,4 @@ pub use step::{
     StepKind, StepOutcome, StepResult, StepRunner, Transcript, TranscriptEntry, ValidationError,
     ValidationReason, validate_steps,
 };
-pub use transport::{SerialTransport, SimulationTransport, Transport};
+pub use transport::{SerialTransport, SimulationTransport, TcpTransport, Transport};

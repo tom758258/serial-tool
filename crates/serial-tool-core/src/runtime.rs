@@ -2,7 +2,7 @@
 //! they must return promptly and must not call blocking runtime methods.
 use crate::{
     Direction, Error, RunError, RunReport, Sequence, SerialSession, SerialSettings,
-    SerialTransport, SimulationTransport, StepRunner,
+    SerialTransport, SimulationTransport, StepRunner, TcpSettings, TcpTransport,
 };
 use std::{
     sync::{Arc, Mutex, mpsc},
@@ -63,15 +63,22 @@ impl Drop for BusyReservation {
 
 enum Session {
     Live(SerialSession<SerialTransport>),
+    Tcp(SerialSession<TcpTransport>),
     Simulation(SerialSession<SimulationTransport>),
     #[cfg(test)]
     Test(SerialSession<tests::TestTransport>),
+}
+
+enum RuntimeSettings {
+    Serial(SerialSettings),
+    Tcp,
 }
 
 impl Session {
     fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
             Self::Live(session) => session.write_all(bytes).and_then(|()| session.flush()),
+            Self::Tcp(session) => session.write_all(bytes).and_then(|()| session.flush()),
             Self::Simulation(session) => session.write_all(bytes).and_then(|()| session.flush()),
             #[cfg(test)]
             Self::Test(session) => session.write_all(bytes).and_then(|()| session.flush()),
@@ -83,6 +90,7 @@ impl Session {
             Self::Live(session) => {
                 Ok(session.buffered_len() + session.transport().bytes_to_read()?)
             }
+            Self::Tcp(session) => Ok(session.buffered_len() + session.transport().pending()?),
             Self::Simulation(session) => {
                 Ok(session.buffered_len() + session.transport().bytes_to_read())
             }
@@ -94,6 +102,7 @@ impl Session {
     fn read(&mut self, bytes: &mut [u8]) -> Result<usize, Error> {
         match self {
             Self::Live(session) => session.read(bytes),
+            Self::Tcp(session) => session.read(bytes),
             Self::Simulation(session) => session.read(bytes),
             #[cfg(test)]
             Self::Test(session) => session.read(bytes),
@@ -103,6 +112,7 @@ impl Session {
     fn run(&mut self, sequence: &Sequence) -> Result<RunReport, RunError> {
         match self {
             Self::Live(session) => StepRunner::new(session).run(&sequence.steps),
+            Self::Tcp(session) => StepRunner::new(session).run(&sequence.steps),
             Self::Simulation(session) => StepRunner::new(session).run(&sequence.steps),
             #[cfg(test)]
             Self::Test(session) => StepRunner::new(session).run(&sequence.steps),
@@ -195,11 +205,85 @@ impl PersistentRuntime {
         )
     }
 
+    pub fn connect_tcp(
+        &self,
+        mode: Mode,
+        settings: TcpSettings,
+        events: impl Fn(Event) + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        match mode {
+            Mode::Live => settings.validate(),
+            Mode::Simulation => settings.validate_timeouts(),
+        }
+        .map_err(|error| RuntimeError::Other(error.to_string()))?;
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|error| RuntimeError::Other(error.to_string()))?;
+        Self::reap_finished(&mut guard);
+        if guard.is_some() {
+            return Err(RuntimeError::Other("Already connected".into()));
+        }
+        let session = match mode {
+            Mode::Live => Session::Tcp(SerialSession::new(
+                TcpTransport::connect(&settings)
+                    .map_err(|error| RuntimeError::Other(error.to_string()))?,
+            )),
+            Mode::Simulation => {
+                Session::Simulation(SerialSession::new(SimulationTransport::loopback()))
+            }
+        };
+        self.start_tcp(&mut guard, session, events)
+    }
+
+    pub fn connect_tcp_simulation(
+        &self,
+        settings: TcpSettings,
+        transport: SimulationTransport,
+        events: impl Fn(Event) + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        settings
+            .validate_timeouts()
+            .map_err(|error| RuntimeError::Other(error.to_string()))?;
+        let mut guard = self
+            .connection
+            .lock()
+            .map_err(|error| RuntimeError::Other(error.to_string()))?;
+        Self::reap_finished(&mut guard);
+        if guard.is_some() {
+            return Err(RuntimeError::Other("Already connected".into()));
+        }
+        self.start_tcp(
+            &mut guard,
+            Session::Simulation(SerialSession::new(transport)),
+            events,
+        )
+    }
+
     fn start(
         &self,
         guard: &mut Option<Connection>,
         session: Session,
         settings: SerialSettings,
+        events: impl Fn(Event) + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        self.start_with(guard, session, RuntimeSettings::Serial(settings), events)
+    }
+
+    fn start_tcp(
+        &self,
+        guard: &mut Option<Connection>,
+        session: Session,
+        events: impl Fn(Event) + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        self.start_with(guard, session, RuntimeSettings::Tcp, events)
+    }
+
+    fn start_with(
+        &self,
+        guard: &mut Option<Connection>,
+        session: Session,
+        settings: RuntimeSettings,
         events: impl Fn(Event) + Send + 'static,
     ) -> Result<(), RuntimeError> {
         let (commands, receiver) = mpsc::channel();
@@ -354,7 +438,7 @@ impl Drop for PersistentRuntime {
 
 fn owner_loop(
     mut session: Session,
-    settings: SerialSettings,
+    settings: RuntimeSettings,
     commands: mpsc::Receiver<Command>,
     events: impl Fn(Event),
 ) {
@@ -446,7 +530,7 @@ fn transmit(
 
 fn handle_command(
     session: &mut Session,
-    settings: &SerialSettings,
+    settings: &RuntimeSettings,
     command: Command,
     events: &impl Fn(Event),
     periodic: &mut Option<PeriodicTx>,
@@ -478,14 +562,20 @@ fn handle_command(
             let _ = reply.send(());
         }
         Command::Run(sequence, reply) => {
-            let result = if !sequence.serial.matches_serial_settings(settings) {
-                Err(RuntimeError::Other(
+            let result = match settings {
+                RuntimeSettings::Serial(serial)
+                    if sequence.serial.matches_serial_settings(serial) =>
+                {
+                    session
+                        .run(&sequence)
+                        .map_err(|error| RuntimeError::Sequence(Box::new(error)))
+                }
+                RuntimeSettings::Serial(_) => Err(RuntimeError::Other(
                     "Sequence serial settings do not match the current connection".into(),
-                ))
-            } else {
-                session
-                    .run(&sequence)
-                    .map_err(|error| RuntimeError::Sequence(Box::new(error)))
+                )),
+                RuntimeSettings::Tcp => Err(RuntimeError::Other(
+                    "TCP sequences require the unified sequence format".into(),
+                )),
             };
             let failed = matches!(&result, Err(RuntimeError::Sequence(error))
                 if matches!(error.as_ref(), RunError::Execution(failure)
@@ -513,7 +603,10 @@ fn handle_command(
 mod tests {
     use super::*;
     use crate::{DataBits, FlowControl, Parity, StopBits, Transport};
-    use std::io;
+    use std::{
+        io::{self, Read, Write},
+        net::TcpListener,
+    };
 
     #[derive(Default)]
     pub(super) struct TestTransport {
@@ -890,6 +983,126 @@ mod tests {
             matches!(next(&events), Event::ConnectionError { message } if message.contains("read failed"))
         );
         assert!(matches!(next(&events), Event::Disconnected));
+        runtime.disconnect().unwrap();
+    }
+
+    fn tcp_settings(port: u16) -> TcpSettings {
+        TcpSettings {
+            host: "127.0.0.1".into(),
+            port,
+            ..TcpSettings::default()
+        }
+    }
+
+    #[test]
+    fn tcp_runtime_idle_send_periodic_receive_and_eof() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release, close) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut byte = [0u8; 1];
+            peer.read_exact(&mut byte).unwrap();
+            assert_eq!(byte, [0xaa]);
+            peer.write_all(&[0xbb]).unwrap();
+            peer.read_exact(&mut byte).unwrap();
+            assert_eq!(byte, [0x01]);
+            peer.write_all(&[0x02]).unwrap();
+            close.recv_timeout(Duration::from_secs(2)).unwrap();
+        });
+
+        let runtime = PersistentRuntime::default();
+        let (sender, events) = mpsc::channel();
+        runtime
+            .connect_tcp(Mode::Live, tcp_settings(port), move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
+        assert!(matches!(next(&events), Event::Connected));
+        assert!(matches!(
+            runtime.run(sequence(
+                r#"[{"id":"send","type":"send_bytes","hex":"aa"}]"#
+            )),
+            Err(RuntimeError::Other(_))
+        ));
+        assert!(matches!(
+            events.recv_timeout(Duration::from_millis(60)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+        runtime.send(vec![0xaa]).unwrap();
+        data(&events, Direction::Tx, &[0xaa]);
+        data(&events, Direction::Rx, &[0xbb]);
+
+        runtime
+            .start_periodic(vec![0x01], Duration::from_secs(10))
+            .unwrap();
+        data(&events, Direction::Tx, &[0x01]);
+        data(&events, Direction::Rx, &[0x02]);
+        runtime.stop_periodic().unwrap();
+
+        release.send(()).unwrap();
+        assert!(matches!(next(&events), Event::ConnectionError { .. }));
+        assert!(matches!(next(&events), Event::Disconnected));
+        runtime.disconnect().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_idle_disconnect_does_not_wait_for_io_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release, close) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (_peer, _) = listener.accept().unwrap();
+            close.recv_timeout(Duration::from_secs(3)).unwrap();
+        });
+        let mut settings = tcp_settings(port);
+        settings.io_timeout = Duration::from_secs(5);
+        let runtime = PersistentRuntime::default();
+        let (sender, events) = mpsc::channel();
+        runtime
+            .connect_tcp(Mode::Live, settings, move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
+        assert!(matches!(next(&events), Event::Connected));
+        let start = Instant::now();
+        runtime.disconnect().unwrap();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        assert!(matches!(next(&events), Event::Disconnected));
+        release.send(()).unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_simulation_reuses_existing_profiles_without_socket() {
+        // Empty host and zero port are deliberately invalid for a real TCP socket.
+        let settings = TcpSettings::default();
+        let runtime = PersistentRuntime::default();
+        let (sender, events) = mpsc::channel();
+        runtime
+            .connect_tcp(Mode::Simulation, settings.clone(), move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
+        assert!(matches!(next(&events), Event::Connected));
+        runtime.send(vec![0xaa, 0xff]).unwrap();
+        data(&events, Direction::Tx, &[0xaa, 0xff]);
+        data(&events, Direction::Rx, &[0xaa, 0xff]);
+        runtime.disconnect().unwrap();
+        assert!(matches!(next(&events), Event::Disconnected));
+
+        let (sender, events) = mpsc::channel();
+        runtime
+            .connect_tcp_simulation(settings, SimulationTransport::periodic_rx(), move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
+        assert!(matches!(next(&events), Event::Connected));
+        data(&events, Direction::Rx, &[0, 0, 0, 1]);
+        runtime.send(vec![0x55]).unwrap();
+        data(&events, Direction::Tx, &[0x55]);
         runtime.disconnect().unwrap();
     }
 }
