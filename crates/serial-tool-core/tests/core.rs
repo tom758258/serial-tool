@@ -1,8 +1,14 @@
-use std::{io, time::Duration};
+use std::{
+    io::{self, Read, Write},
+    net::TcpListener,
+    sync::mpsc,
+    thread,
+    time::Duration,
+};
 
 use serial_tool_core::{
     DataBits, Error, FlowControl, Parity, SerialSession, SerialSettings, SerialTransport,
-    SimulationTransport, StopBits, Transport,
+    SimulationTransport, StopBits, TcpSettings, TcpTransport, Transport,
 };
 
 fn settings(port: &str, baud_rate: u32) -> SerialSettings {
@@ -230,4 +236,72 @@ impl Transport for FailingTransport {
             unreachable!()
         }
     }
+}
+
+fn invalid_tcp_settings(settings: &TcpSettings) -> bool {
+    matches!(settings.validate(), Err(Error::InvalidConfiguration(_)))
+}
+
+#[test]
+fn tcp_settings_validate_without_dns_or_socket() {
+    let mut settings = TcpSettings::default();
+    assert_eq!(settings.connect_timeout, Duration::from_millis(3000));
+    assert_eq!(settings.io_timeout, Duration::from_millis(1000));
+    assert!(invalid_tcp_settings(&settings));
+    settings.host = "localhost".into();
+    assert!(invalid_tcp_settings(&settings));
+    settings.port = 5025;
+    assert!(settings.validate().is_ok());
+    settings.host = "::1".into();
+    assert!(settings.validate().is_ok());
+    settings.host = "http://localhost".into();
+    assert!(invalid_tcp_settings(&settings));
+    settings.host = "127.0.0.1".into();
+    settings.io_timeout = Duration::ZERO;
+    assert!(invalid_tcp_settings(&settings));
+    settings.io_timeout = Duration::from_micros(500);
+    assert!(invalid_tcp_settings(&settings));
+    settings.io_timeout = Duration::from_millis(1000);
+    settings.connect_timeout = Duration::from_secs(u64::MAX);
+    assert!(invalid_tcp_settings(&settings));
+}
+
+#[test]
+fn tcp_socket_roundtrip_timeout_recovery_and_remote_eof() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (received, accepted) = mpsc::channel();
+    let (release, send) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut bytes = [0u8; 3];
+        peer.read_exact(&mut bytes).unwrap();
+        assert_eq!(bytes, [0, 0xaa, 0xff]);
+        received.send(()).unwrap();
+        send.recv_timeout(Duration::from_secs(2)).unwrap();
+        peer.write_all(&[0x42, 0xff]).unwrap();
+    });
+
+    let settings = TcpSettings {
+        host: "localhost".into(),
+        port,
+        io_timeout: Duration::from_millis(75),
+        ..TcpSettings::default()
+    };
+    let mut session = SerialSession::new(TcpTransport::connect(&settings).unwrap());
+    session.write_all(&[0, 0xaa, 0xff]).unwrap();
+    session.flush().unwrap();
+    accepted.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(matches!(
+        session.read(&mut [0u8; 8]),
+        Err(Error::Timeout { partial }) if partial.is_empty()
+    ));
+    release.send(()).unwrap();
+    assert_eq!(session.read_until(&[0xff], 2).unwrap(), vec![0x42, 0xff]);
+    assert!(matches!(
+        session.read(&mut [0u8; 1]),
+        Err(Error::ReadFailed(error)) if error.kind() == io::ErrorKind::UnexpectedEof
+    ));
+    server.join().unwrap();
 }

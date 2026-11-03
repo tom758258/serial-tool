@@ -1,8 +1,10 @@
 mod serial;
 mod simulation;
+mod tcp;
 
 pub use serial::SerialTransport;
 pub use simulation::SimulationTransport;
+pub use tcp::TcpTransport;
 
 use std::io;
 
