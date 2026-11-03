@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { continuousRxHex, display, hex, rxTextFragments } from '../src/model.ts'
+import { continuousRxHex, defaultLine, defaultTcpConnection, display, freshSequence, hex, rxTextFragments, sequenceMatches, tcpConnectSettings } from '../src/model.ts'
 
 const rx = (...bytes) => ({ direction: 'rx', bytes })
 const tx = (...bytes) => ({ direction: 'tx', bytes })
@@ -56,4 +56,36 @@ test('existing event presentation still displays hex, text and both', () => {
   assert.equal(display([0x4F, 0x4B], 'text'), 'OK')
   assert.equal(display([0x4F, 0x4B], 'both'), '4F 4B  |  OK')
   assert.deepEqual(rxTextFragments([rx(0x0D, 0x0A)], false), ['\\r\\n'])
+})
+
+test('TCP Connect parses live settings and rejects invalid host, port, or timeouts', () => {
+  assert.deepEqual(tcpConnectSettings({ host: '127.0.0.1', port: '502', connect_timeout_ms: '3000', io_timeout_ms: '1000' }, 'live'),
+    { host: '127.0.0.1', port: 502, connect_timeout_ms: 3000, io_timeout_ms: 1000 })
+  for (const patch of [
+    { host: '' }, { host: 'http://example.com' }, { port: '' }, { port: '0' },
+    { port: '65536' }, { port: '12x' }, { connect_timeout_ms: '0' }, { io_timeout_ms: '-10' },
+  ]) {
+    assert.throws(() => tcpConnectSettings({ ...defaultTcpConnection, host: 'localhost', port: '42', ...patch }, 'live'))
+  }
+})
+
+test('TCP Simulation ignores Host and Port but still validates timeouts', () => {
+  assert.deepEqual(tcpConnectSettings({
+    host: 'http://ignored.invalid', port: 'not-a-port', connect_timeout_ms: '3000', io_timeout_ms: '1000',
+  }, 'simulation'), { host: '', port: 0, connect_timeout_ms: 3000, io_timeout_ms: 1000 })
+  assert.throws(() => tcpConnectSettings({ ...defaultTcpConnection, io_timeout_ms: '0' }, 'simulation'))
+})
+
+test('Sequence New and matching are transport-specific', () => {
+  const serial = freshSequence(defaultLine)
+  const tcp = freshSequence(defaultLine, 'tcp', 1000)
+  assert.equal(serial.transport.type, 'serial')
+  assert.deepEqual(tcp.transport, { type: 'tcp', settings: { io_timeout_ms: 1000 } })
+  const tcpConnection = { ...defaultTcpConnection, io_timeout_ms: '1000' }
+  assert.equal(sequenceMatches(serial, 'serial', defaultLine, tcpConnection), true)
+  assert.equal(sequenceMatches(serial, 'tcp', defaultLine, tcpConnection), false)
+  assert.equal(sequenceMatches(tcp, 'serial', defaultLine, tcpConnection), false)
+  assert.equal(sequenceMatches(tcp, 'tcp', defaultLine, tcpConnection), true)
+  assert.equal(sequenceMatches(tcp, 'tcp', defaultLine, { ...tcpConnection, io_timeout_ms: '2000' }), false)
+  assert.equal(sequenceMatches(serial, 'serial', { ...defaultLine, baud_rate: 9600 }, tcpConnection), false)
 })

@@ -12,7 +12,8 @@ use std::{path::Path, sync::Arc, time::Duration};
 use runtime::{Event, Mode, RunResult, SessionManager};
 use serde::{Deserialize, Serialize};
 use serial_tool_core::{
-    DataBits, FlowControl, Parity, PortType, Sequence, SerialSettings, StopBits, list_ports,
+    DataBits, FlowControl, Parity, PortType, Sequence, SerialSettings, StopBits, TcpSettings,
+    list_ports,
 };
 use tauri::{State, ipc::Channel};
 
@@ -62,6 +63,25 @@ impl TryFrom<SettingsDto> for SerialSettings {
         };
         settings.validate().map_err(|error| error.to_string())?;
         Ok(settings)
+    }
+}
+
+#[derive(Deserialize)]
+struct TcpSettingsDto {
+    host: String,
+    port: u16,
+    connect_timeout_ms: u64,
+    io_timeout_ms: u64,
+}
+
+impl From<TcpSettingsDto> for TcpSettings {
+    fn from(value: TcpSettingsDto) -> Self {
+        Self {
+            host: value.host,
+            port: value.port,
+            connect_timeout: Duration::from_millis(value.connect_timeout_ms),
+            io_timeout: Duration::from_millis(value.io_timeout_ms),
+        }
     }
 }
 
@@ -131,6 +151,32 @@ async fn connect_serial(
     let settings = settings.try_into()?;
     tauri::async_runtime::spawn_blocking(move || {
         manager.connect(mode, settings, move |event| {
+            let _ = events.send(event);
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn connect_tcp(
+    manager: State<'_, Arc<SessionManager>>,
+    mode: String,
+    settings: TcpSettingsDto,
+    events: Channel<Event>,
+) -> Result<(), String> {
+    let mode = match mode.as_str() {
+        "live" => Mode::Live,
+        "simulation" => Mode::Simulation,
+        _ => return Err("Invalid connection mode".into()),
+    };
+    let settings: TcpSettings = settings.into();
+    if mode == Mode::Live {
+        settings.validate().map_err(|error| error.to_string())?;
+    }
+    let manager = Arc::clone(&manager);
+    tauri::async_runtime::spawn_blocking(move || {
+        manager.connect_tcp(mode, settings, move |event| {
             let _ = events.send(event);
         })
     })
@@ -325,6 +371,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             list_serial_ports,
             connect_serial,
+            connect_tcp,
             disconnect_serial,
             send_serial,
             start_periodic_serial,

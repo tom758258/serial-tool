@@ -4,8 +4,8 @@ import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
-import { continuousRxHex, defaultLine, display, freshSequence, hex, rxTextFragments, serialSettingDifferences } from './model'
-import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent, TerminalDisplay } from './model'
+import { continuousRxHex, defaultLine, defaultTcpConnection, display, freshSequence, hex, rxTextFragments, serialSettingDifferences, sequenceMatches, tcpConnectSettings } from './model'
+import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent, TcpConnectionSettings, TerminalDisplay, Transport } from './model'
 
 type Status = 'disconnected' | 'connecting' | 'connected' | 'running' | 'disconnecting' | 'error'
 type Theme = 'system' | 'light' | 'dark'
@@ -58,6 +58,8 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [applicationVersion, setApplicationVersion] = useState<string | null>(null)
   const [mode, setMode] = useState<'live' | 'simulation'>('live')
+  const [transport, setTransport] = useState<Transport>('serial')
+  const [tcpSettings, setTcpSettings] = useState<TcpConnectionSettings>(defaultTcpConnection)
   const [connectionOptionsOpen, setConnectionOptionsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [settings, setSettings] = useState<ConnectionSettings>({ port: '', ...defaultLine })
@@ -89,7 +91,7 @@ export default function App() {
   const canTransmit = status === 'connected' && !txLocked
   const serialDifferences = draft.transport.type === 'serial'
     ? serialSettingDifferences(draft.transport.settings, settings) : []
-  const transportMatches = draft.transport.type === 'serial' && serialDifferences.length === 0
+  const transportMatches = sequenceMatches(draft, transport, settings, tcpSettings)
   const autoTxPayloadReady = autoTxSource === 'file' ? Boolean(autoTxFilePath) : Boolean(txInput)
   const settingsLocked = connected || busy
   const hasRxBytes = history.some(entry => entry.direction === 'rx' && entry.bytes.length > 0)
@@ -165,8 +167,14 @@ export default function App() {
   }
 
   async function connect() {
-    if (mode === 'live' && !settings.port) { setNotice({ message: 'Select a port before connecting.', kind: 'error' }); return }
-    if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setNotice({ message: 'Baud rate must be positive.', kind: 'error' }); return }
+    let tcpParameters: ReturnType<typeof tcpConnectSettings> | null = null
+    if (transport === 'serial') {
+      if (mode === 'live' && !settings.port) { setNotice({ message: 'Select a port before connecting.', kind: 'error' }); return }
+      if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setNotice({ message: 'Baud rate must be positive.', kind: 'error' }); return }
+    } else {
+      try { tcpParameters = tcpConnectSettings(tcpSettings, mode) }
+      catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }); return }
+    }
     setAutoTxRunning(false)
     setStatus('connecting')
     setNotice(null)
@@ -190,7 +198,9 @@ export default function App() {
     const previousHistory = history
     setHistory([])
     try {
-      await invoke('connect_serial', { mode, settings, events: channel })
+      await invoke(transport === 'serial' ? 'connect_serial' : 'connect_tcp', {
+        mode, settings: transport === 'serial' ? settings : tcpParameters, events: channel,
+      })
       setStatus(previous => previous === 'error' || previous === 'disconnected' ? previous : 'connected')
     } catch (error) {
       currentConnection.current++
@@ -371,7 +381,7 @@ export default function App() {
 
     <section className="connection panel">
       <div className="section-heading"><h2>Connection Setup</h2><div className="connection-header-actions">
-        <span className={`status ${status}`}>{mode === 'live' ? 'Live' : 'Simulation'} · {statusLabels[status]}</span>
+        <span className={`status ${status}`}>{transport === 'serial' ? 'COM Port' : 'TCP/IP'} · {mode === 'live' ? 'Live' : 'Simulation'} · {statusLabels[status]}</span>
         <div className="connection-options-wrap" ref={connectionOptionsWrap}>
           <button type="button" ref={connectionOptionsToggle} className="connection-options-toggle" title="Connection options" aria-label="Connection options"
             aria-expanded={connectionOptionsOpen} aria-controls="connection-options" onClick={() => setConnectionOptionsOpen(previous => !previous)}>
@@ -389,10 +399,15 @@ export default function App() {
                 <label><input type="radio" name="execution-mode" value="simulation" checked={mode === 'simulation'} onChange={() => setMode('simulation')} />Simulation</label>
               </div>
             </fieldset>
-            <p className="connection-options-help">Simulation uses deterministic loopback and does not access a physical serial port.</p>
+            <p className="connection-options-help">Simulation uses deterministic loopback and does not access a physical serial port or TCP socket.</p>
           </div>
         </div>
       </div></div>
+      <nav className="transport-tabs" aria-label="Connection transport">
+        <button type="button" disabled={settingsLocked} className={transport === 'serial' ? 'active' : ''} aria-pressed={transport === 'serial'} onClick={() => setTransport('serial')}>COM Port</button>
+        <button type="button" disabled={settingsLocked} className={transport === 'tcp' ? 'active' : ''} aria-pressed={transport === 'tcp'} onClick={() => setTransport('tcp')}>TCP/IP</button>
+      </nav>
+      {transport === 'serial' ? <>
       <div className="connection-resource-row">
         <label>Port<select disabled={settingsLocked || mode === 'simulation'} value={settings.port} onChange={event => updateSetting('port', event.target.value)}>
           <option value="">Select a port</option>{ports.map(port => <option key={port.port_name} value={port.port_name}>{port.port_name} · {portTypeLabel(port.kind)}{port.vid != null ? ` ${port.vid.toString(16).padStart(4, '0')}:${port.pid?.toString(16).padStart(4, '0')}` : ''}</option>)}
@@ -411,8 +426,14 @@ export default function App() {
         <label>Flow control<select disabled={settingsLocked} value={settings.flow_control} onChange={event => updateSetting('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
         <label>Timeout (ms)<input disabled={settingsLocked} type="number" value={settings.timeout_ms} onChange={event => updateSetting('timeout_ms', event.target.value)} /></label>
       </div>
+      </> : <div className="connection-tcp-grid">
+        <label>Host<input disabled={settingsLocked || mode === 'simulation'} value={tcpSettings.host} placeholder="Hostname or IP address" onChange={event => setTcpSettings(previous => ({ ...previous, host: event.target.value }))} /></label>
+        <label>Port<input disabled={settingsLocked || mode === 'simulation'} inputMode="numeric" value={tcpSettings.port} placeholder="1–65535" onChange={event => setTcpSettings(previous => ({ ...previous, port: event.target.value }))} /></label>
+        <label>Connect Timeout (ms)<input disabled={settingsLocked} inputMode="numeric" value={tcpSettings.connect_timeout_ms} onChange={event => setTcpSettings(previous => ({ ...previous, connect_timeout_ms: event.target.value }))} /></label>
+        <label>I/O Timeout (ms)<input disabled={settingsLocked} inputMode="numeric" value={tcpSettings.io_timeout_ms} onChange={event => setTcpSettings(previous => ({ ...previous, io_timeout_ms: event.target.value }))} /></label>
+      </div>}
       <div className="connection-actions">
-        <button className="primary" disabled={settingsLocked || (mode === 'live' && !settings.port) || settings.baud_rate <= 0} onClick={() => void connect()}>Connect</button>
+        <button className="primary" disabled={settingsLocked || (transport === 'serial' && ((mode === 'live' && !settings.port) || settings.baud_rate <= 0))} onClick={() => void connect()}>Connect</button>
         <button disabled={status !== 'connected'} onClick={() => void disconnect()}>Disconnect</button>
       </div>
     </section>
@@ -464,9 +485,10 @@ export default function App() {
             <button disabled={!canTransmit} onClick={() => void sendFile()}>Send File (Raw)...</button>
             <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !autoTxPayloadReady))} onClick={() => void toggleAutoTx()}>{autoTxRunning ? 'Stop Auto TX' : 'Start Auto TX'}</button></div></div>
       </div>
-    </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} disabled={status === 'running'}
+    </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} tcpConnection={tcpSettings}
+      connectionTransport={transport} disabled={status === 'running'}
       isConnected={connected} serialDifferences={serialDifferences}
-      onNew={() => setDraft(freshSequence(settings))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
+      onNew={() => setDraft(freshSequence(settings, transport, Number(tcpSettings.io_timeout_ms)))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
       onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && transportMatches} />
       <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>Save Result...</button><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
         <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div></div>

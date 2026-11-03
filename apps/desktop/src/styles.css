@@ -42,6 +42,10 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .execution-mode-choices input { width: auto; min-height: auto; margin: 0; accent-color: var(--accent); }
 .connection-options-help { margin: .6rem 0 0; color: var(--muted); font-size: .85rem; line-height: 1.4; }
 .field-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .75rem; align-items: end; }
+.transport-tabs { display: flex; gap: .35rem; border-bottom: 1px solid var(--line); margin-bottom: .85rem; }
+.transport-tabs button { border: 0; border-radius: 0; background: transparent; padding: .6rem .95rem; }
+.transport-tabs button.active { color: var(--accent); border-bottom: 3px solid var(--accent); font-weight: 700; }
+.connection-tcp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; align-items: end; }
 .connection-resource-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: end; }
 .connection-serial-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; align-items: end; margin-top: .9rem; }
 .connection-actions { justify-content: flex-end; margin-top: .9rem; }

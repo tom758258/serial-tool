@@ -2,7 +2,7 @@ use serde::Serialize;
 pub use serial_tool_core::runtime::Mode;
 use serial_tool_core::runtime::{Event as CoreEvent, PersistentRuntime, RuntimeError};
 use serial_tool_core::{
-    Direction, Error, RunError, RunReport, Sequence, SerialSettings, StepOutcome,
+    Direction, Error, RunError, RunReport, Sequence, SerialSettings, StepOutcome, TcpSettings,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -122,6 +122,21 @@ impl RunResult {
     }
 }
 
+fn desktop_event(event: CoreEvent) -> Event {
+    match event {
+        CoreEvent::Connected => Event::Connected,
+        CoreEvent::Disconnected => Event::Disconnected,
+        CoreEvent::ConnectionError { message } => Event::ConnectionError { message },
+        CoreEvent::Data { direction, bytes } => Event::Data {
+            direction: match direction {
+                Direction::Tx => "tx",
+                Direction::Rx => "rx",
+            },
+            bytes,
+        },
+    }
+}
+
 #[derive(Default)]
 pub struct SessionManager {
     runtime: PersistentRuntime,
@@ -135,20 +150,18 @@ impl SessionManager {
         events: impl Fn(Event) + Send + 'static,
     ) -> Result<(), String> {
         self.runtime
-            .connect(mode, settings, move |event| {
-                events(match event {
-                    CoreEvent::Connected => Event::Connected,
-                    CoreEvent::Disconnected => Event::Disconnected,
-                    CoreEvent::ConnectionError { message } => Event::ConnectionError { message },
-                    CoreEvent::Data { direction, bytes } => Event::Data {
-                        direction: match direction {
-                            Direction::Tx => "tx",
-                            Direction::Rx => "rx",
-                        },
-                        bytes,
-                    },
-                })
-            })
+            .connect(mode, settings, move |event| events(desktop_event(event)))
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn connect_tcp(
+        &self,
+        mode: Mode,
+        settings: TcpSettings,
+        events: impl Fn(Event) + Send + 'static,
+    ) -> Result<(), String> {
+        self.runtime
+            .connect_tcp(mode, settings, move |event| events(desktop_event(event)))
             .map_err(|error| error.to_string())
     }
 
@@ -195,7 +208,13 @@ impl SessionManager {
 mod tests {
     use super::*;
     use serial_tool_core::{DataBits, FlowControl, Parity, StopBits};
-    use std::{sync::mpsc, time::Duration};
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::mpsc,
+        thread,
+        time::Duration,
+    };
 
     fn settings() -> SerialSettings {
         SerialSettings {
@@ -229,6 +248,87 @@ mod tests {
             Event::Data { direction, bytes } => (direction, bytes),
             other => panic!("expected data event, got {other:?}"),
         }
+    }
+
+    fn tcp_settings(host: &str, port: u16) -> TcpSettings {
+        TcpSettings {
+            host: host.into(),
+            port,
+            connect_timeout: Duration::from_millis(3000),
+            io_timeout: Duration::from_millis(1000),
+        }
+    }
+
+    #[test]
+    fn tcp_simulation_uses_shared_session_and_matches_sequence() {
+        let manager = SessionManager::default();
+        let (sender, events) = mpsc::channel();
+        // Neither valid Host nor Port is required for Simulation.
+        manager
+            .connect_tcp(Mode::Simulation, tcp_settings("", 0), move |event| {
+                sender.send(event).unwrap();
+            })
+            .unwrap();
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Event::Connected
+        ));
+        let sequence = Sequence::from_json_str(
+            r#"{
+            "sequence_version": 1,
+            "transport": {"type":"tcp","settings":{"io_timeout_ms":1000}},
+            "steps": [
+                {"id":"send","type":"send_bytes","hex":"00ff"},
+                {"id":"read","type":"read","max_bytes":2}
+            ]
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(manager.run(sequence).unwrap().status, "success");
+        let mismatch = Sequence::from_json_str(
+            r#"{
+            "sequence_version": 1,
+            "transport": {"type":"tcp","settings":{"io_timeout_ms":2000}},
+            "steps": [{"id":"send","type":"send_bytes","hex":"aa"}]
+        }"#,
+        )
+        .unwrap();
+        assert!(manager.run(mismatch).is_err());
+        manager.send(vec![0x77]).unwrap();
+        assert_eq!(next_data(&events), ("tx", vec![0x77]));
+        assert_eq!(next_data(&events), ("rx", vec![0x77]));
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
+    fn tcp_live_adapter_sends_and_receives_via_local_socket() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut payload = [0; 3];
+            socket.read_exact(&mut payload).unwrap();
+            assert_eq!(&payload, b"ABC");
+            socket.write_all(&payload).unwrap();
+            let mut tail = [0; 1];
+            assert_eq!(socket.read(&mut tail).unwrap(), 0);
+        });
+        let manager = SessionManager::default();
+        let (sender, events) = mpsc::channel();
+        manager
+            .connect_tcp(Mode::Live, tcp_settings("127.0.0.1", port), move |event| {
+                sender.send(event).unwrap();
+            })
+            .unwrap();
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Event::Connected
+        ));
+        manager.send(b"ABC".to_vec()).unwrap();
+        assert_eq!(next_data(&events), ("tx", b"ABC".to_vec()));
+        assert_eq!(next_data(&events), ("rx", b"ABC".to_vec()));
+        manager.disconnect().unwrap();
+        server.join().unwrap();
     }
 
     #[test]
