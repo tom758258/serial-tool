@@ -1,8 +1,8 @@
 use clap::{Args, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
-    Direction, RunError, RunReport, Sequence, SerialSession, SerialTransport, SimulationTransport,
-    Step, StepRunner, Transport,
+    Direction, RunError, RunReport, Sequence, SequenceTransport, SerialSession, SerialTransport,
+    SimulationTransport, Step, StepRunner, Transport,
 };
 
 use crate::{CliError, OutputArgs, RxDisplay, render_rx, sequence_result, timestamp};
@@ -108,9 +108,17 @@ impl RunArgs {
             }
         };
         let sequence = Sequence::load(&self.file).map_err(CliError::Sequence)?;
+        let serial = match &sequence.transport {
+            SequenceTransport::Serial(config) => config,
+            SequenceTransport::Tcp(_) => {
+                return Err(CliError::Input(
+                    "TCP sequence execution requires the TCP CLI integration",
+                ));
+            }
+        };
         let report = match self.mode {
             RunMode::Live => {
-                let settings = sequence.serial.serial_settings_for_port(resource);
+                let settings = serial.serial_settings_for_port(resource);
                 settings.validate().map_err(CliError::Validation)?;
                 let transport = SerialTransport::open(&settings).map_err(CliError::Runtime)?;
                 run_steps(&mut SerialSession::new(transport), &sequence.steps)?

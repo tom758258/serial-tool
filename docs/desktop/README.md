@@ -120,22 +120,26 @@ from the device are transmitted as TX if that file is later sent with Send File
 ## Sequence
 
 The editor supports Send Text, Send Bytes, Wait, Read, Read Until, and nested
-Repeat. Select a step to edit its properties. New, Load, Save, Validate,
-Add Step, Add Child, Delete, Move Up, and Move Down are available. Drafts may
-be temporarily invalid while editing. Validate, Save, and Run all use Core's
-Sequence v1 parser and validation. A Sequence file stores line settings and
-steps, never a port or mode. Required Serial Settings names these saved line
-settings; port and execution mode are selected separately at runtime. New copies
-current Connection Setup line settings into the draft; Load preserves those in
-the Sequence file. Copy from Connection Setup replaces the draft line settings
-without reconnecting or automatically changing the active connection.
+Repeat. New, Load, Save, Validate, Add Step, Add Child, Delete, Move Up, and
+Move Down remain available. Drafts may be temporarily invalid while editing.
+Validate, Save and Run use Core's unified Sequence v1 parser and validation.
 
-The editor shows Not connected, Settings match, or Settings mismatch (with each
-differing field and value). Run Sequence is disabled unless a connected session
-matches all six line settings; mismatch does not prevent editing, Validate, or
-saving an otherwise valid Sequence. Run still checks the same requirements in
-Core before any steps execute. It uses the existing Core `StepRunner` on that
-session. The last result, including completed steps, raw-byte transcript, and
+Sequence files use `transport: {type, settings}`, not the legacy root `serial`.
+UART Sequence settings contain the original six line parameters; the COM port
+and execution mode are selected separately. New makes a UART draft from the
+current COM Connection Setup, and Copy from Connection Setup updates only
+UART drafts. Load preserves either the UART or TCP transport and does not
+convert one to the other. TCP files expose their saved I/O Timeout in the same
+editor and can be loaded, validated, edited and saved without connecting.
+Desktop TCP device connection controls are part of the subsequent TCP Desktop
+stage; the current COM session cannot execute a TCP Sequence.
+
+For UART Sequences, the editor shows Not connected, Settings match or Settings
+mismatch, including differing values. Run is disabled unless a connected UART
+session matches all six settings. Transport/settings mismatch never changes
+the active connection or Sequence. Run rechecks the settings in Core before
+executing the same StepRunner and producing the existing result/transcript.
+The last result, including completed steps, raw-byte transcript, and
 failure partial
 bytes when available, is held only in application memory. Save Result exports
 that complete result as JSON with its original byte arrays, regardless of RX

@@ -194,19 +194,31 @@ See [Serial Worker Contract](docs/contracts/serial-worker-contract.md).
 
 ## Sequences
 
-A Sequence JSON file uses `sequence_version: 1` and records all serial line
-settings and ordered steps:
+A Sequence JSON file keeps `sequence_version: 1` and now uses
+`transport.type/settings`. UART files contain the existing six serial line
+settings; TCP files contain only `io_timeout_ms`. The former top-level
+`serial` shape is not supported.
+
+UART example:
 
 ```json
 {
   "sequence_version": 1,
-  "serial": { "baud_rate": 115200, "data_bits": 8, "parity": "none", "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000 },
+  "transport": {
+    "type": "serial",
+    "settings": { "baud_rate": 115200, "data_bits": 8, "parity": "none", "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000 }
+  },
   "steps": [
     { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },
     { "id": "read-frame", "type": "read_until", "delimiter_hex": "0d0a", "max_bytes": 64 }
   ]
 }
 ```
+
+TCP settings use `"transport": {"type":"tcp","settings":{"io_timeout_ms":1000}}`.
+Neither format stores COM port, TCP host/port, connect timeout or execution mode.
+Core can validate/execute both transports; TCP CLI/Worker device selectors and
+Desktop TCP connection controls are implemented in subsequent stages.
 
 Save this as `sequence.json`, then use:
 
@@ -216,7 +228,7 @@ serial-tool sequence run --file sequence.json --mode live --port COM4
 serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
 ```
 
-Validation performs no serial I/O. A Sequence file does not store the port or
+Validation performs no serial I/O, TCP socket connection or DNS lookup. A Sequence file does not store the port or
 execution mode; choose those at runtime. See the
 [Serial Sequence contract](docs/contracts/serial-sequence-contract.md) for the
 complete format.

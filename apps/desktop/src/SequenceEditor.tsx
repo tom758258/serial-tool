@@ -118,8 +118,12 @@ export default function SequenceEditor(props: Props) {
   }
 
   function updateSerial(key: keyof LineSettings, value: string) {
-    edit(next => { (next.serial as unknown as Record<string, string | number>)[key] =
-      ['baud_rate', 'data_bits', 'stop_bits', 'timeout_ms'].includes(key) ? numeric(value) : value })
+    edit(next => {
+      if (next.transport.type === 'serial') {
+        (next.transport.settings as unknown as Record<string, string | number>)[key] =
+          ['baud_rate', 'data_bits', 'stop_bits', 'timeout_ms'].includes(key) ? numeric(value) : value
+      }
+    })
   }
 
   function renderSteps(steps: Step[], prefix: number[] = []) {
@@ -136,6 +140,8 @@ export default function SequenceEditor(props: Props) {
     })
   }
 
+  const serial = draft.transport.type === 'serial' ? draft.transport.settings : null
+
   return <div className="sequence-editor">
     <div className="toolbar">
       <button disabled={disabled} onClick={() => { setSelected(null); props.onNew() }}>New</button>
@@ -145,29 +151,46 @@ export default function SequenceEditor(props: Props) {
       <button className="primary" disabled={!props.canRun || disabled} onClick={props.onRun}>Run Sequence</button>
     </div>
     <div className="sequence-serial panel">
-      <div className="section-heading"><h3>Required Serial Settings</h3>
-        <button disabled={disabled} onClick={() => edit(next => { next.serial = {
-          baud_rate: connection.baud_rate, data_bits: connection.data_bits,
-          parity: connection.parity, stop_bits: connection.stop_bits,
-          flow_control: connection.flow_control, timeout_ms: connection.timeout_ms,
-        } })}>Copy from Connection Setup</button></div>
-      <p className="muted">Saved with this Sequence; these settings must match the active connection before running. Port and execution mode are selected separately in Connection Setup.</p>
-      <div className="field-grid">
-        <label>Baud rate<input disabled={disabled} type="number" value={draft.serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
-        <label>Data bits<select disabled={disabled} value={draft.serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Parity<select disabled={disabled} value={draft.serial.parity} onChange={event => updateSerial('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-        <label>Stop bits<select disabled={disabled} value={draft.serial.stop_bits} onChange={event => updateSerial('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Flow control<select disabled={disabled} value={draft.serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-        <label>Timeout (ms)<input disabled={disabled} type="number" value={draft.serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
-      </div>
-      <div className="sequence-serial-status" role="status" aria-live="polite">
-        {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
-          : serialDifferences.length === 0 ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
-            : <div><span className="sequence-serial-mismatch">Settings mismatch with current connection:</span>
-              <ul className="sequence-serial-differences">{serialDifferences.map(field =>
-                <li key={field}>{serialFieldLabels[field]}: Sequence {String(draft.serial[field])} / Connection {String(connection[field])}</li>)}</ul>
-            </div>}
-      </div>
+      <div className="section-heading"><h3>{serial ? 'Required Serial Settings' : 'Required TCP Settings'}</h3>
+        <button disabled={disabled || !serial} onClick={() => edit(next => {
+          if (next.transport.type === 'serial') {
+            next.transport.settings = {
+              baud_rate: connection.baud_rate, data_bits: connection.data_bits,
+              parity: connection.parity, stop_bits: connection.stop_bits,
+              flow_control: connection.flow_control, timeout_ms: connection.timeout_ms,
+            }
+          }
+        })}>Copy from Connection Setup</button></div>
+      <p className="muted">Saved with this Sequence; these settings must match the active connection before running. The device resource and execution mode are selected separately in Connection Setup.</p>
+      {serial ? <>
+        <div className="field-grid">
+          <label>Baud rate<input disabled={disabled} type="number" value={serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
+          <label>Data bits<select disabled={disabled} value={serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
+          <label>Parity<select disabled={disabled} value={serial.parity} onChange={event => updateSerial('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
+          <label>Stop bits<select disabled={disabled} value={serial.stop_bits} onChange={event => updateSerial('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
+          <label>Flow control<select disabled={disabled} value={serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
+          <label>Timeout (ms)<input disabled={disabled} type="number" value={serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
+        </div>
+        <div className="sequence-serial-status" role="status" aria-live="polite">
+          {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
+            : serialDifferences.length === 0 ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
+              : <div><span className="sequence-serial-mismatch">Settings mismatch with current connection:</span>
+                <ul className="sequence-serial-differences">{serialDifferences.map(field =>
+                  <li key={field}>{serialFieldLabels[field]}: Sequence {String(serial[field])} / Connection {String(connection[field])}</li>)}</ul>
+              </div>}
+        </div>
+      </> : draft.transport.type === 'tcp' && <>
+        <div className="field-grid">
+          <label>I/O Timeout (ms)<input disabled={disabled} type="number" min="1"
+            value={draft.transport.settings.io_timeout_ms}
+            onChange={event => edit(next => {
+              if (next.transport.type === 'tcp') next.transport.settings.io_timeout_ms = numeric(event.target.value)
+            })} /></label>
+        </div>
+        <div className="sequence-serial-status" role="status" aria-live="polite">
+          <span className="sequence-serial-mismatch">TCP Sequence cannot run on the current COM Port connection.</span>
+        </div>
+      </>}
     </div>
     <div className="editor-columns">
       <section className="panel palette"><h3>Palette</h3>

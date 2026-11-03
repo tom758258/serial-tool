@@ -18,7 +18,7 @@ events while allowing only `send` and `send-file` Async Jobs. There is no
 The ordinary mode retains the five existing commands. Apply the Common loopback URL
 validation and same-origin rules before contacting any control endpoint.
 
-1. Read and validate the Serial Sequence. Use its baud rate, data bits,
+1. Read and validate the UART Sequence. Use its baud rate, data bits,
    parity, stop bits, flow control, and timeout as the Worker startup line
    settings. Do not add orchestration defaults.
 2. For live execution, use a COM resource explicitly selected by an operator,
@@ -54,13 +54,16 @@ Submit the canonical inline Sequence object to `POST /command`:
   "arguments": {
     "sequence": {
       "sequence_version": 1,
-      "serial": {
-        "baud_rate": 115200,
-        "data_bits": 8,
-        "parity": "none",
-        "stop_bits": 1,
-        "flow_control": "none",
-        "timeout_ms": 1000
+      "transport": {
+        "type": "serial",
+        "settings": {
+          "baud_rate": 115200,
+          "data_bits": 8,
+          "parity": "none",
+          "stop_bits": 1,
+          "flow_control": "none",
+          "timeout_ms": 1000
+        }
       },
       "steps": [
         { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },

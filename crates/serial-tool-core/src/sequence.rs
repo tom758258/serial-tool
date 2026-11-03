@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     DataBits, FlowControl, InvalidStepId, Parity, SerialSettings, Step, StepId, StepKind, StopBits,
-    ValidationError, validate_steps,
+    TcpSettings, ValidationError, validate_steps,
 };
 
 pub const SEQUENCE_VERSION: u64 = 1;
@@ -53,9 +53,48 @@ impl SequenceSerialConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SequenceTcpConfig {
+    pub io_timeout: Duration,
+}
+
+impl SequenceTcpConfig {
+    fn validate(&self) -> Result<(), SequenceError> {
+        if self.io_timeout.is_zero() || duration_ms(self.io_timeout).is_err() {
+            return Err(SequenceError::InvalidTcp(
+                "io_timeout_ms must be a positive integer number of milliseconds",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SequenceTransport {
+    Serial(SequenceSerialConfig),
+    Tcp(SequenceTcpConfig),
+}
+
+impl SequenceTransport {
+    pub fn matches_serial_settings(&self, settings: &SerialSettings) -> bool {
+        matches!(self, Self::Serial(config) if config.matches_serial_settings(settings))
+    }
+
+    pub fn matches_tcp_settings(&self, settings: &TcpSettings) -> bool {
+        matches!(self, Self::Tcp(config) if config.io_timeout == settings.io_timeout)
+    }
+
+    fn validate(&self) -> Result<(), SequenceError> {
+        match self {
+            Self::Serial(config) => config.validate(),
+            Self::Tcp(config) => config.validate(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sequence {
     pub sequence_version: u64,
-    pub serial: SequenceSerialConfig,
+    pub transport: SequenceTransport,
     pub steps: Vec<Step>,
 }
 
@@ -64,7 +103,7 @@ impl Sequence {
         if self.sequence_version != SEQUENCE_VERSION {
             return Err(SequenceError::UnsupportedVersion(self.sequence_version));
         }
-        self.serial.validate()?;
+        self.transport.validate()?;
         if self.steps.is_empty() {
             return Err(SequenceError::EmptySteps);
         }
@@ -86,7 +125,7 @@ impl Sequence {
         let wire: WireSequence = serde_json::from_value(value).map_err(SequenceError::Json)?;
         let sequence = Self {
             sequence_version: wire.sequence_version,
-            serial: wire.serial.try_into()?,
+            transport: wire.transport.try_into()?,
             steps: wire
                 .steps
                 .into_iter()
@@ -101,7 +140,7 @@ impl Sequence {
         self.validate()?;
         let wire = WireSequence {
             sequence_version: self.sequence_version,
-            serial: WireSerial::try_from(&self.serial)?,
+            transport: WireTransport::try_from(&self.transport)?,
             steps: self
                 .steps
                 .iter()
@@ -131,6 +170,7 @@ pub enum SequenceError {
     InvalidVersion,
     UnsupportedVersion(u64),
     InvalidSerial(&'static str),
+    InvalidTcp(&'static str),
     InvalidStepId(InvalidStepId),
     InvalidHex {
         step_id: String,
@@ -154,6 +194,7 @@ impl fmt::Display for SequenceError {
                 write!(f, "unsupported sequence_version: {version}")
             }
             Self::InvalidSerial(message) => write!(f, "invalid sequence serial config: {message}"),
+            Self::InvalidTcp(message) => write!(f, "invalid sequence TCP config: {message}"),
             Self::InvalidStepId(error) => error.fmt(f),
             Self::InvalidHex { step_id, field } => {
                 write!(f, "invalid {field} hex for step {step_id}")
@@ -245,8 +286,56 @@ fn hex(bytes: &[u8]) -> String {
 #[serde(deny_unknown_fields)]
 struct WireSequence {
     sequence_version: u64,
-    serial: WireSerial,
+    transport: WireTransport,
     steps: Vec<WireStep>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(
+    tag = "type",
+    content = "settings",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+enum WireTransport {
+    Serial(WireSerial),
+    Tcp(WireTcp),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireTcp {
+    io_timeout_ms: u64,
+}
+
+impl TryFrom<WireTransport> for SequenceTransport {
+    type Error = SequenceError;
+
+    fn try_from(wire: WireTransport) -> Result<Self, Self::Error> {
+        Ok(match wire {
+            WireTransport::Serial(serial) => Self::Serial(serial.try_into()?),
+            WireTransport::Tcp(tcp) => Self::Tcp(SequenceTcpConfig {
+                io_timeout: Duration::from_millis(tcp.io_timeout_ms),
+            }),
+        })
+    }
+}
+
+impl TryFrom<&SequenceTransport> for WireTransport {
+    type Error = SequenceError;
+
+    fn try_from(transport: &SequenceTransport) -> Result<Self, Self::Error> {
+        Ok(match transport {
+            SequenceTransport::Serial(serial) => Self::Serial(WireSerial::try_from(serial)?),
+            SequenceTransport::Tcp(tcp) => Self::Tcp(WireTcp {
+                io_timeout_ms: duration_ms(tcp.io_timeout).map_err(|_| {
+                    SequenceError::InvalidTcp(
+                        "io_timeout_ms must be an integer number of milliseconds",
+                    )
+                })?,
+            }),
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize)]

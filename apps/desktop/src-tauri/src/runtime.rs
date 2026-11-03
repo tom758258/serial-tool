@@ -262,7 +262,7 @@ mod tests {
         let (manager, events) = connect();
         let sequence = Sequence::from_json_str(r#"{
             "sequence_version": 1,
-            "serial": {"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000},
+            "transport": {"type":"serial","settings":{"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}},
             "steps": [
                 {"id":"send-frame","type":"send_bytes","hex":"0055aaff0d0a"},
                 {"id":"read-frame","type":"read_until","delimiter_hex":"0d0a","max_bytes":64}
@@ -375,7 +375,7 @@ mod tests {
         let (manager, _events) = connect();
         let sequence = Sequence::from_json_str(r#"{
             "sequence_version": 1,
-            "serial": {"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000},
+            "transport": {"type":"serial","settings":{"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}},
             "steps": [
                 {"id":"send","type":"send_bytes","hex":"00ff80"},
                 {"id":"read","type":"read_until","delimiter_hex":"0d0a","max_bytes":64}
@@ -402,7 +402,7 @@ mod tests {
         let (manager, events) = connect();
         let sequence = Sequence::from_json_str(r#"{
             "sequence_version": 1,
-            "serial": {"baud_rate":9600,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000},
+            "transport": {"type":"serial","settings":{"baud_rate":9600,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}},
             "steps": [{"id":"send-byte","type":"send_bytes","hex":"aa"}]
         }"#).unwrap();
         assert!(manager.run(sequence).unwrap_err().contains("do not match"));

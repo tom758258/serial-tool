@@ -11,8 +11,9 @@ use std::{
 use clap::{Args, ValueEnum};
 use serde_json::{Map, Value, json};
 use serial_tool_core::{
-    DataBits, Direction, Error, FlowControl, Parity, RunError, Sequence, SerialSession,
-    SerialSettings, SerialTransport, SimulationTransport, StepRunner, StopBits, Transport,
+    DataBits, Direction, Error, FlowControl, Parity, RunError, Sequence, SequenceTransport,
+    SerialSession, SerialSettings, SerialTransport, SimulationTransport, StepRunner, StopBits,
+    Transport,
     runtime::{Event as RuntimeEvent, Mode as RuntimeMode, PersistentRuntime},
 };
 use uuid::Uuid;
@@ -1285,10 +1286,18 @@ fn parse_command(
                 .ok_or_else(|| reject("sequence must be an object"))?;
             let sequence = Sequence::from_json_str(&value.to_string())
                 .map_err(|error| validation(run_id, Some(command), job_id, &error.to_string()))?;
-            if !sequence.serial.matches_serial_settings(settings) {
-                return Err(reject(
-                    "sequence serial settings must match Worker startup settings",
-                ));
+            match &sequence.transport {
+                SequenceTransport::Serial(config) if config.matches_serial_settings(settings) => {}
+                SequenceTransport::Serial(_) => {
+                    return Err(reject(
+                        "sequence serial settings must match Worker startup settings",
+                    ));
+                }
+                SequenceTransport::Tcp(_) => {
+                    return Err(reject(
+                        "sequence transport must match Worker startup transport",
+                    ));
+                }
             }
             Operation::RunSequence(sequence)
         }

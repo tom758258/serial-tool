@@ -82,7 +82,7 @@ The Worker machine contract remains unchanged.
   `performs_serial_io: false`, `serial_settings`, `port`, and applicable TX,
   delimiter, or `max_bytes` fields. It neither checks port existence nor opens
   the port, and omits `run_id`.
-- `sequence_validate`: successful no-I/O validation with `ok: true`,
+- `sequence_validate`: successful no-I/O UART/TCP Sequence format validation with `ok: true`,
   `sequence_version: 1`, and `defined_steps`, the recursively defined Step
   count (not the runtime execution count).
 - `sequence_run`: successful one-shot execution with `ok: true`,

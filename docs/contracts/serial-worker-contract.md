@@ -166,10 +166,12 @@ missing required arguments are rejected before admission or serial I/O.
 `run-sequence` accepts only `arguments.sequence`; paths, file names, and
 serialized Sequence strings are not accepted. The object follows the
 [Serial Sequence contract](serial-sequence-contract.md). Core parses and
-validates the complete Sequence before admission. Its baud rate, data bits,
-parity, stop bits, flow control, and timeout must exactly match the Worker
-startup settings in both live and simulation mode; the port is a separate
-runtime resource. A mismatch or invalid definition returns HTTP `400` with
+validates the complete unified Sequence v1 `transport.type/settings` before
+admission. The current UART Worker accepts only `type: "serial"` with baud
+rate, data bits, parity, stop bits, flow control and timeout matching the
+Worker startup settings; TCP Sequences are rejected until the TCP Worker
+entry point is introduced. The port is a separate runtime resource.
+A mismatch or invalid definition returns HTTP `400` with
 `status: "error"` and Common Error code `validation_error` before admission
 or any serial I/O. The Worker never reconfigures or replaces its session for a
 Sequence.

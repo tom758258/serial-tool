@@ -1,8 +1,8 @@
 //! Shared persistent serial execution. Event callbacks run on the I/O owner;
 //! they must return promptly and must not call blocking runtime methods.
 use crate::{
-    Direction, Error, RunError, RunReport, Sequence, SerialSession, SerialSettings,
-    SerialTransport, SimulationTransport, StepRunner, TcpSettings, TcpTransport,
+    Direction, Error, RunError, RunReport, Sequence, SequenceTransport, SerialSession,
+    SerialSettings, SerialTransport, SimulationTransport, StepRunner, TcpSettings, TcpTransport,
 };
 use std::{
     sync::{Arc, Mutex, mpsc},
@@ -71,7 +71,7 @@ enum Session {
 
 enum RuntimeSettings {
     Serial(SerialSettings),
-    Tcp,
+    Tcp(TcpSettings),
 }
 
 impl Session {
@@ -233,7 +233,7 @@ impl PersistentRuntime {
                 Session::Simulation(SerialSession::new(SimulationTransport::loopback()))
             }
         };
-        self.start_tcp(&mut guard, session, events)
+        self.start_tcp(&mut guard, session, settings, events)
     }
 
     pub fn connect_tcp_simulation(
@@ -256,6 +256,7 @@ impl PersistentRuntime {
         self.start_tcp(
             &mut guard,
             Session::Simulation(SerialSession::new(transport)),
+            settings,
             events,
         )
     }
@@ -274,9 +275,10 @@ impl PersistentRuntime {
         &self,
         guard: &mut Option<Connection>,
         session: Session,
+        settings: TcpSettings,
         events: impl Fn(Event) + Send + 'static,
     ) -> Result<(), RuntimeError> {
-        self.start_with(guard, session, RuntimeSettings::Tcp, events)
+        self.start_with(guard, session, RuntimeSettings::Tcp(settings), events)
     }
 
     fn start_with(
@@ -562,19 +564,31 @@ fn handle_command(
             let _ = reply.send(());
         }
         Command::Run(sequence, reply) => {
-            let result = match settings {
-                RuntimeSettings::Serial(serial)
-                    if sequence.serial.matches_serial_settings(serial) =>
+            let result = match (&sequence.transport, settings) {
+                (SequenceTransport::Serial(_), RuntimeSettings::Serial(serial))
+                    if sequence.transport.matches_serial_settings(serial) =>
                 {
                     session
                         .run(&sequence)
                         .map_err(|error| RuntimeError::Sequence(Box::new(error)))
                 }
-                RuntimeSettings::Serial(_) => Err(RuntimeError::Other(
-                    "Sequence serial settings do not match the current connection".into(),
+                (SequenceTransport::Tcp(_), RuntimeSettings::Tcp(tcp))
+                    if sequence.transport.matches_tcp_settings(tcp) =>
+                {
+                    session
+                        .run(&sequence)
+                        .map_err(|error| RuntimeError::Sequence(Box::new(error)))
+                }
+                (SequenceTransport::Serial(_), RuntimeSettings::Serial(_)) => {
+                    Err(RuntimeError::Other(
+                        "Sequence serial settings do not match the current connection".into(),
+                    ))
+                }
+                (SequenceTransport::Tcp(_), RuntimeSettings::Tcp(_)) => Err(RuntimeError::Other(
+                    "Sequence TCP I/O timeout does not match the current connection".into(),
                 )),
-                RuntimeSettings::Tcp => Err(RuntimeError::Other(
-                    "TCP sequences require the unified sequence format".into(),
+                _ => Err(RuntimeError::Other(
+                    "Sequence transport does not match the current connection".into(),
                 )),
             };
             let failed = matches!(&result, Err(RuntimeError::Sequence(error))
@@ -664,7 +678,7 @@ mod tests {
     fn sequence(steps: &str) -> Sequence {
         Sequence::from_json_str(&format!(r#"{{
             "sequence_version":1,
-            "serial":{{"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}},
+            "transport":{{"type":"serial","settings":{{"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}}}},
             "steps":{steps}
         }}"#)).unwrap()
     }
@@ -984,6 +998,56 @@ mod tests {
         );
         assert!(matches!(next(&events), Event::Disconnected));
         runtime.disconnect().unwrap();
+    }
+
+    fn tcp_sequence(steps: &str) -> Sequence {
+        Sequence::from_json_str(&format!(
+            r#"{{"sequence_version":1,"transport":{{"type":"tcp","settings":{{"io_timeout_ms":1000}}}},"steps":{steps}}}"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn tcp_sequence_runs_and_mismatch_does_not_disconnect() {
+        let runtime = PersistentRuntime::default();
+        let (sender, events) = mpsc::channel();
+        runtime
+            .connect_tcp(Mode::Simulation, TcpSettings::default(), move |event| {
+                let _ = sender.send(event);
+            })
+            .unwrap();
+        assert!(matches!(next(&events), Event::Connected));
+
+        let report = runtime
+            .run(tcp_sequence(
+                r#"[{"id":"send","type":"send_bytes","hex":"aa55"},{"id":"read","type":"read_until","delimiter_hex":"aa55","max_bytes":4}]"#,
+            ))
+            .unwrap();
+        assert_eq!(report.step_results.len(), 2);
+        let mut mismatched = tcp_sequence(r#"[{"id":"wait","type":"wait","duration_ms":0}]"#);
+        if let SequenceTransport::Tcp(config) = &mut mismatched.transport {
+            config.io_timeout = Duration::from_millis(2000);
+        }
+        assert!(matches!(
+            runtime.run(mismatched),
+            Err(RuntimeError::Other(_))
+        ));
+        assert!(matches!(
+            runtime.run(sequence(r#"[{"id":"wait","type":"wait","duration_ms":0}]"#)),
+            Err(RuntimeError::Other(_))
+        ));
+        runtime.send(vec![0x77]).unwrap();
+        runtime.disconnect().unwrap();
+
+        let (uart, _) = connect(SimulationTransport::loopback());
+        assert!(matches!(
+            uart.run(tcp_sequence(
+                r#"[{"id":"wait","type":"wait","duration_ms":0}]"#
+            )),
+            Err(RuntimeError::Other(_))
+        ));
+        uart.send(vec![0x55]).unwrap();
+        uart.disconnect().unwrap();
     }
 
     fn tcp_settings(port: u16) -> TcpSettings {
