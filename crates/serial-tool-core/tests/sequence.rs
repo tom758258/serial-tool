@@ -112,7 +112,11 @@ fn tcp_round_trip_and_settings_match_without_endpoint() {
     assert_eq!(Sequence::from_json_str(&json).unwrap(), sequence);
     let tcp = TcpSettings::default();
     assert!(sequence.transport.matches_tcp_settings(&tcp));
-    assert!(!sequence.transport.matches_serial_settings(&sample_serial_settings()));
+    assert!(
+        !sequence
+            .transport
+            .matches_serial_settings(&sample_serial_settings())
+    );
     let mut different = tcp;
     different.io_timeout = Duration::from_millis(2000);
     assert!(!sequence.transport.matches_tcp_settings(&different));
@@ -148,10 +152,7 @@ fn tcp_invalid_fields_and_legacy_root_are_rejected() {
             "\"io_timeout_ms\": 1000, \"host\": \"localhost\"",
         ),
         json.replace("\"io_timeout_ms\": 1000", "\"port\": 5025"),
-        json.replace(
-            "\"io_timeout_ms\": 1000",
-            "\"connect_timeout_ms\": 3000",
-        ),
+        json.replace("\"io_timeout_ms\": 1000", "\"connect_timeout_ms\": 3000"),
         json.replace("\"type\": \"tcp\"", "\"type\": \"udp\""),
         json.replace("\"type\": \"tcp\"", "\"type\": \"tcp\", \"extra\": 1"),
         json.replace("\"settings\": {", "\"settings\": {\"baud_rate\": 9600,"),

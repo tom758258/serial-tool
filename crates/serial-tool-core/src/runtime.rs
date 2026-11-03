@@ -579,9 +579,11 @@ fn handle_command(
                         .run(&sequence)
                         .map_err(|error| RuntimeError::Sequence(Box::new(error)))
                 }
-                (SequenceTransport::Serial(_), RuntimeSettings::Serial(_)) => Err(RuntimeError::Other(
-                    "Sequence serial settings do not match the current connection".into(),
-                )),
+                (SequenceTransport::Serial(_), RuntimeSettings::Serial(_)) => {
+                    Err(RuntimeError::Other(
+                        "Sequence serial settings do not match the current connection".into(),
+                    ))
+                }
                 (SequenceTransport::Tcp(_), RuntimeSettings::Tcp(_)) => Err(RuntimeError::Other(
                     "Sequence TCP I/O timeout does not match the current connection".into(),
                 )),
@@ -1026,7 +1028,10 @@ mod tests {
         if let SequenceTransport::Tcp(config) = &mut mismatched.transport {
             config.io_timeout = Duration::from_millis(2000);
         }
-        assert!(matches!(runtime.run(mismatched), Err(RuntimeError::Other(_))));
+        assert!(matches!(
+            runtime.run(mismatched),
+            Err(RuntimeError::Other(_))
+        ));
         assert!(matches!(
             runtime.run(sequence(r#"[{"id":"wait","type":"wait","duration_ms":0}]"#)),
             Err(RuntimeError::Other(_))
@@ -1036,7 +1041,9 @@ mod tests {
 
         let (uart, _) = connect(SimulationTransport::loopback());
         assert!(matches!(
-            uart.run(tcp_sequence(r#"[{"id":"wait","type":"wait","duration_ms":0}]"#)),
+            uart.run(tcp_sequence(
+                r#"[{"id":"wait","type":"wait","duration_ms":0}]"#
+            )),
             Err(RuntimeError::Other(_))
         ));
         uart.send(vec![0x55]).unwrap();

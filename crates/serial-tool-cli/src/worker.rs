@@ -11,9 +11,9 @@ use std::{
 use clap::{Args, ValueEnum};
 use serde_json::{Map, Value, json};
 use serial_tool_core::{
-    DataBits, Direction, Error, FlowControl, Parity, RunError, Sequence, SerialSession,
-    SequenceTransport, SerialSettings, SerialTransport, SimulationTransport, StepRunner,
-    StopBits, Transport,
+    DataBits, Direction, Error, FlowControl, Parity, RunError, Sequence, SequenceTransport,
+    SerialSession, SerialSettings, SerialTransport, SimulationTransport, StepRunner, StopBits,
+    Transport,
     runtime::{Event as RuntimeEvent, Mode as RuntimeMode, PersistentRuntime},
 };
 use uuid::Uuid;
@@ -1294,7 +1294,9 @@ fn parse_command(
                     ));
                 }
                 SequenceTransport::Tcp(_) => {
-                    return Err(reject("sequence transport must match Worker startup transport"));
+                    return Err(reject(
+                        "sequence transport must match Worker startup transport",
+                    ));
                 }
             }
             Operation::RunSequence(sequence)

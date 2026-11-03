@@ -291,7 +291,12 @@ struct WireSequence {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type", content = "settings", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "type",
+    content = "settings",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 enum WireTransport {
     Serial(WireSerial),
     Tcp(WireTcp),
