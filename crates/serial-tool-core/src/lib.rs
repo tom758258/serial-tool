@@ -10,7 +10,9 @@ pub mod transport;
 pub use config::{DataBits, FlowControl, Parity, SerialSettings, StopBits, TcpSettings};
 pub use discovery::{PortInfo, PortType, UsbInfo, list_ports};
 pub use error::Error;
-pub use sequence::{Sequence, SequenceError, SequenceSerialConfig};
+pub use sequence::{
+    Sequence, SequenceError, SequenceSerialConfig, SequenceTcpConfig, SequenceTransport,
+};
 pub use session::SerialSession;
 pub use step::{
     Direction, ExecutionFailure, InvalidStepId, MAX_READ_BYTES, RunError, RunReport, Step, StepId,

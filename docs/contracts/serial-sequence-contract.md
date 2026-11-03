@@ -6,16 +6,25 @@ persistent file version is independent of the Common CLI and Worker runtime
 
 ## File shape
 
+The v1 file replaces the old top-level `serial` field with a required
+`transport` object. The old format is rejected; there is no legacy parser,
+migration or fallback, and `sequence_version` stays the exact integer `1`.
+
+UART:
+
 ```json
 {
   "sequence_version": 1,
-  "serial": {
-    "baud_rate": 115200,
-    "data_bits": 8,
-    "parity": "none",
-    "stop_bits": 1,
-    "flow_control": "none",
-    "timeout_ms": 1000
+  "transport": {
+    "type": "serial",
+    "settings": {
+      "baud_rate": 115200,
+      "data_bits": 8,
+      "parity": "none",
+      "stop_bits": 1,
+      "flow_control": "none",
+      "timeout_ms": 1000
+    }
   },
   "steps": [
     { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },
@@ -24,16 +33,36 @@ persistent file version is independent of the Common CLI and Worker runtime
 }
 ```
 
-All shown top-level and serial fields are required. Unknown fields in the root,
-serial settings, or any step are rejected. `steps` must contain at least one
-step. `baud_rate` must be positive; `timeout_ms` is a nonnegative `u64`.
-`data_bits` is 5, 6, 7, or 8; `parity` is `none`, `odd`, or `even`;
-`stop_bits` is 1 or 2; `flow_control` is `none`, `software`, or `hardware`.
-There are no hidden serial defaults in a Sequence file.
+TCP:
 
-The file describes line settings and ordered steps. It does not store a COM
-port, execution mode, or simulation profile. Those are selected when running
-the file, so one Sequence can run against different ports or simulation.
+```json
+{
+  "sequence_version": 1,
+  "transport": {
+    "type": "tcp",
+    "settings": { "io_timeout_ms": 1000 }
+  },
+  "steps": [
+    { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },
+    { "id": "read-frame", "type": "read_until", "delimiter_hex": "0d0a", "max_bytes": 64 }
+  ]
+}
+```
+
+Root, transport and settings objects reject unknown fields; all displayed
+settings are required and have no hidden defaults. `steps` must not be empty.
+For UART, `baud_rate` is positive and `timeout_ms` is a nonnegative unsigned
+`u64`. `data_bits` is 5, 6, 7 or 8; `parity` is `none`, `odd` or `even`;
+`stop_bits` is 1 or 2; `flow_control` is `none`, `software` or `hardware`.
+For TCP, `io_timeout_ms` is a positive unsigned `u64`; `host`, `port`,
+`connect_timeout_ms` and UART-only settings are forbidden.
+
+A Sequence stores neither UART COM port nor TCP Host/Port/Connect Timeout.
+Execution selects the device resource, mode and simulation profile separately.
+UART Sequence runs only with an UART connection whose six line settings match;
+TCP Sequence runs only with a TCP connection whose I/O timeout matches.
+Transport or settings mismatch rejects the run without altering the Sequence
+or current connection. StepRunner and step/result/transcript formats are shared.
 
 ## Steps
 
@@ -64,19 +93,27 @@ are deterministic, with one final newline.
 
 Core load reads JSON, converts the wire fields, and validates the complete
 Sequence before returning it. Core save validates before writing. File I/O,
-JSON/schema, version, serial config, step ID, hex, step validation, and
+JSON/schema, version, transport config, step ID, hex, step validation, and
 serialization errors remain distinguishable. Execution binds the runtime
 resource, creates a `SerialSession`, and calls the existing `StepRunner`; the
 Sequence format does not define a workflow engine.
 
 ## CLI execution
 
-`serial-tool sequence validate --file sequence.json` checks the file without
-port discovery, device I/O, step execution, sleep, or Worker startup.
-`serial-tool sequence run --file sequence.json --mode live --port COM4` fully
-loads and validates the file before opening the port.
-`serial-tool sequence run --file sequence.json --mode simulate
---simulation-profile-id loopback-v1` uses Core's deterministic loopback
-transport without opening hardware. The mode and its matching runtime resource
-are required explicitly. See the [Serial CLI machine contract](serial-cli-jsonl-contract.md)
-for result objects and exit codes.
+`serial-tool sequence validate --file sequence.json` parses and validates
+either transport without opening a COM port, TCP socket, DNS lookup, executing
+steps, sleeping, or starting a Worker.
+
+The existing UART execution entry points continue to accept UART Sequence
+files. `serial-tool sequence run --file sequence.json --mode live --port COM4`
+selects the COM port at runtime; the loopback Simulation mode uses
+`--mode simulate --simulation-profile-id loopback-v1`. The TCP Sequence parser
+and Core Runtime support are included in this change; the TCP CLI/Worker
+startup selectors and Desktop TCP connection controls are introduced in their
+separately planned stages, not as part of this Sequence format change.
+
+Ordinary Worker `run-sequence` admission requires the inline Sequence object
+to match its startup transport and settings; otherwise it rejects the request
+with HTTP 400. Streaming Worker still does not accept `run-sequence`.
+See the [Serial CLI machine contract](serial-cli-jsonl-contract.md) for result
+objects and exit codes.

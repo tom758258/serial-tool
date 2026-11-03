@@ -12,7 +12,7 @@ fn file(steps: &str) -> PathBuf {
         std::process::id(),
         std::thread::current().name().unwrap_or("test")
     ));
-    fs::write(&path, format!(r#"{{"sequence_version":1,"serial":{{"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}},"steps":[{steps}]}}"#)).unwrap();
+    fs::write(&path, format!(r#"{{"sequence_version":1,"transport":{{"type":"serial","settings":{{"baud_rate":115200,"data_bits":8,"parity":"none","stop_bits":1,"flow_control":"none","timeout_ms":1000}}}},"steps":[{steps}]}}"#)).unwrap();
     path
 }
 
@@ -72,6 +72,33 @@ fn validate_is_hardware_free_and_classifies_invalid_input() {
     assert_eq!(object(&invalid)["event"], "error");
     assert_eq!(invalid_live.status.code(), Some(2));
     assert_eq!(object(&invalid_live)["command"], "sequence-run");
+}
+
+#[test]
+fn tcp_validation_is_io_free_and_uart_run_rejects_transport() {
+    let path = file(SUCCESS_STEPS);
+    let name = path.to_str().unwrap();
+    let mut json: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    json["transport"] = json!({"type":"tcp","settings":{"io_timeout_ms":1000}});
+    fs::write(&path, json.to_string()).unwrap();
+
+    let validated = run(&["sequence", "validate", "--file", name, "--json"]);
+    assert_eq!(validated.status.code(), Some(0));
+    assert_eq!(object(&validated)["defined_steps"], 2);
+    let rejected = run(&[
+        "sequence",
+        "run",
+        "--file",
+        name,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
+    ]);
+    assert_eq!(rejected.status.code(), Some(2));
+    assert_eq!(object(&rejected)["exit_code"], 2);
+    fs::remove_file(path).unwrap();
 }
 
 #[test]

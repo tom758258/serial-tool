@@ -255,9 +255,12 @@ fn stop(child: &mut Child, receiver: &Receiver<Value>, ready: &Value, body: &str
 fn sequence(steps: Value) -> Value {
     json!({
         "sequence_version": 1,
-        "serial": {
-            "baud_rate": 115200, "data_bits": 8, "parity": "none",
-            "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000
+        "transport": {
+            "type": "serial",
+            "settings": {
+                "baud_rate": 115200, "data_bits": 8, "parity": "none",
+                "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000
+            }
         },
         "steps": steps,
     })
@@ -546,7 +549,9 @@ fn sequence_admission_rejects_invalid_definitions_and_settings() {
     let steps = json!([{"id":"send-byte","type":"send_bytes","hex":"55"}]);
     let valid = sequence(steps.clone());
     let mut mismatch = valid.clone();
-    mismatch["serial"]["baud_rate"] = json!(9600);
+    mismatch["transport"]["settings"]["baud_rate"] = json!(9600);
+    let mut wrong_transport = valid.clone();
+    wrong_transport["transport"] = json!({"type":"tcp","settings":{"io_timeout_ms":1000}});
     let mut version = valid.clone();
     version["sequence_version"] = json!(2);
     let mut unknown = valid.clone();
@@ -564,6 +569,7 @@ fn sequence_admission_rejects_invalid_definitions_and_settings() {
         sequence_request(unknown),
         sequence_request(duplicate),
         sequence_request(mismatch),
+        sequence_request(wrong_transport),
     ];
     for body in cases {
         let (code, response) = request(url, "POST", &body.to_string());

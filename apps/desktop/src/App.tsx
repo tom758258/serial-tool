@@ -87,7 +87,9 @@ export default function App() {
   const busy = status === 'connecting' || status === 'disconnecting' || status === 'running'
   const txLocked = busy || autoTxRunning || txPending
   const canTransmit = status === 'connected' && !txLocked
-  const serialDifferences = serialSettingDifferences(draft.serial, settings)
+  const serialDifferences = draft.transport.type === 'serial'
+    ? serialSettingDifferences(draft.transport.settings, settings) : []
+  const transportMatches = draft.transport.type === 'serial' && serialDifferences.length === 0
   const autoTxPayloadReady = autoTxSource === 'file' ? Boolean(autoTxFilePath) : Boolean(txInput)
   const settingsLocked = connected || busy
   const hasRxBytes = history.some(entry => entry.direction === 'rx' && entry.bytes.length > 0)
@@ -343,7 +345,7 @@ export default function App() {
   }
 
   async function runSequence() {
-    if (!canTransmit || serialDifferences.length !== 0) return
+    if (!canTransmit || !transportMatches) return
     setStatus('running')
     setNotice({ message: 'Running sequence…', kind: 'info' })
     setLastRun(null)
@@ -465,7 +467,7 @@ export default function App() {
     </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} disabled={status === 'running'}
       isConnected={connected} serialDifferences={serialDifferences}
       onNew={() => setDraft(freshSequence(settings))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
-      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && serialDifferences.length === 0} />
+      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && transportMatches} />
       <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>Save Result...</button><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
         <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div></div>
         {!lastRun ? <p className="muted">No sequence run in this session.</p> : <>

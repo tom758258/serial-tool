@@ -1,8 +1,9 @@
 use std::{fs, time::Duration};
 
 use serial_tool_core::{
-    DataBits, FlowControl, Parity, Sequence, SequenceError, SequenceSerialConfig, Step, StepId,
-    StepKind, StopBits, ValidationReason,
+    DataBits, FlowControl, Parity, Sequence, SequenceError, SequenceSerialConfig,
+    SequenceTcpConfig, SequenceTransport, Step, StepId, StepKind, StopBits, TcpSettings,
+    ValidationReason,
 };
 
 fn step(id: &str, kind: StepKind) -> Step {
@@ -15,14 +16,14 @@ fn step(id: &str, kind: StepKind) -> Step {
 fn sample() -> Sequence {
     Sequence {
         sequence_version: 1,
-        serial: SequenceSerialConfig {
+        transport: SequenceTransport::Serial(SequenceSerialConfig {
             baud_rate: 115200,
             data_bits: DataBits::Eight,
             parity: Parity::None,
             stop_bits: StopBits::One,
             flow_control: FlowControl::None,
             timeout: Duration::from_millis(1000),
-        },
+        }),
         steps: vec![
             step("send-text", StepKind::SendText("é".into())),
             step("send-bytes", StepKind::SendBytes(vec![0, 0x55, 0xaa, 0xff])),
@@ -62,10 +63,10 @@ fn all_step_types_round_trip_with_canonical_hex_and_serial_settings() {
             .unwrap(),
         json
     );
-    assert_eq!(
-        sequence.serial.serial_settings_for_port("COM4").port,
-        "COM4"
-    );
+    let SequenceTransport::Serial(config) = &sequence.transport else {
+        panic!("expected UART Sequence");
+    };
+    assert_eq!(config.serial_settings_for_port("COM4").port, "COM4");
 }
 
 #[test]
@@ -95,6 +96,72 @@ fn strict_schema_rejects_unrecognized_or_invalid_input() {
         ),
         Err(SequenceError::UnsupportedVersion(2))
     ));
+}
+
+#[test]
+fn tcp_round_trip_and_settings_match_without_endpoint() {
+    let mut sequence = sample();
+    sequence.transport = SequenceTransport::Tcp(SequenceTcpConfig {
+        io_timeout: Duration::from_millis(1000),
+    });
+    let json = sequence.to_json_pretty().unwrap();
+    assert!(json.contains("\"type\": \"tcp\""));
+    assert!(!json.contains("\"host\""));
+    assert!(!json.contains("\"port\""));
+    assert!(!json.contains("\"connect_timeout_ms\""));
+    assert_eq!(Sequence::from_json_str(&json).unwrap(), sequence);
+    let tcp = TcpSettings::default();
+    assert!(sequence.transport.matches_tcp_settings(&tcp));
+    assert!(!sequence.transport.matches_serial_settings(&sample_serial_settings()));
+    let mut different = tcp;
+    different.io_timeout = Duration::from_millis(2000);
+    assert!(!sequence.transport.matches_tcp_settings(&different));
+}
+
+fn sample_serial_settings() -> serial_tool_core::SerialSettings {
+    let SequenceTransport::Serial(serial) = sample().transport else {
+        unreachable!()
+    };
+    serial.serial_settings_for_port("COM4")
+}
+
+#[test]
+fn tcp_invalid_fields_and_legacy_root_are_rejected() {
+    let mut sequence = sample();
+    sequence.transport = SequenceTransport::Tcp(SequenceTcpConfig {
+        io_timeout: Duration::from_millis(1000),
+    });
+    let json = sequence.to_json_pretty().unwrap();
+    let mut old: serde_json::Value =
+        serde_json::from_str(&sample().to_json_pretty().unwrap()).unwrap();
+    let serial = old["transport"]["settings"].take();
+    old.as_object_mut().unwrap().remove("transport");
+    old["serial"] = serial;
+    let legacy = old.to_string();
+    assert!(Sequence::from_json_str(&legacy).is_err());
+    for bad in [
+        json.replace("\"io_timeout_ms\": 1000", "\"io_timeout_ms\": 0"),
+        json.replace("\"io_timeout_ms\": 1000", "\"io_timeout_ms\": -1"),
+        json.replace("\"io_timeout_ms\": 1000", "\"io_timeout_ms\": 1.5"),
+        json.replace(
+            "\"io_timeout_ms\": 1000",
+            "\"io_timeout_ms\": 1000, \"host\": \"localhost\"",
+        ),
+        json.replace("\"io_timeout_ms\": 1000", "\"port\": 5025"),
+        json.replace(
+            "\"io_timeout_ms\": 1000",
+            "\"connect_timeout_ms\": 3000",
+        ),
+        json.replace("\"type\": \"tcp\"", "\"type\": \"udp\""),
+        json.replace("\"type\": \"tcp\"", "\"type\": \"tcp\", \"extra\": 1"),
+        json.replace("\"settings\": {", "\"settings\": {\"baud_rate\": 9600,"),
+    ] {
+        assert!(Sequence::from_json_str(&bad).is_err(), "accepted: {bad}");
+    }
+    sequence.transport = SequenceTransport::Tcp(SequenceTcpConfig {
+        io_timeout: Duration::ZERO,
+    });
+    assert!(sequence.validate().is_err());
 }
 
 #[test]

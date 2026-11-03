@@ -22,9 +22,13 @@ export type Step =
   | { id: string; type: 'read_until'; delimiter_hex: string; max_bytes: number }
   | { id: string; type: 'repeat'; count: number; steps: Step[] }
 
+export type SequenceTransport =
+  | { type: 'serial'; settings: LineSettings }
+  | { type: 'tcp'; settings: { io_timeout_ms: number } }
+
 export type Sequence = {
   sequence_version: number
-  serial: LineSettings
+  transport: SequenceTransport
   steps: Step[]
 }
 
@@ -79,14 +83,14 @@ export const defaultLine: LineSettings = {
 export function freshSequence(line: LineSettings): Sequence {
   return {
     sequence_version: 1,
-    serial: {
+    transport: { type: 'serial', settings: {
       baud_rate: line.baud_rate,
       data_bits: line.data_bits,
       parity: line.parity,
       stop_bits: line.stop_bits,
       flow_control: line.flow_control,
       timeout_ms: line.timeout_ms,
-    },
+    } },
     steps: [],
   }
 }
