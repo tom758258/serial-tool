@@ -1,0 +1,274 @@
+[繁體中文](README.zh-TW.md) | [CLI User Guide](USER_GUIDE.md) | [Project](../../README.md)
+
+# Serial Tool CLI / Worker
+
+This is the engineering and command-reference README for `crates/serial-tool-cli`. For a practical sequence of operations, use the [CLI User Guide](USER_GUIDE.md). For precise machine fields and lifecycle guarantees, use the [contracts](../contracts/); do not treat prose examples as replacements for the published schemas.
+
+The `serial-tool` binary is the CLI and Worker entry point. CLI parsing, terminal presentation, Worker HTTP/JSONL, and output formatting are adapters over `serial-tool-core`; device I/O and sequence execution stay in Core.
+
+## Development
+
+From the root workspace:
+
+```sh
+cargo build -p serial-tool-cli --locked
+cargo test -p serial-tool-cli --locked
+cargo run -p serial-tool-cli -- --help
+```
+
+Use `serial-tool <command> --help` for exact flags and parameter defaults. The bundled offline `user-guide` command is not implemented in this version.
+
+## Documentation and integration
+
+- [CLI User Guide](USER_GUIDE.md): operator-facing procedures and troubleshooting.
+- [Core README](../core/README.md): shared runtime and transport ownership.
+- [Serial CLI JSON/JSONL Contract](../contracts/serial-cli-jsonl-contract.md): machine output and exit codes.
+- [Serial Worker Contract](../contracts/serial-worker-contract.md): Worker commands, HTTP endpoints, streaming and lifecycle.
+- [Serial Sequence Contract](../contracts/serial-sequence-contract.md): exact v1 JSON shape and validation.
+- [Serial Orchestrator Workflow Contract](../contracts/serial-orchestrator-workflows.md): integration boundary.
+- [Common Worker Protocol](../contracts/common-worker-protocol.md): shared Worker contract.
+- [Monorepo Layout](../architecture/monorepo-layout.md) and [AGENTS.md](../../AGENTS.md): ownership and validation rules.
+
+## Command and operational reference
+
+The following material preserves the detailed CLI/Worker options and operational limits formerly kept in the root README.
+
+## CLI usage
+
+Run `cargo run -p serial-tool-cli -- <command>` from the workspace, or use the
+`serial-tool` binary after building. For example:
+
+```sh
+serial-tool manifest --json
+serial-tool list-ports
+serial-tool list-ports --json
+serial-tool send --port COM4 --baud 115200 --text "STATUS?"
+serial-tool send --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A"
+serial-tool send --port COM4 --baud 115200 --file payload.bin
+serial-tool send --port COM4 --baud 115200 --file payload.bin --dry-run --json
+serial-tool receive --port COM4 --baud 115200 --max-bytes 256
+serial-tool query --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A" --until-hex "0D 0A" --max-bytes 1024
+serial-tool query --port COM4 --baud 115200 --text "STATUS?" --until-text "OK" --max-bytes 1024 --dry-run --json
+serial-tool send --transport tcp --host 127.0.0.1 --tcp-port 5025 --hex "AA 55"
+serial-tool query --transport tcp --host 127.0.0.1 --tcp-port 5025 --text "STATUS?" --until-text "OK"
+```
+
+`send` requires exactly one of `--text`, `--hex`, or `--file`. File input reads
+the entire nonempty file as raw bytes, without decoding, hex parsing, or line
+ending conversion. Missing or unreadable files are input errors (exit 2).
+Dry-run reads and validates the file without opening a port or TCP socket, and without DNS. File input uses
+the same TX machine fields as text and hex input.
+`query` requires exactly one of `--text` or `--hex` and exactly one of
+`--until-text` or `--until-hex`; it does not accept `--file`. Text uses UTF-8 bytes
+exactly as supplied and does not append CR or LF. Use hex for explicit control
+bytes. Raw bytes are authoritative; machine output represents them as lowercase
+hex without separators.
+
+`--transport` defaults to `serial`; Serial `send`, `receive`, and `query`
+require `--port` and `--baud`. Defaults are 8 data bits, no parity, 1 stop bit,
+no flow control, and a 1000 ms timeout. TCP requires `--transport tcp`,
+`--host`, and `--tcp-port` (1..65535), without UART options. TCP defaults to a
+3000 ms connect timeout and 1000 ms read/write I/O timeout; override with
+`--connect-timeout-ms` / `--io-timeout-ms`. Transport-only options cannot be
+mixed. TCP Live supports IPv4, IPv6, and hostnames; dry-run never resolves DNS.
+`receive` performs one bounded read. Dry-run validates the plan without opening
+or checking the port. Use `--format text|json|jsonl` (default `text`), or
+`--json` as an alias for `--format json`. See the
+[Serial CLI machine contract](../contracts/serial-cli-jsonl-contract.md) for
+event fields and exit codes.
+
+`receive`, `query`, and `sequence run` accept `--rx-display hex|text|both`
+(default `hex`). RX remains raw bytes internally; `--rx-display` changes only
+human-readable text output. `hex` uses spaced uppercase bytes, `text` uses
+lossy UTF-8 with control characters escaped, and `both` shows both. JSON/JSONL
+machine output remains canonical lowercase hex regardless of `--rx-display`.
+
+## Interactive CLI terminal
+
+The human-interactive terminal keeps one COM or TCP connection open for continuous RX
+and line-oriented manual TX:
+
+```sh
+serial-tool terminal --mode live --port COM4 --baud 115200
+serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopback-v1
+serial-tool terminal --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
+serial-tool terminal --transport tcp --mode simulate --simulation-profile-id loopback-v1
+```
+
+It accepts the same transport settings as the one-shot commands, plus
+`--rx-display hex|text|both|stream|hex-stream` (default `hex`), `--tx-display hex|off`
+(default `hex`), `--tx-format text|hex` (default `text`), and
+`--line-ending none|lf|crlf` (default `none`). Enter submits a line;
+its stdin CR/LF is removed before applying the requested text line ending.
+Hex sends exact bytes using the existing parser and ignores text line endings.
+Invalid input is reported without ending the terminal. EOF or Ctrl+C gracefully
+disconnects; EOF allows a short 50 ms window for final monitor events, without
+waiting for a device response. Terminal has no JSON/JSONL output contract.
+Worker remains the machine persistent interface and uses its existing runtime.
+
+Text is an escaped log presentation. Stream presents RX text without prefixes
+or event-boundary line breaks: LF creates a newline, CR is omitted, and other
+control characters remain escaped. Output is flushed even without LF. CLI
+UTF-8 decoding remains lossy per RX event, so characters split across events
+may display replacement characters. Stream uses stdout for RX and stderr for
+lifecycle messages, errors, and TX hex logs. `--tx-display off` only hides TX
+presentation; bytes are still sent. For an RX-only capture, use:
+
+```sh
+serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display stream --tx-display off > rx.txt
+```
+
+Hex Stream presents every RX byte as two uppercase hex digits, separated by
+exactly one space across events, with no prefix, trailing space, or newline.
+For example, events `AA 55` and `0D 0A` produce `AA 55 0D 0A`. It flushes each
+RX event and routes lifecycle messages and TX logs to stderr, like Stream:
+
+```sh
+serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display hex-stream --tx-display off > rx.hex
+```
+
+## CLI Auto TX
+
+`auto-tx` keeps one Live or Simulation connection open, sends a fixed payload
+periodically, and continues receiving RX until Ctrl+C:
+
+```sh
+serial-tool auto-tx --mode live --port COM4 --baud 115200 --text "STATUS?" --interval-ms 1000
+serial-tool auto-tx --mode live --port COM4 --baud 115200 --hex "AA 55" --interval-ms 500
+serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --file payload.bin --interval-ms 1000
+serial-tool auto-tx --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --hex "AA 55" --interval-ms 500
+```
+
+Live requires the selected transport's resource and forbids `--simulation-profile-id`;
+Simulation requires `--simulation-profile-id loopback-v1` and forbids resource
+options. The command accepts Terminal's connection settings, `--rx-display`, and `--tx-display` options.
+Exactly one of `--text`, `--hex`, or `--file` is required; payloads must be
+nonempty. Text and hex use the same exact-byte rules as `send`. File input is
+read once before connecting; changes to the file do not affect the running
+payload. `--interval-ms` is a required positive integer in milliseconds.
+
+Core's persistent runtime sends the first payload immediately and measures each
+subsequent interval from completion of the previous send and flush. It does
+not catch up missed intervals. Ctrl+C stops periodic TX and disconnects;
+connection or device I/O failures exit 3 and release the connection. There is
+no stdin interaction, dry-run, or JSON/JSONL contract for `auto-tx`.
+
+## Worker RX Streaming (optional)
+
+The persistent Worker also supports opt-in full-duplex RX streaming using the
+Common v3 Optional Streaming Extension:
+
+```sh
+serial-tool worker --mode live --port COM4 --baud 115200 --streaming
+serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --streaming
+serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming
+```
+
+Streaming starts with the Worker (`run_bound`) and reports raw incoming RX
+as JSONL `rx` events (`rx_hex` / `rx_bytes`). TX is performed through
+existing asynchronous `send` and `send-file` HTTP commands while RX
+continues. `receive`, `query`, and `run-sequence` are available only
+without `--streaming`, and non-streaming Worker operation is unchanged.
+The simulated `loopback-v1` returns transmitted bytes as RX. The separate
+`periodic-rx-v1` profile autonomously generates an incrementing 4-byte
+big-endian counter every approximately 100 ms, without TX or TX echo;
+it is only valid for Streaming Simulation Workers. No orchestration buffer,
+replay, or device protocol decoding is added.
+See [Serial Worker Contract](../contracts/serial-worker-contract.md).
+
+## Sequences
+
+A Sequence JSON file keeps `sequence_version: 1` and now uses
+`transport.type/settings`. UART files contain the existing six serial line
+settings; TCP files contain only `io_timeout_ms`. The former top-level
+`serial` shape is not supported.
+
+UART example:
+
+```json
+{
+  "sequence_version": 1,
+  "transport": {
+    "type": "serial",
+    "settings": { "baud_rate": 115200, "data_bits": 8, "parity": "none", "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000 }
+  },
+  "steps": [
+    { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },
+    { "id": "read-frame", "type": "read_until", "delimiter_hex": "0d0a", "max_bytes": 64 }
+  ]
+}
+```
+
+TCP settings use `"transport": {"type":"tcp","settings":{"io_timeout_ms":1000}}`.
+Neither format stores COM port, TCP host/port, connect timeout or execution mode.
+Core, Desktop, CLI and Worker use the same Sequence transport format. TCP CLI
+Sequence runs obtain `io_timeout_ms` from the Sequence file rather than a
+separate CLI option.
+
+Save this as `sequence.json`, then use:
+
+```sh
+serial-tool sequence validate --file sequence.json
+serial-tool sequence run --file sequence.json --mode live --port COM4
+serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
+# For a Sequence file whose transport type is tcp:
+serial-tool sequence run --file tcp-sequence.json --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
+serial-tool sequence run --file tcp-sequence.json --transport tcp --mode simulate --simulation-profile-id loopback-v1
+```
+
+Validation performs no serial I/O, TCP socket connection or DNS lookup. A Sequence file does not store the port or
+execution mode; choose those at runtime. See the
+[Serial Sequence contract](../contracts/serial-sequence-contract.md) for the
+complete format.
+
+## Worker
+
+Start a local Worker for an explicit COM or TCP client resource, or deterministic simulation:
+
+```sh
+serial-tool worker --mode live --port COM4 --baud 115200 --control-port 0
+serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
+```
+
+Worker implements Common v3.0 (`v3-only`): HTTP and runtime JSONL use schema 3,
+while Manifest and ordinary CLI results remain schema 2. `manifest --json`
+declares `multi_job` / `startup` execution and `common.async_jobs` version 1.
+All five commands are `async_job`; there is one active slot, with no extra
+queue, parallel jobs, or cancellation. With `--streaming`, only `send` and
+`send-file` are accepted; other commands remain available without streaming.
+
+Worker stdout is JSONL. Its HTTP control plane binds only to `127.0.0.1`, and
+the `ready` event supplies the selected endpoint URLs. A live Worker holds one
+COM port through a persistent session. Simulation profile `loopback-v1` makes
+each written byte available for later reads without opening hardware. `/stop`
+closes the session without sending device-specific bytes. See the
+[Serial Worker contract](../contracts/serial-worker-contract.md) for requests,
+events, and lifecycle details.
+
+Worker commands are `send`, `send-file`, `receive`, `query`, and `run-sequence`.
+Submit raw files using `POST /command` with, for example:
+
+```json
+{"schema_version":3,"command":"send-file","arguments":{"path":"C:\\TestData\\payload.bin"},"job_id":"send-file-001"}
+```
+
+The path must be absolute and accessible on the Worker host. `send-file`
+streams raw bytes in chunks of up to 4 KiB and reports `file_bytes` and
+confirmed `bytes_written`, without payload hex. `/stop` cooperatively stops
+remaining chunks after current I/O returns; an already completed transfer
+remains successful. Simulation retains loopback bytes in memory, so prefer
+small files there. See the Worker contract for partial results and errors.
+
+HTTP `202` acknowledges admission. Completion uses `job_finished` with
+`state: "succeeded"` or `"failed"`, `ok`, `result`, and a Common Error or null;
+`GET /status` exposes the same terminal in `last_job`. `/stop` returns HTTP
+`200`, `status: "accepted"`; shutdown still requires summary, stdout EOF,
+and actual process exit.
+
+`run-sequence` accepts an inline Sequence object whose line settings must
+match the Worker startup settings. See the
+[Serial Orchestrator workflow contract](../contracts/serial-orchestrator-workflows.md)
+for the future orchestration flow.
