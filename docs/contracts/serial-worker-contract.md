@@ -45,8 +45,9 @@ Core `PersistentRuntime` provides the sole Serial I/O Owner, and the Job Runner
 submits TX through it. The HTTP control plane never reads or writes the COM
 port directly. The startup transport, mode, device resource or simulation profile, and
 its matching UART or TCP settings are fixed for that runtime.
-Defaults for optional line settings match the one-shot CLI: 8 data bits, no
-parity, 1 stop bit, no flow control, and 1000 ms timeout. `--baud` is required.
+Defaults for optional Serial line settings match the one-shot CLI: 8 data bits,
+no parity, 1 stop bit, no flow control, and 1000 ms timeout. Serial requires
+`--baud`; TCP does not.
 For Serial simulation these settings describe the logical session and do not
 represent hardware configuration. TCP has separate connect (3000ms) and I/O
 (1000ms) defaults; `--connect-timeout-ms` and `--io-timeout-ms` are TCP-only.
@@ -339,8 +340,8 @@ EOF before checking stop. No remaining chunk is sent once stop is observed.
 EOF after a successful final Flush remains `job_finished`, even if stop
 arrived during that Flush; this also applies to exact multiples of 4096
 bytes. A remaining chunk instead produces `stopped_by_request` with confirmed
-partial bytes. An actual I/O error remains `file_error` or `serial_error`,
-even when stop is also pending. Each admitted job emits exactly one terminal
+partial bytes. An actual file error remains `file_error`; device I/O errors use `serial_error`
+for Serial or `tcp_error` for TCP, even when stop is also pending. Each admitted job emits exactly one terminal
 event. Stopped or failed file jobs count as ordinary job failures; successful
 Worker cleanup still emits a normal summary and exits `0`. Stop is not job
 cancellation. The other commands' stop behavior remains unchanged.

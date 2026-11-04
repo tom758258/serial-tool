@@ -668,10 +668,18 @@ impl WorkerArgs {
         let runner_state = Arc::clone(&state);
         let runner_output = Arc::clone(&output);
         let runner_id = run_id.clone();
+        let streaming_tcp = matches!(settings, ConnectionSettings::Tcp(_));
         let runner = if let Some((runtime, _)) = &streaming_runtime {
             let runtime = Arc::clone(runtime);
             thread::spawn(move || {
-                run_stream_jobs(runtime, receiver, runner_state, runner_output, runner_id)
+                run_stream_jobs(
+                    runtime,
+                    receiver,
+                    runner_state,
+                    runner_output,
+                    runner_id,
+                    streaming_tcp,
+                )
             })
         } else {
             thread::spawn(move || {
@@ -897,13 +905,14 @@ fn run_stream_jobs<W: Write>(
     state: Arc<Mutex<State>>,
     output: Arc<Mutex<W>>,
     run_id: String,
+    tcp: bool,
 ) {
     run_jobs_with(
         receiver,
         state,
         output,
         run_id,
-        false,
+        tcp,
         |operation, state| execute_stream(&runtime, operation, state),
     );
 }
@@ -1075,11 +1084,11 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
             let current = state.lock().unwrap();
             let mut value = json!({
                 "schema_version": 3, "service": "serial-tool", "run_id": run_id,
-                "status": if current.stopping { "stopping" } else if current.active.is_some() { "busy" } else { "ready" },
-                "worker_state": if current.stopping { "stopping" } else { "running" },
+                "status": if current.stopping || current.fatal.is_some() { "stopping" } else if current.active.is_some() { "busy" } else { "ready" },
+                "worker_state": if current.fatal.is_some() { "failed" } else if current.stopping { "stopping" } else { "running" },
                 "features": features(),
                 "mode": mode, "active_job": current.active.as_ref().map(identity_json),
-                "last_job": current.last_job, "fatal_error": null,
+                "last_job": current.last_job, "fatal_error": current.fatal.as_deref().map(|message| common_error("worker", "runtime_error", message)),
                 "timestamp_utc": timestamp(),
             });
             for (key, item) in urls.as_object().unwrap() {
@@ -1133,7 +1142,7 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
                 );
             }
             let mut current = state.lock().unwrap();
-            let reason = if current.stopping {
+            let reason = if current.stopping || current.fatal.is_some() {
                 Some("stopping")
             } else if current.active.is_some() {
                 Some("busy")
@@ -1858,6 +1867,17 @@ mod tests {
         path: &str,
         body: Value,
     ) -> (u16, Value) {
+        worker_http(state, sender, output, "POST", path, body)
+    }
+
+    fn worker_http(
+        state: &Arc<Mutex<State>>,
+        sender: &mpsc::Sender<Job>,
+        output: &Mutex<Vec<u8>>,
+        method: &str,
+        path: &str,
+        body: Value,
+    ) -> (u16, Value) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         client
@@ -1867,7 +1887,7 @@ mod tests {
         let body = body.to_string();
         write!(
             client,
-            "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
             body.len()
         )
         .unwrap();
@@ -1906,6 +1926,75 @@ mod tests {
             head.split_whitespace().nth(1).unwrap().parse().unwrap(),
             serde_json::from_str(body).unwrap(),
         )
+    }
+
+    #[test]
+    fn tcp_streaming_runtime_failures_report_tcp_error() {
+        let fixture = SendFileFixture::new(8);
+        for (command, operation) in [
+            ("send", Operation::Send(vec![0xaa])),
+            ("send-file", Operation::SendFile(fixture.0.clone())),
+        ] {
+            let state = Arc::new(Mutex::new(State::new()));
+            let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+            let (sender, receiver) = mpsc::channel();
+            let identity = JobIdentity {
+                worker_job_id: "job-1".into(),
+                command: command.into(),
+                job_id: None,
+                state: "accepted",
+                timestamp_utc: timestamp(),
+            };
+            state.lock().unwrap().active = Some(identity.clone());
+            sender.send(Job { identity, operation }).unwrap();
+            drop(sender);
+            run_stream_jobs(
+                Arc::new(PersistentRuntime::default()),
+                receiver,
+                Arc::clone(&state),
+                Arc::clone(&output),
+                "run".into(),
+                true,
+            );
+            let data = output.lock().unwrap();
+            let events: Vec<Value> = std::str::from_utf8(&data)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(events.len(), 2, "{command}");
+            assert_eq!(events[1]["event"], "job_finished");
+            assert_eq!(events[1]["state"], "failed");
+            assert_eq!(events[1]["error"]["code"], "tcp_error", "{command}");
+            assert_eq!(state.lock().unwrap().failed, 1);
+        }
+    }
+
+    #[test]
+    fn fatal_worker_status_is_failed_and_rejects_new_jobs() {
+        let state = Arc::new(Mutex::new(State::new()));
+        state.lock().unwrap().fatal = Some("TCP socket closed".into());
+        let (sender, receiver) = mpsc::channel();
+        let output = Mutex::new(Vec::<u8>::new());
+
+        let (status_code, status) =
+            worker_http(&state, &sender, &output, "GET", "/status", json!({}));
+        assert_eq!(status_code, 200);
+        assert_eq!(status["status"], "stopping");
+        assert_eq!(status["worker_state"], "failed");
+        assert_eq!(status["fatal_error"]["code"], "runtime_error");
+
+        let (code, rejected) = send_file_http(
+            &state,
+            &sender,
+            &output,
+            "/command",
+            json!({"schema_version": 3, "command": "send", "arguments": {"tx_hex": "01"}}),
+        );
+        assert_eq!(code, 409);
+        assert_eq!(rejected["reason"], "stopping");
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(state.lock().unwrap().accepted, 0);
     }
 
     #[test]
