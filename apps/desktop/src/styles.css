@@ -26,7 +26,9 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .subtitle, .muted { color: var(--muted); }
 .topbar, .section-heading, .connection-actions, .send-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .topbar { margin-bottom: 1rem; }
-.appearance-control { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .85rem; font-weight: 600; }
+.header-settings { display: flex; align-items: center; gap: .8rem; }
+.header-setting { display: flex; flex-direction: column; gap: .25rem; color: var(--muted); font-size: .85rem; font-weight: 600; }
+.header-setting button { align-self: flex-start; min-width: 96px; font-weight: 500; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 1rem; }
 .connection .section-heading { margin-bottom: .8rem; }
 .connection.collapsed .section-heading { margin-bottom: 0; }

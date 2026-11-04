@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --experimental-strip-types --test tests/terminal-display.test.mjs",
+    "test": "node --experimental-strip-types --test tests/terminal-display.test.mjs tests/i18n.test.mjs",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "tauri": "tauri"
