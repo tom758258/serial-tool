@@ -112,3 +112,21 @@ observations, not protocol frames or a query response API. Any Workflow
 TX/RX FIFO, Background capture and Foreground-to-Background routing belong
 to Orchestrator, not Serial Tool. No Orchestrator integration is implemented
 by this contract update.
+
+## TCP client Worker startup
+
+The same Worker exposes TCP client sessions via `--transport tcp`:
+
+```sh
+serial-tool worker --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
+```
+
+The HTTP control listener always uses `127.0.0.1` and `--control-port`,
+independently of the TCP device `--tcp-port`. Read Worker Ready/Status
+`transport` and `tcp_settings` to identify the session. The TCP Simulation
+profiles reuse the Serial profile IDs without a Socket or DNS. TCP Sequences
+must match Worker startup transport and `io_timeout_ms`. Streaming still
+accepts only `send` and `send-file`, with continuous RX from the existing
+Core owner; no capture, workflow or database behavior is added here.

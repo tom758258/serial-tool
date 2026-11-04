@@ -21,15 +21,18 @@ versions.
 ## Startup and ownership
 
 `serial-tool worker --mode live --port COM4 --baud 115200 --control-port 0`
-claims the explicit port before emitting `ready`. A failed open or HTTP bind
+claims the explicit COM port before emitting `ready`. A TCP client uses
+`serial-tool worker --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --control-port 0`
+and opens the device Socket before `ready`. A failed open or HTTP bind
 emits a structured `error` and failed `summary`, then exits `3` without `ready`.
 `ready` means the local HTTP control plane is accepting requests and the port
 has been claimed; it does not assert device protocol readiness.
 
 `serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0`
-creates a session without touching physical ports. Live requires `--port` and
-forbids `--simulation-profile-id`. Simulate requires the profile and forbids
-`--port`. Invalid startup settings exit `2`. The existing `loopback-v1` simulation identity is not a physical model ID.
+creates a session without touching physical ports. Serial Live requires `--port` and `--baud` and forbids a Simulation profile;
+TCP Live requires `--host` / `--tcp-port` and forbids UART settings. Simulate
+requires the profile and forbids device resource options (Serial still needs
+`--baud`, TCP does not). Invalid startup settings exit `2`. The existing `loopback-v1` simulation identity is not a physical model ID.
 Every write's exact bytes become pending RX bytes in order. Reading without
 pending RX deterministically times out. A separate `periodic-rx-v1` profile
 is supported only for simulated Streaming Worker startup (defined below).
@@ -40,13 +43,20 @@ session alone owns the serial transport and internal RX buffer. In ordinary
 mode, the sole Job Runner performs serial operations; in Streaming mode, the
 Core `PersistentRuntime` provides the sole Serial I/O Owner, and the Job Runner
 submits TX through it. The HTTP control plane never reads or writes the COM
-port directly. The startup mode, port or simulation profile, baud, data bits,
-parity, stop bits, flow control, and timeout are fixed for that runtime.
+port directly. The startup transport, mode, device resource or simulation profile, and
+its matching UART or TCP settings are fixed for that runtime.
 Defaults for optional line settings match the one-shot CLI: 8 data bits, no
 parity, 1 stop bit, no flow control, and 1000 ms timeout. `--baud` is required.
-In simulation these settings describe the logical session and do not represent
-hardware configuration. `--control-port` defaults to `0` (OS-selected) and
+For Serial simulation these settings describe the logical session and do not
+represent hardware configuration. TCP has separate connect (3000ms) and I/O
+(1000ms) defaults; `--connect-timeout-ms` and `--io-timeout-ms` are TCP-only.
+TCP Simulation has neither Host nor device Port and performs no DNS/Socket I/O. `--control-port` defaults to `0` (OS-selected) and
 accepts `0..65535`. HTTP binds only to `127.0.0.1`.
+
+The Worker HTTP control listener continues to bind only to `127.0.0.1`.
+`--control-port` is its HTTP port; `--tcp-port` is the TCP device port.
+They are independent and never reused for each other. No separate TCP Worker
+or Common v3 schema version is introduced.
 
 ## Optional full-duplex RX streaming
 
@@ -126,9 +136,11 @@ guaranteed to have been captured.
 ## HTTP control plane
 
 `GET /status` returns a memory-only, non-mutating schema-3 object with
-`service`, `run_id`, `status`, `mode`, absolute `status_url`, `command_url`,
-`stop_url`, `features`, `worker_state`, `serial_settings`, `active_job`,
-`last_job`, `fatal_error`, and `timestamp_utc`. Live status includes `port`; simulation status includes
+`service`, `run_id`, `status`, `mode`, `transport`, absolute `status_url`, `command_url`,
+`stop_url`, `features`, `worker_state`, `active_job`, `last_job`, `fatal_error`,
+and `timestamp_utc`. Serial has `serial_settings`; TCP has `tcp_settings`
+(Host, device Port, connect/I/O timeouts in Live; timeouts only in Simulation).
+Serial Live status includes `port`; simulation status includes
 `simulation_profile_id`. Status is `ready`, `busy`, or `stopping` while the
 control plane is reachable. This `status` is Serial-specific; Common
 `worker_state` is `running` even while a job is busy, and `stopping` after
@@ -167,10 +179,10 @@ missing required arguments are rejected before admission or serial I/O.
 serialized Sequence strings are not accepted. The object follows the
 [Serial Sequence contract](serial-sequence-contract.md). Core parses and
 validates the complete unified Sequence v1 `transport.type/settings` before
-admission. The current UART Worker accepts only `type: "serial"` with baud
-rate, data bits, parity, stop bits, flow control and timeout matching the
-Worker startup settings; TCP Sequences are rejected until the TCP Worker
-entry point is introduced. The port is a separate runtime resource.
+admission. The Worker accepts only the Sequence transport matching its startup transport.
+Serial compares baud, data bits, parity, stop bits, flow control and timeout.
+TCP compares `io_timeout_ms` only; TCP Sequence files do not store Host, Port
+or Connect Timeout. The port is a separate runtime resource.
 A mismatch or invalid definition returns HTTP `400` with
 `status: "error"` and Common Error code `validation_error` before admission
 or any serial I/O. The Worker never reconfigures or replaces its session for a
@@ -199,9 +211,12 @@ Core `read` for `receive`, and `write_all`, `flush`, and Core `read_until`
 for `query`. Streaming mode routes `send` and `send-file` through Core
 `PersistentRuntime` instead. An accepted command's HTTP response remains
 `202` even if execution later fails.
-Timeouts and serial read/write/flush failures emit `job_finished` with
-`state: "failed"`, Common Error category `execution`, code `serial_error`,
-and update `last_job`; the Worker remains available. Partial RX supplied by Core appears
+Ordinary read timeouts and I/O failures emit `job_finished` with
+`state: "failed"`, Common Error category `execution`: `serial_error` for
+Serial, `tcp_error` for TCP. A recoverable TCP Read Timeout leaves the
+Session available. TCP EOF, Reset, fatal Read, Write or Flush failure also
+closes the Session and causes Worker fatal cleanup / failed summary / exit 3,
+without implicit retry. Other ordinary job failures keep the Worker available. Partial RX supplied by Core appears
 as `partial_hex` and `partial_bytes`.
 For `run-sequence`, the same runner thread executes the existing Core
 `StepRunner` on the persistent session. Its success result uses the same
@@ -291,6 +306,7 @@ was obtained. For example, a stop after one confirmed chunk may report:
 | Stop before sending or before a remaining chunk | `job_finished` / `failed` | `stopped_by_request` |
 | File open, metadata, empty-file, or read failure | `job_finished` / `failed` | `file_error` |
 | Serial Write or Flush failure | `job_finished` / `failed` | `serial_error` |
+| TCP Write or Flush failure | `job_finished` / `failed` and Worker fatal cleanup | `tcp_error` |
 
 Results, status, and JSONL never contain the file payload or a complete
 `tx_hex`. The transfer buffer and counters have bounded memory usage. The
@@ -334,8 +350,9 @@ cancellation. The other commands' stop behavior remains unchanged.
 Worker stdout contains only JSON object lines. Human diagnostics go to
 stderr. Every runtime event has `event`, exact integer `schema_version: 3`,
 the same non-empty `run_id`, and ISO 8601 `timestamp_utc`. `ready` includes
-absolute endpoint URLs, `service: "serial-tool"`, `mode`, and the live `port`
-or simulation profile, plus runtime `features`. Serial-specific `job_accepted`
+absolute endpoint URLs, `service: "serial-tool"`, `mode`, `transport`, and
+the applicable `serial_settings` or `tcp_settings` plus the Serial live `port`
+or simulation profile, and runtime `features`. Serial-specific `job_accepted`
 and `job_started` are non-terminal. Every normally controlled job termination
 emits exactly one `job_finished` with `worker_job_id`, `command`, `job_id`,
 `state`, `ok`, `result`, and `error`. Success uses `state: "succeeded"`,

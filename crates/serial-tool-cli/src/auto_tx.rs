@@ -8,7 +8,7 @@ use serial_tool_core::runtime::{Event, Mode, PersistentRuntime, RuntimeError};
 
 use crate::{
     CliError, PayloadArgs,
-    terminal::{ConnectionArgs, DisplayArgs},
+    terminal::{ConnectionArgs, DisplayArgs, connect_runtime},
 };
 
 #[derive(Debug, Args)]
@@ -61,7 +61,7 @@ impl AutoTxArgs {
             return 3;
         }
         let runtime = PersistentRuntime::default();
-        if let Err(error) = runtime.connect(mode, settings, move |event| {
+        if let Err(error) = connect_runtime(&runtime, mode, settings, move |event| {
             let _ = sender.send(Message::Event(event));
         }) {
             eprintln!("{error}");

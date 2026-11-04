@@ -1,6 +1,9 @@
 use std::{
     fs,
+    io::{Read, Write},
+    net::TcpListener,
     path::PathBuf,
+    thread,
     process::{Command, Output},
 };
 
@@ -297,4 +300,51 @@ fn repeated_rx_entries_keep_transcript_order_in_human_output() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(stdout.matches("RX read-byte:").count(), 2);
     assert!(stdout.find("RX read-byte: 41").unwrap() < stdout.find("RX read-byte: 42").unwrap());
+}
+
+#[test]
+fn tcp_sequence_run_reuses_step_runner_and_rejects_transport_mismatch() {
+    let path = file(SUCCESS_STEPS);
+    let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    value["transport"] = json!({"type":"tcp","settings":{"io_timeout_ms":1000}});
+    fs::write(&path, value.to_string()).unwrap();
+    let name = path.to_str().unwrap();
+
+    let simulation = run(&[
+        "sequence", "run", "--file", name, "--transport", "tcp",
+        "--mode", "simulate", "--simulation-profile-id", "loopback-v1", "--json",
+    ]);
+    assert_eq!(simulation.status.code(), Some(0), "{simulation:?}");
+    let result = object(&simulation);
+    assert_eq!(result["transport"], "tcp");
+    assert_eq!(result["step_results"].as_array().unwrap().len(), 2);
+
+    let mismatch = run(&[
+        "sequence", "run", "--file", name, "--transport", "serial",
+        "--mode", "simulate", "--simulation-profile-id", "loopback-v1", "--json",
+    ]);
+    assert_eq!(mismatch.status.code(), Some(2));
+    assert_eq!(object(&mismatch)["exit_code"], 2);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let server = thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+        let mut tx = [0u8; 6];
+        socket.read_exact(&mut tx).unwrap();
+        socket.write_all(b"OK\r\n").unwrap();
+        tx
+    });
+    let live = run(&[
+        "sequence", "run", "--file", name, "--transport", "tcp",
+        "--mode", "live", "--host", "127.0.0.1", "--tcp-port", &port, "--json",
+    ]);
+    fs::remove_file(path).unwrap();
+    assert_eq!(live.status.code(), Some(0), "{live:?}");
+    assert_eq!(server.join().unwrap(), [0, 0x55, 0xaa, 0xff, 0x0d, 0x0a]);
+    let result = object(&live);
+    assert_eq!(result["transport"], "tcp");
+    assert_eq!(result["tcp_settings"]["io_timeout_ms"], 1000);
+    assert_eq!(result["transcript"].as_array().unwrap().len(), 2);
 }

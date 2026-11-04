@@ -107,10 +107,11 @@ steps, sleeping, or starting a Worker.
 The existing UART execution entry points continue to accept UART Sequence
 files. `serial-tool sequence run --file sequence.json --mode live --port COM4`
 selects the COM port at runtime; the loopback Simulation mode uses
-`--mode simulate --simulation-profile-id loopback-v1`. The TCP Sequence parser
-and Core Runtime support are included in this change; the TCP CLI/Worker
-startup selectors and Desktop TCP connection controls are introduced in their
-separately planned stages, not as part of this Sequence format change.
+`--mode simulate --simulation-profile-id loopback-v1`. TCP runs select `--transport tcp` and a Live `--host` / `--tcp-port`, or
+Simulation `--simulation-profile-id loopback-v1`. The TCP I/O timeout is read
+from this Sequence file, not a separate CLI option. Both CLI and Worker use
+the existing Core parser and StepRunner; Transport or settings mismatch is
+rejected before execution.
 
 Ordinary Worker `run-sequence` admission requires the inline Sequence object
 to match its startup transport and settings; otherwise it rejects the request

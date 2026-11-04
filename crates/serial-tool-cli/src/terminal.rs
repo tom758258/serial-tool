@@ -7,12 +7,12 @@ use std::{
 
 use clap::{Args, ValueEnum};
 use serial_tool_core::{
-    Direction, SerialSettings,
+    Direction,
     runtime::{Event, Mode, PersistentRuntime},
 };
 
 use crate::{
-    CliError, CliFlowControl, CliParity, RxDisplay, SerialArgs, parse_bytes, render_rx, spaced_hex,
+    CliError, ConnectionSettings, RxDisplay, SerialArgs, parse_bytes, render_rx, spaced_hex,
 };
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -54,21 +54,9 @@ pub(super) struct ConnectionArgs {
     #[arg(long, value_enum)]
     mode: TerminalMode,
     #[arg(long)]
-    port: Option<String>,
-    #[arg(long)]
     simulation_profile_id: Option<String>,
-    #[arg(long)]
-    baud: u32,
-    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u8).range(5..=8))]
-    data_bits: u8,
-    #[arg(long, value_enum, default_value_t = CliParity::None)]
-    parity: CliParity,
-    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
-    stop_bits: u8,
-    #[arg(long, value_enum, default_value_t = CliFlowControl::None)]
-    flow_control: CliFlowControl,
-    #[arg(long, default_value_t = 1000)]
-    timeout_ms: u64,
+    #[command(flatten)]
+    device: SerialArgs,
 }
 
 #[derive(Debug, Clone, Copy, Args)]
@@ -99,41 +87,37 @@ enum Message {
 }
 
 impl ConnectionArgs {
-    pub(super) fn settings(&self) -> Result<(Mode, SerialSettings), CliError> {
-        let (mode, port) = match (
-            self.mode,
-            self.port.as_deref(),
-            self.simulation_profile_id.as_deref(),
-        ) {
-            (TerminalMode::Live, Some(port), None) if !port.trim().is_empty() => (Mode::Live, port),
-            (TerminalMode::Simulate, None, Some("loopback-v1")) => {
-                (Mode::Simulation, "loopback-v1")
+    pub(super) fn settings(&self) -> Result<(Mode, ConnectionSettings), CliError> {
+        let mode = match self.mode {
+            TerminalMode::Live if self.simulation_profile_id.is_none() => Mode::Live,
+            TerminalMode::Simulate
+                if self.simulation_profile_id.as_deref() == Some("loopback-v1") =>
+            {
+                Mode::Simulation
             }
-            (TerminalMode::Simulate, None, Some(_)) => {
-                return Err(CliError::Input("unknown simulation profile"));
+            TerminalMode::Live => {
+                return Err(CliError::Input("live forbids --simulation-profile-id"));
             }
-            (TerminalMode::Live, _, _) => {
+            TerminalMode::Simulate => {
                 return Err(CliError::Input(
-                    "live mode requires --port and forbids --simulation-profile-id",
-                ));
-            }
-            (TerminalMode::Simulate, _, _) => {
-                return Err(CliError::Input(
-                    "simulate mode requires --simulation-profile-id and forbids --port",
+                    "simulate requires --simulation-profile-id loopback-v1",
                 ));
             }
         };
-        let settings = SerialArgs {
-            port: port.into(),
-            baud: self.baud,
-            data_bits: self.data_bits,
-            parity: self.parity,
-            stop_bits: self.stop_bits,
-            flow_control: self.flow_control,
-            timeout_ms: self.timeout_ms,
-        }
-        .settings()?;
+        let settings = self.device.settings(mode == Mode::Simulation)?;
         Ok((mode, settings))
+    }
+}
+
+pub(super) fn connect_runtime(
+    runtime: &PersistentRuntime,
+    mode: Mode,
+    settings: ConnectionSettings,
+    on_event: impl Fn(Event) + Send + 'static,
+) -> Result<(), serial_tool_core::runtime::RuntimeError> {
+    match settings {
+        ConnectionSettings::Serial(settings) => runtime.connect(mode, settings, on_event),
+        ConnectionSettings::Tcp(settings) => runtime.connect_tcp(mode, settings, on_event),
     }
 }
 
@@ -156,7 +140,7 @@ impl TerminalArgs {
         }
         let runtime = PersistentRuntime::default();
         let events = sender.clone();
-        if let Err(error) = runtime.connect(mode, settings, move |event| {
+        if let Err(error) = connect_runtime(&runtime, mode, settings, move |event| {
             let _ = events.send(Message::Event(event));
         }) {
             eprintln!("{error}");

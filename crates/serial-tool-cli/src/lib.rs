@@ -1,11 +1,12 @@
-use std::{path::PathBuf, time::Duration};
+use std::{io, path::PathBuf, time::Duration};
 
 use chrono::{SecondsFormat, Utc};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
     DataBits, Error, ExecutionFailure, FlowControl, MAX_READ_BYTES, Parity, PortInfo, PortType,
-    SequenceError, SerialSession, SerialSettings, SerialTransport, StopBits, Transport, list_ports,
+    SequenceError, SerialSession, SerialSettings, SerialTransport, StopBits, TcpSettings,
+    TcpTransport, Transport, list_ports,
 };
 
 mod auto_tx;
@@ -75,22 +76,112 @@ impl OutputArgs {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub(crate) enum TransportKind {
+    #[default]
+    Serial,
+    Tcp,
+}
+
 #[derive(Debug, Args)]
-struct SerialArgs {
+pub(crate) struct SerialArgs {
+    #[arg(long, value_enum, default_value_t = TransportKind::Serial)]
+    transport: TransportKind,
     #[arg(long)]
-    port: String,
+    port: Option<String>,
     #[arg(long)]
-    baud: u32,
-    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u8).range(5..=8), help = "Data bits: 5, 6, 7, or 8")]
-    data_bits: u8,
-    #[arg(long, value_enum, default_value_t = CliParity::None)]
-    parity: CliParity,
-    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2), help = "Stop bits: 1 or 2")]
-    stop_bits: u8,
-    #[arg(long, value_enum, default_value_t = CliFlowControl::None)]
-    flow_control: CliFlowControl,
-    #[arg(long, default_value_t = 1000)]
-    timeout_ms: u64,
+    baud: Option<u32>,
+    #[arg(long, value_parser = clap::value_parser!(u8).range(5..=8))]
+    data_bits: Option<u8>,
+    #[arg(long, value_enum)]
+    parity: Option<CliParity>,
+    #[arg(long, value_parser = clap::value_parser!(u8).range(1..=2))]
+    stop_bits: Option<u8>,
+    #[arg(long, value_enum)]
+    flow_control: Option<CliFlowControl>,
+    #[arg(long)]
+    timeout_ms: Option<u64>,
+    #[arg(long)]
+    host: Option<String>,
+    #[arg(long)]
+    tcp_port: Option<u16>,
+    #[arg(long)]
+    connect_timeout_ms: Option<u64>,
+    #[arg(long)]
+    io_timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ConnectionSettings {
+    Serial(SerialSettings),
+    Tcp(TcpSettings),
+}
+
+impl ConnectionSettings {
+    pub(crate) fn target(&self) -> String {
+        match self {
+            Self::Serial(settings) => settings.port.clone(),
+            Self::Tcp(settings) => format!("{}:{}", settings.host, settings.port),
+        }
+    }
+
+    pub(crate) fn output(&self, simulated: bool) -> Value {
+        match self {
+            Self::Serial(settings) => {
+                let mut value =
+                    json!({"transport": "serial", "serial_settings": settings_json(settings)});
+                if simulated {
+                    value["serial_settings"].as_object_mut().unwrap().remove("port");
+                } else {
+                    value["port"] = json!(settings.port);
+                }
+                value
+            }
+            Self::Tcp(settings) => {
+                let mut tcp = tcp_settings_json(settings);
+                if simulated {
+                    tcp.as_object_mut().unwrap().remove("host");
+                    tcp.as_object_mut().unwrap().remove("port");
+                }
+                json!({"transport": "tcp", "tcp_settings": tcp})
+            }
+        }
+    }
+
+    pub(crate) fn open(&self) -> Result<DeviceTransport, Error> {
+        match self {
+            Self::Serial(settings) => SerialTransport::open(settings).map(DeviceTransport::Serial),
+            Self::Tcp(settings) => TcpTransport::connect(settings).map(DeviceTransport::Tcp),
+        }
+    }
+}
+
+pub(crate) enum DeviceTransport {
+    Serial(SerialTransport),
+    Tcp(TcpTransport),
+}
+
+impl Transport for DeviceTransport {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Serial(t) => t.read(buffer),
+            Self::Tcp(t) => t.read(buffer),
+        }
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        match self {
+            Self::Serial(t) => t.write_all(bytes),
+            Self::Tcp(t) => t.write_all(bytes),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Serial(t) => t.flush(),
+            Self::Tcp(t) => t.flush(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -108,35 +199,94 @@ enum CliFlowControl {
 }
 
 impl SerialArgs {
-    fn settings(&self) -> Result<SerialSettings, CliError> {
-        let settings = SerialSettings {
-            port: self.port.clone(),
-            baud_rate: self.baud,
-            data_bits: match self.data_bits {
-                5 => DataBits::Five,
-                6 => DataBits::Six,
-                7 => DataBits::Seven,
-                _ => DataBits::Eight,
-            },
-            parity: match self.parity {
-                CliParity::None => Parity::None,
-                CliParity::Odd => Parity::Odd,
-                CliParity::Even => Parity::Even,
-            },
-            stop_bits: if self.stop_bits == 1 {
-                StopBits::One
-            } else {
-                StopBits::Two
-            },
-            flow_control: match self.flow_control {
-                CliFlowControl::None => FlowControl::None,
-                CliFlowControl::Software => FlowControl::Software,
-                CliFlowControl::Hardware => FlowControl::Hardware,
-            },
-            timeout: Duration::from_millis(self.timeout_ms),
-        };
-        settings.validate().map_err(CliError::Validation)?;
-        Ok(settings)
+    pub(crate) fn settings(&self, simulated: bool) -> Result<ConnectionSettings, CliError> {
+        match self.transport {
+            TransportKind::Serial => {
+                if self.host.is_some()
+                    || self.tcp_port.is_some()
+                    || self.connect_timeout_ms.is_some()
+                    || self.io_timeout_ms.is_some()
+                {
+                    return Err(CliError::Input("serial transport forbids TCP options"));
+                }
+                let baud = self.baud.ok_or(CliError::Input("serial transport requires --baud"))?;
+                let port = if simulated {
+                    if self.port.is_some() {
+                        return Err(CliError::Input("simulate forbids --port"));
+                    }
+                    "simulation".to_string()
+                } else {
+                    self.port.clone().ok_or(CliError::Input("serial live requires --port"))?
+                };
+                let settings = SerialSettings {
+                    port,
+                    baud_rate: baud,
+                    data_bits: match self.data_bits.unwrap_or(8) {
+                        5 => DataBits::Five,
+                        6 => DataBits::Six,
+                        7 => DataBits::Seven,
+                        _ => DataBits::Eight,
+                    },
+                    parity: match self.parity.unwrap_or(CliParity::None) {
+                        CliParity::None => Parity::None,
+                        CliParity::Odd => Parity::Odd,
+                        CliParity::Even => Parity::Even,
+                    },
+                    stop_bits: if self.stop_bits.unwrap_or(1) == 1 {
+                        StopBits::One
+                    } else {
+                        StopBits::Two
+                    },
+                    flow_control: match self.flow_control.unwrap_or(CliFlowControl::None) {
+                        CliFlowControl::None => FlowControl::None,
+                        CliFlowControl::Software => FlowControl::Software,
+                        CliFlowControl::Hardware => FlowControl::Hardware,
+                    },
+                    timeout: Duration::from_millis(self.timeout_ms.unwrap_or(1000)),
+                };
+                settings.validate().map_err(CliError::Validation)?;
+                Ok(ConnectionSettings::Serial(settings))
+            }
+            TransportKind::Tcp => {
+                if self.port.is_some()
+                    || self.baud.is_some()
+                    || self.data_bits.is_some()
+                    || self.parity.is_some()
+                    || self.stop_bits.is_some()
+                    || self.flow_control.is_some()
+                    || self.timeout_ms.is_some()
+                {
+                    return Err(CliError::Input("TCP transport forbids UART options"));
+                }
+                let settings = TcpSettings {
+                    host: if simulated {
+                        if self.host.is_some() || self.tcp_port.is_some() {
+                            return Err(CliError::Input(
+                                "TCP simulation forbids --host and --tcp-port",
+                            ));
+                        }
+                        String::new()
+                    } else {
+                        self.host.clone().ok_or(CliError::Input("TCP live requires --host"))?
+                    },
+                    port: if simulated {
+                        0
+                    } else {
+                        self.tcp_port.ok_or(CliError::Input("TCP live requires --tcp-port"))?
+                    },
+                    connect_timeout: Duration::from_millis(self.connect_timeout_ms.unwrap_or(3000)),
+                    io_timeout: Duration::from_millis(self.io_timeout_ms.unwrap_or(1000)),
+                };
+                if simulated {
+                    if settings.connect_timeout.is_zero() || settings.io_timeout.is_zero() {
+                        return Err(CliError::Input("TCP timeouts must be positive"));
+                    }
+                } else {
+                    settings.validate().map_err(CliError::Validation)?;
+                }
+                Ok(ConnectionSettings::Tcp(settings))
+            }
+        }
     }
 }
 
@@ -368,6 +518,14 @@ fn settings_json(settings: &SerialSettings) -> Value {
     })
 }
 
+pub(crate) fn tcp_settings_json(settings: &TcpSettings) -> Value {
+    json!({
+        "host": settings.host, "port": settings.port,
+        "connect_timeout_ms": settings.connect_timeout.as_millis(),
+        "io_timeout_ms": settings.io_timeout.as_millis(),
+    })
+}
+
 fn port_json(port: &PortInfo) -> Value {
     match &port.port_type {
         PortType::Usb(usb) => json!({
@@ -513,104 +671,127 @@ impl Cli {
                 Ok((value, text))
             }
             Command::Send(args) => {
-                let settings = args.serial.settings()?;
+                let settings = args.serial.settings(false)?;
                 let tx = args.tx.bytes()?;
                 if !args.dry_run {
-                    let transport = SerialTransport::open(&settings).map_err(CliError::Runtime)?;
+                    let transport = settings.open().map_err(CliError::Runtime)?;
                     send(&mut SerialSession::new(transport), &tx).map_err(CliError::Runtime)?;
                 }
-                let value = if args.dry_run {
-                    json!({ "event": "dry_run", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "send", "performs_serial_io": false, "serial_settings": settings_json(&settings), "port": settings.port, "tx_hex": hex(&tx), "tx_bytes": tx.len() })
+                let target = settings.target();
+                let mut value = json!({
+                    "event": if args.dry_run { "dry_run" } else { "send" },
+                    "schema_version": 2, "timestamp_utc": timestamp(), "ok": true,
+                    "command": "send", "tx_hex": hex(&tx), "tx_bytes": tx.len(),
+                });
+                let details = settings.output(false);
+                for (key, item) in details.as_object().unwrap() {
+                    value[key] = item.clone();
+                }
+                if args.dry_run {
+                    value["performs_serial_io"] = json!(false);
+                    if matches!(settings, ConnectionSettings::Tcp(_)) {
+                        value["performs_tcp_io"] = json!(false);
+                    }
                 } else {
-                    json!({ "event": "send", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "send", "port": settings.port, "tx_hex": hex(&tx), "tx_bytes": tx.len() })
-                };
+                    value.as_object_mut().unwrap().remove("serial_settings");
+                }
                 let text = if args.dry_run {
                     format!(
                         "Dry run: would send {} bytes to {} ({})",
                         tx.len(),
-                        settings.port,
+                        target,
                         spaced_hex(&tx)
                     )
                 } else {
-                    format!(
-                        "Send: {} bytes sent to {} ({})",
-                        tx.len(),
-                        settings.port,
-                        spaced_hex(&tx)
-                    )
+                    format!("Send: {} bytes sent to {} ({})", tx.len(), target, spaced_hex(&tx))
                 };
                 Ok((value, text))
             }
             Command::Receive(args) => {
-                let settings = args.serial.settings()?;
+                let settings = args.serial.settings(false)?;
                 let limit = max_bytes(args.max_bytes)?;
+                let target = settings.target();
+                let mut value = json!({
+                    "event": if args.dry_run { "dry_run" } else { "receive" },
+                    "schema_version": 2, "timestamp_utc": timestamp(), "ok": true,
+                    "command": "receive",
+                });
+                for (key, item) in settings.output(false).as_object().unwrap() {
+                    value[key] = item.clone();
+                }
                 if args.dry_run {
-                    let value = json!({ "event": "dry_run", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "receive", "performs_serial_io": false, "serial_settings": settings_json(&settings), "port": settings.port, "max_bytes": limit });
+                    value["performs_serial_io"] = json!(false);
+                    if matches!(settings, ConnectionSettings::Tcp(_)) {
+                        value["performs_tcp_io"] = json!(false);
+                    }
+                    value["max_bytes"] = json!(limit);
                     return Ok((
                         value,
-                        format!(
-                            "Dry run: receive up to {limit} bytes from {}",
-                            settings.port
-                        ),
+                        format!("Dry run: receive up to {limit} bytes from {target}"),
                     ));
                 }
-                let transport = SerialTransport::open(&settings).map_err(CliError::Runtime)?;
+                let transport = settings.open().map_err(CliError::Runtime)?;
                 let rx = receive(&mut SerialSession::new(transport), limit)
                     .map_err(CliError::Runtime)?;
-                let value = json!({ "event": "receive", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "receive", "port": settings.port, "rx_hex": hex(&rx), "rx_bytes": rx.len() });
+                value["rx_hex"] = json!(hex(&rx));
+                value["rx_bytes"] = json!(rx.len());
+                value.as_object_mut().unwrap().remove("serial_settings");
                 let rendered = render_rx(&rx, args.rx_display, "");
                 let text = if args.rx_display == RxDisplay::Both {
-                    format!(
-                        "Receive: {} bytes from {}\n{rendered}",
-                        rx.len(),
-                        settings.port
-                    )
+                    format!("Receive: {} bytes from {}\n{rendered}", rx.len(), target)
                 } else {
-                    format!(
-                        "Receive: {} bytes from {} ({rendered})",
-                        rx.len(),
-                        settings.port
-                    )
+                    format!("Receive: {} bytes from {} ({rendered})", rx.len(), target)
                 };
                 Ok((value, text))
             }
             Command::Query(args) => {
-                let settings = args.serial.settings()?;
+                let settings = args.serial.settings(false)?;
                 let tx = args.tx.bytes()?;
                 let delimiter = args.delimiter.bytes()?;
                 let limit = max_bytes(args.max_bytes)?;
                 if delimiter.len() > limit {
-                    return Err(CliError::Input(
-                        "max-bytes must be at least the delimiter length",
-                    ));
+                    return Err(CliError::Input("max-bytes must be at least the delimiter length"));
+                }
+                let target = settings.target();
+                let mut value = json!({
+                    "event": if args.dry_run { "dry_run" } else { "query" },
+                    "schema_version": 2, "timestamp_utc": timestamp(), "ok": true,
+                    "command": "query", "tx_hex": hex(&tx), "tx_bytes": tx.len(),
+                    "delimiter_hex": hex(&delimiter),
+                });
+                for (key, item) in settings.output(false).as_object().unwrap() {
+                    value[key] = item.clone();
                 }
                 if args.dry_run {
-                    let value = json!({ "event": "dry_run", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "query", "performs_serial_io": false, "serial_settings": settings_json(&settings), "port": settings.port, "tx_hex": hex(&tx), "tx_bytes": tx.len(), "delimiter_hex": hex(&delimiter), "max_bytes": limit });
+                    value["performs_serial_io"] = json!(false);
+                    if matches!(settings, ConnectionSettings::Tcp(_)) {
+                        value["performs_tcp_io"] = json!(false);
+                    }
+                    value["max_bytes"] = json!(limit);
                     return Ok((
                         value,
                         format!(
-                            "Dry run: query {} with TX {} until {} (max {limit} bytes)",
-                            settings.port,
+                            "Dry run: query {target} with TX {} until {} (max {limit} bytes)",
                             spaced_hex(&tx),
                             spaced_hex(&delimiter)
                         ),
                     ));
                 }
-                let transport = SerialTransport::open(&settings).map_err(CliError::Runtime)?;
+                let transport = settings.open().map_err(CliError::Runtime)?;
                 let rx = query(&mut SerialSession::new(transport), &tx, &delimiter, limit)
                     .map_err(CliError::Runtime)?;
-                let value = json!({ "event": "query", "schema_version": 2, "timestamp_utc": timestamp(), "ok": true, "command": "query", "port": settings.port, "tx_hex": hex(&tx), "tx_bytes": tx.len(), "rx_hex": hex(&rx), "rx_bytes": rx.len(), "delimiter_hex": hex(&delimiter) });
+                value["rx_hex"] = json!(hex(&rx));
+                value["rx_bytes"] = json!(rx.len());
+                value.as_object_mut().unwrap().remove("serial_settings");
                 let text = if args.rx_display == RxDisplay::Both {
                     format!(
-                        "Query {}: TX {}\n{}",
-                        settings.port,
+                        "Query {target}: TX {}\n{}",
                         spaced_hex(&tx),
                         render_rx(&rx, args.rx_display, "RX ")
                     )
                 } else {
                     format!(
-                        "Query {}: TX {} / RX {}",
-                        settings.port,
+                        "Query {target}: TX {} / RX {}",
                         spaced_hex(&tx),
                         render_rx(&rx, args.rx_display, "")
                     )

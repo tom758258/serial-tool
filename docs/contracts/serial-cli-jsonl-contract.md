@@ -28,7 +28,9 @@ than sending them to the terminal. `both` presents hex and text together.
 
 Runtime result objects include `event`, `schema_version`, UTC ISO 8601
 `timestamp_utc`, and `ok: true`. `send`, `receive`, and `query` also include
-`command` and `port`; `send` and `query` include `tx_hex` and
+`command` and `transport` (`serial` or `tcp`); Serial outputs keep `port`,
+while TCP outputs have `tcp_settings` with `host`, `port`,
+`connect_timeout_ms` and `io_timeout_ms`. `send` and `query` include `tx_hex` and
 `tx_bytes`; `receive` and `query` include `rx_hex` and `rx_bytes`; `query`
 includes `delimiter_hex`. Hex is lowercase, has two digits per byte, and has
 no separators. Raw bytes remain authoritative; UTF-8 decoding is not required.
@@ -50,15 +52,30 @@ event-boundary newline, and flushes each RX event. Stream and Hex Stream send
 lifecycle diagnostics and TX logs to stderr; `--tx-display off` hides only TX
 presentation.
 
-`auto-tx` requires Live mode with `--port`, or Simulation mode with
-`--simulation-profile-id loopback-v1`, the serial settings used by Terminal,
+`auto-tx` requires Live mode with the selected transport resource, or Simulation
+mode with `--simulation-profile-id loopback-v1`, the connection settings used by Terminal,
 one of `--text`, `--hex`, or `--file`, and a positive integer `--interval-ms`.
 It reads file input once before connecting and repeats the loaded bytes.
 Core's existing periodic runtime sends immediately, then waits the interval
 after each completed send and flush, without catch-up sends. RX monitoring
 continues during Auto TX. Ctrl+C stops periodic TX and disconnects. Input
-errors exit 2; connection or serial I/O errors exit 3.
+errors exit 2; connection or device I/O errors exit 3.
 The Worker machine contract remains unchanged.
+
+## Transport selector
+
+For applicable one-shot and persistent commands, `--transport serial|tcp`
+defaults to `serial`. Serial requires `--port` and `--baud` for one-shot
+Live operations (or `--baud` for permitted Simulation), and retains the line
+setting defaults. TCP Live requires `--host` and `--tcp-port` (1..65535),
+with `--connect-timeout-ms` default 3000 and `--io-timeout-ms` default 1000.
+TCP forbids UART-only arguments; Serial forbids TCP-only arguments. TCP
+Simulation requires only the supported profile, with no Host/Port, no Socket
+and no DNS. The `periodic-rx-v1` profile remains exclusive to Streaming
+Worker Simulation. One-shot `send`, `receive`, `query` expose only Live or
+Dry-run, not a new Simulation mode. `sequence run --transport tcp` derives
+its I/O timeout from the Sequence file (no separate `--io-timeout-ms` flag).
+CLI argument/validation errors exit 2; runtime connect and I/O errors exit 3.
 
 ## Events
 
@@ -75,20 +92,23 @@ The Worker machine contract remains unchanged.
   and `type` (`usb`, `pci`, `bluetooth`, or `unknown`). USB ports also have
   numeric `vid` and `pid` and optional `serial_number`, `manufacturer`, and
   `product` values. Discovery does not open ports.
-- `send`, `receive`, `query`: completed serial operations. `receive` performs
+- `send`, `receive`, `query`: completed raw device operations. `receive` performs
   one bounded raw read. `query` writes and flushes TX, then reads through a raw
   delimiter using Core's session buffer.
 - `dry_run`: plan validation for `send`, `receive`, or `query`, with `command`,
-  `performs_serial_io: false`, `serial_settings`, `port`, and applicable TX,
-  delimiter, or `max_bytes` fields. It neither checks port existence nor opens
-  the port, and omits `run_id`.
+  `transport`, applicable settings/target and TX, delimiter or `max_bytes`
+  fields. UART preserves `performs_serial_io: false` and `serial_settings`;
+  TCP also emits `performs_tcp_io: false` with `tcp_settings`.
+  Neither mode opens the port/socket or performs DNS; `run_id` is omitted.
 - `sequence_validate`: successful no-I/O UART/TCP Sequence format validation with `ok: true`,
   `sequence_version: 1`, and `defined_steps`, the recursively defined Step
   count (not the runtime execution count).
 - `sequence_run`: successful one-shot execution with `ok: true`,
   `sequence_version: 1`, `mode` (`live` or `simulate`), `step_results`, and
-  `transcript`. Live results contain `port`; simulation results contain
-  `simulation_profile_id`. Neither has `run_id` or `worker_job_id`.
+  `transcript`, and `transport`. UART Live results contain `port`; TCP Live
+  results contain `tcp_settings` (I/O timeout from the Sequence JSON), while
+  simulation results contain `simulation_profile_id`. Neither has `run_id`
+  or `worker_job_id`.
   `step_results` preserve completion order, including each repeat child
   execution. Each result has `step_id`, `type`, and a type-specific field:
   `bytes_written` for sends, `requested_duration_ms` for wait, `rx_hex` and
@@ -121,5 +141,5 @@ the one-shot `error` event above retains its schema-2 contract.
 
 `0` means success or dry-run success. `2` means usage, Sequence input, or
 validation failure.
-`3` means connection, enumeration, timeout, or serial I/O failure. Clap parser
+`3` means connection, enumeration, timeout, or device I/O failure. Clap parser
 errors may use stderr and exit `2` before machine handling starts.
