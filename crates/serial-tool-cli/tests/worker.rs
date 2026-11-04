@@ -1178,3 +1178,313 @@ fn streaming_send_file_polls_rx_between_chunks() {
     );
     stop_stream(&mut child, &receiver, &ready);
 }
+
+fn spawn_tcp(extra: &[&str]) -> (Child, Receiver<Value>, Value) {
+    let mut child = binary()
+        .args(["worker", "--transport", "tcp"])
+        .args(extra)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            let value: Value = serde_json::from_str(&line.unwrap()).unwrap();
+            if sender.send(value).is_err() {
+                break;
+            }
+        }
+    });
+    let ready = next(&receiver);
+    assert_eq!(ready["event"], "ready", "{ready}");
+    assert_eq!(ready["transport"], "tcp");
+    assert!(ready.get("serial_settings").is_none());
+    (child, receiver, ready)
+}
+
+fn tcp_command(ready: &Value, command: &str, arguments: Value) -> (u16, Value) {
+    request(
+        ready["command_url"].as_str().unwrap(),
+        "POST",
+        &json!({"schema_version": 3, "command": command, "arguments": arguments}).to_string(),
+    )
+}
+
+#[test]
+fn tcp_simulation_worker_five_jobs_settings_and_admission() {
+    let (mut child, receiver, ready) = spawn_tcp(&[
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--control-port",
+        "0",
+    ]);
+    assert_eq!(ready["tcp_settings"]["io_timeout_ms"], 1000);
+    assert!(ready["tcp_settings"].get("host").is_none());
+    assert!(ready["tcp_settings"].get("port").is_none());
+    assert_eq!(ready["simulation_profile_id"], "loopback-v1");
+    let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(status["transport"], "tcp");
+    assert_eq!(status["tcp_settings"], ready["tcp_settings"]);
+
+    let (code, _) = tcp_command(&ready, "send", json!({"tx_hex": "AA55"}));
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["result"]["tx_hex"],
+        "aa55"
+    );
+
+    let (code, _) = tcp_command(&ready, "receive", json!({"max_bytes": 16}));
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["result"]["rx_hex"],
+        "aa55"
+    );
+
+    let (code, _) = tcp_command(
+        &ready,
+        "query",
+        json!({"tx_hex": "0D0A", "delimiter_hex": "0D0A", "max_bytes": 32}),
+    );
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["result"]["rx_hex"],
+        "0d0a"
+    );
+
+    let path = std::env::temp_dir().join(format!("serial-tcp-worker-{}.bin", std::process::id()));
+    std::fs::write(&path, [0, 0xff, 0x55]).unwrap();
+    let (code, _) = tcp_command(&ready, "send-file", json!({"path": path}));
+    assert_eq!(code, 202);
+    let terminal = wait_terminal(&receiver, ready["run_id"].as_str().unwrap());
+    assert_eq!(terminal["result"]["bytes_written"], 3);
+    std::fs::remove_file(path).unwrap();
+
+    let mut seq = sequence(json!([{"id":"tx","type":"send_bytes","hex":"01"}]));
+    seq["transport"] = json!({"type":"tcp","settings":{"io_timeout_ms":1000}});
+    let (code, _) = tcp_command(&ready, "run-sequence", json!({"sequence":seq}));
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["result"]["sequence_version"],
+        1
+    );
+
+    let mut wrong = sequence(json!([{"id":"tx","type":"send_bytes","hex":"02"}]));
+    wrong["transport"] = json!({"type":"tcp","settings":{"io_timeout_ms":2000}});
+    let (code, response) = tcp_command(&ready, "run-sequence", json!({"sequence":wrong}));
+    assert_eq!(code, 400);
+    assert_eq!(response["error"]["code"], "validation_error");
+    let (code, _) = tcp_command(
+        &ready,
+        "run-sequence",
+        json!({"sequence":sequence(json!([{"id":"tx","type":"send_bytes","hex":"02"}]))}),
+    );
+    assert_eq!(code, 400);
+    stop(&mut child, &receiver, &ready, "{}");
+}
+
+#[test]
+fn tcp_live_worker_socket_jobs_and_fatal_eof() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let (close_sender, close_receiver) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut buffer = [0u8; 1024];
+        loop {
+            if close_receiver.try_recv().is_ok() {
+                break;
+            }
+            match socket.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => socket.write_all(&buffer[..n]).unwrap(),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) => {}
+                Err(error) => panic!("{error}"),
+            }
+        }
+    });
+    let (mut child, receiver, ready) = spawn_tcp(&[
+        "--mode",
+        "live",
+        "--host",
+        "127.0.0.1",
+        "--tcp-port",
+        &port,
+        "--io-timeout-ms",
+        "1000",
+        "--control-port",
+        "0",
+    ]);
+    assert_eq!(ready["tcp_settings"]["port"], port.parse::<u16>().unwrap());
+    let (code, _) = tcp_command(&ready, "send", json!({"tx_hex":"AA"}));
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["ok"],
+        true
+    );
+    let (code, _) = tcp_command(&ready, "receive", json!({"max_bytes":2}));
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["result"]["rx_hex"],
+        "aa"
+    );
+    let (code, _) = tcp_command(
+        &ready,
+        "query",
+        json!({"tx_hex":"0D0A","delimiter_hex":"0D0A","max_bytes":16}),
+    );
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["result"]["rx_hex"],
+        "0d0a"
+    );
+    let (code, _) = tcp_command(&ready, "receive", json!({"max_bytes":2}));
+    assert_eq!(code, 202);
+    let timeout = wait_terminal(&receiver, ready["run_id"].as_str().unwrap());
+    assert_eq!(timeout["ok"], false);
+    assert_eq!(timeout["error"]["code"], "tcp_error");
+    let (_, status) = request(ready["status_url"].as_str().unwrap(), "GET", "");
+    assert_eq!(status["worker_state"], "running");
+    let (code, _) = tcp_command(
+        &ready,
+        "query",
+        json!({"tx_hex":"0D0A","delimiter_hex":"0D0A","max_bytes":16}),
+    );
+    assert_eq!(code, 202);
+    assert_eq!(
+        wait_terminal(&receiver, ready["run_id"].as_str().unwrap())["ok"],
+        true
+    );
+
+    close_sender.send(()).unwrap();
+    server.join().unwrap();
+    let (code, _) = tcp_command(&ready, "receive", json!({"max_bytes":2}));
+    assert_eq!(code, 202);
+    let terminal = wait_terminal(&receiver, ready["run_id"].as_str().unwrap());
+    assert_eq!(terminal["ok"], false);
+    assert_eq!(terminal["error"]["code"], "tcp_error");
+    let mut summary = None;
+    while let Ok(event) = receiver.recv_timeout(Duration::from_secs(5)) {
+        if event["event"] == "summary" {
+            summary = Some(event);
+        }
+    }
+    assert_eq!(summary.unwrap()["ok"], false);
+    assert_eq!(child.wait().unwrap().code(), Some(3));
+}
+
+#[test]
+fn tcp_periodic_streaming_worker_reuses_rx_owner_without_host() {
+    let (mut child, receiver, ready) = spawn_tcp(&[
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "periodic-rx-v1",
+        "--streaming",
+    ]);
+    assert_eq!(ready["simulation_profile_id"], "periodic-rx-v1");
+    let active = next(&receiver);
+    assert_eq!(active["event"], "status");
+    assert_eq!(active["stream"]["state"], "active");
+    assert_eq!(active["transport"], "tcp");
+    let mut observed = false;
+    for _ in 0..20 {
+        let event = next(&receiver);
+        if event["event"] == "rx" {
+            assert_eq!(event["rx_bytes"], 4);
+            observed = true;
+            break;
+        }
+    }
+    assert!(observed);
+    let (code, _) = tcp_command(&ready, "receive", json!({"max_bytes":8}));
+    assert_eq!(code, 400);
+    let (code, _) = tcp_command(&ready, "send", json!({"tx_hex":"AA55"}));
+    assert_eq!(code, 202);
+    let terminal = wait_terminal(&receiver, ready["run_id"].as_str().unwrap());
+    assert_eq!(terminal["ok"], true);
+    stop_stream(&mut child, &receiver, &ready);
+}
+
+#[test]
+fn tcp_live_streaming_uses_single_owner_for_unsolicited_rx_and_send() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let server = thread::spawn(move || {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        socket.write_all(&[0xab]).unwrap();
+        let mut sent = [0u8; 2];
+        socket.read_exact(&mut sent).unwrap();
+        socket.write_all(&[0xcd]).unwrap();
+        let mut last = [0u8; 1];
+        loop {
+            match socket.read(&mut last) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) => {}
+                Err(error) => panic!("{error}"),
+            }
+        }
+        sent
+    });
+    let (mut child, receiver, ready) = spawn_tcp(&[
+        "--mode",
+        "live",
+        "--host",
+        "127.0.0.1",
+        "--tcp-port",
+        &port,
+        "--streaming",
+    ]);
+    let active = next(&receiver);
+    assert_eq!(active["event"], "status");
+    assert_eq!(active["stream"]["state"], "active");
+    assert_eq!(active["transport"], "tcp");
+    assert_eq!(active["tcp_settings"]["port"], port.parse::<u16>().unwrap());
+    loop {
+        let event = next(&receiver);
+        if event["event"] == "rx" {
+            assert_eq!(event["rx_hex"], "ab");
+            break;
+        }
+    }
+    let (code, _) = tcp_command(&ready, "send", json!({"tx_hex":"AA55"}));
+    assert_eq!(code, 202);
+    let mut saw_terminal = false;
+    let mut saw_rx = false;
+    for _ in 0..30 {
+        let event = next(&receiver);
+        if event["event"] == "job_finished" {
+            assert_terminal(&event);
+            assert_eq!(event["ok"], true);
+            saw_terminal = true;
+        }
+        if event["event"] == "rx" {
+            assert_eq!(event["rx_hex"], "cd");
+            saw_rx = true;
+        }
+        if saw_terminal && saw_rx {
+            break;
+        }
+    }
+    assert!(saw_terminal && saw_rx);
+    stop_stream(&mut child, &receiver, &ready);
+    assert_eq!(server.join().unwrap(), [0xaa, 0x55]);
+}

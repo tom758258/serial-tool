@@ -11,16 +11,20 @@ use std::{
 use clap::{Args, ValueEnum};
 use serde_json::{Map, Value, json};
 use serial_tool_core::{
-    DataBits, Direction, Error, FlowControl, Parity, RunError, Sequence, SequenceTransport,
-    SerialSession, SerialSettings, SerialTransport, SimulationTransport, StepRunner, StopBits,
-    Transport,
+    Direction, Error, RunError, Sequence, SequenceTransport, SerialSession, SimulationTransport,
+    StepRunner, Transport,
     runtime::{Event as RuntimeEvent, Mode as RuntimeMode, PersistentRuntime},
 };
 use uuid::Uuid;
 
+#[cfg(test)]
+use crate::settings_json;
+#[cfg(test)]
+use serial_tool_core::{DataBits, FlowControl, Parity, SerialSettings, StopBits};
+
 use crate::{
-    CliError, CliFlowControl, CliParity, hex, max_bytes, parse_bytes, sequence_result,
-    settings_json, timestamp,
+    CliError, ConnectionSettings, DeviceTransport, SerialArgs, hex, max_bytes, parse_bytes,
+    sequence_result, timestamp,
 };
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -33,20 +37,8 @@ pub(crate) enum WorkerMode {
 pub(crate) struct WorkerArgs {
     #[arg(long, value_enum)]
     mode: WorkerMode,
-    #[arg(long)]
-    port: Option<String>,
-    #[arg(long)]
-    baud: u32,
-    #[arg(long, default_value_t = 8, value_parser = clap::value_parser!(u8).range(5..=8))]
-    data_bits: u8,
-    #[arg(long, value_enum, default_value_t = CliParity::None)]
-    parity: CliParity,
-    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u8).range(1..=2))]
-    stop_bits: u8,
-    #[arg(long, value_enum, default_value_t = CliFlowControl::None)]
-    flow_control: CliFlowControl,
-    #[arg(long, default_value_t = 1000)]
-    timeout_ms: u64,
+    #[command(flatten)]
+    device: SerialArgs,
     #[arg(long)]
     simulation_profile_id: Option<String>,
     #[arg(long, default_value_t = 0)]
@@ -71,6 +63,7 @@ struct State {
     accepted: u64,
     succeeded: u64,
     failed: u64,
+    fatal: Option<String>,
 }
 
 struct HttpContext<'a, W: Write> {
@@ -80,9 +73,8 @@ struct HttpContext<'a, W: Write> {
     run_id: &'a str,
     urls: &'a Value,
     mode: &'a str,
-    serial_settings: &'a Value,
-    settings: &'a SerialSettings,
-    port: Option<&'a str>,
+    connection: &'a ConnectionSettings,
+    details: &'a Value,
     simulation_profile_id: Option<&'a str>,
     stream: Option<&'a Arc<StreamControl>>,
 }
@@ -96,6 +88,7 @@ impl State {
             accepted: 0,
             succeeded: 0,
             failed: 0,
+            fatal: None,
         }
     }
 }
@@ -132,7 +125,7 @@ struct Job {
 }
 
 enum WorkerSession {
-    Live(SerialSession<SerialTransport>),
+    Live(SerialSession<DeviceTransport>, bool),
     Simulate(SerialSession<SimulationTransport>),
 }
 
@@ -145,7 +138,7 @@ impl WorkerSession {
         run_id: String,
     ) {
         match self {
-            Self::Live(session) => run_jobs(session, receiver, state, output, run_id),
+            Self::Live(session, tcp) => run_jobs_tcp(session, receiver, state, output, run_id, tcp),
             Self::Simulate(session) => run_jobs(session, receiver, state, output, run_id),
         }
     }
@@ -464,6 +457,13 @@ fn stream_status(run_id: &str, stream_state: &str, worker: &State, error: Option
     value
 }
 
+fn with_details(mut value: Value, details: &Value) -> Value {
+    for (key, item) in details.as_object().unwrap() {
+        value[key] = item.clone();
+    }
+    value
+}
+
 fn stream_features() -> Value {
     json!({
         "common.async_jobs": { "contract_version": 1 },
@@ -536,56 +536,26 @@ fn summary(run_id: &str, state: &State, ok: bool) -> Value {
 }
 
 impl WorkerArgs {
-    fn settings(&self) -> Result<SerialSettings, CliError> {
+    fn settings(&self) -> Result<ConnectionSettings, CliError> {
         match self.mode {
-            WorkerMode::Live if self.port.is_none() || self.simulation_profile_id.is_some() => {
-                return Err(CliError::Input(
-                    "live requires --port and forbids --simulation-profile-id",
-                ));
+            WorkerMode::Live if self.simulation_profile_id.is_some() => {
+                return Err(CliError::Input("live forbids --simulation-profile-id"));
             }
             WorkerMode::Simulate
-                if self.port.is_some()
-                    || !matches!(
-                        self.simulation_profile_id.as_deref(),
-                        Some("loopback-v1" | "periodic-rx-v1")
-                    )
-                    || (self.simulation_profile_id.as_deref() == Some("periodic-rx-v1")
-                        && !self.streaming) =>
+                if !matches!(
+                    self.simulation_profile_id.as_deref(),
+                    Some("loopback-v1" | "periodic-rx-v1")
+                ) || (self.simulation_profile_id.as_deref() == Some("periodic-rx-v1")
+                    && !self.streaming) =>
             {
                 return Err(CliError::Input(
-                    "simulate requires --simulation-profile-id loopback-v1 (or periodic-rx-v1 with --streaming) and forbids --port",
+                    "simulate requires loopback-v1 (or periodic-rx-v1 with --streaming)",
                 ));
             }
             _ => {}
         }
-        let settings = SerialSettings {
-            port: self.port.clone().unwrap_or_else(|| "simulation".into()),
-            baud_rate: self.baud,
-            data_bits: match self.data_bits {
-                5 => DataBits::Five,
-                6 => DataBits::Six,
-                7 => DataBits::Seven,
-                _ => DataBits::Eight,
-            },
-            parity: match self.parity {
-                CliParity::None => Parity::None,
-                CliParity::Odd => Parity::Odd,
-                CliParity::Even => Parity::Even,
-            },
-            stop_bits: if self.stop_bits == 1 {
-                StopBits::One
-            } else {
-                StopBits::Two
-            },
-            flow_control: match self.flow_control {
-                CliFlowControl::None => FlowControl::None,
-                CliFlowControl::Software => FlowControl::Software,
-                CliFlowControl::Hardware => FlowControl::Hardware,
-            },
-            timeout: Duration::from_millis(self.timeout_ms),
-        };
-        settings.validate().map_err(CliError::Validation)?;
-        Ok(settings)
+        self.device
+            .settings(matches!(self.mode, WorkerMode::Simulate))
     }
 
     pub(crate) fn run(self) -> i32 {
@@ -619,14 +589,22 @@ impl WorkerArgs {
             let on_event = move |event| {
                 stream_event(event, &events_control, &events_output, &events_run_id);
             };
-            let connected = if self.simulation_profile_id.as_deref() == Some("periodic-rx-v1") {
-                runtime.connect_simulation(
-                    settings.clone(),
+            let periodic = self.simulation_profile_id.as_deref() == Some("periodic-rx-v1");
+            let connected = match &settings {
+                ConnectionSettings::Serial(serial) if periodic => runtime.connect_simulation(
+                    serial.clone(),
                     SimulationTransport::periodic_rx(),
                     on_event,
-                )
-            } else {
-                runtime.connect(mode, settings.clone(), on_event)
+                ),
+                ConnectionSettings::Serial(serial) => {
+                    runtime.connect(mode, serial.clone(), on_event)
+                }
+                ConnectionSettings::Tcp(tcp) if periodic => runtime.connect_tcp_simulation(
+                    tcp.clone(),
+                    SimulationTransport::periodic_rx(),
+                    on_event,
+                ),
+                ConnectionSettings::Tcp(tcp) => runtime.connect_tcp(mode, tcp.clone(), on_event),
             };
             if let Err(error) = connected {
                 return fatal(&output, &run_id, &error.to_string(), &State::new());
@@ -639,8 +617,11 @@ impl WorkerArgs {
             None
         } else {
             Some(match self.mode {
-                WorkerMode::Live => match SerialTransport::open(&settings) {
-                    Ok(transport) => WorkerSession::Live(SerialSession::new(transport)),
+                WorkerMode::Live => match settings.open() {
+                    Ok(transport) => WorkerSession::Live(
+                        SerialSession::new(transport),
+                        matches!(settings, ConnectionSettings::Tcp(_)),
+                    ),
                     Err(error) => {
                         return fatal(&output, &run_id, &error.to_string(), &State::new());
                     }
@@ -674,9 +655,9 @@ impl WorkerArgs {
             "command_url": format!("{base}/command"),
             "stop_url": format!("{base}/stop"),
         });
-        let mut serial_settings = settings_json(&settings);
-        if matches!(self.mode, WorkerMode::Simulate) {
-            serial_settings.as_object_mut().unwrap().remove("port");
+        let mut details = settings.output(matches!(self.mode, WorkerMode::Simulate));
+        if let Some(profile) = self.simulation_profile_id.as_deref() {
+            details["simulation_profile_id"] = json!(profile);
         }
         let mode = match self.mode {
             WorkerMode::Live => "live",
@@ -687,10 +668,18 @@ impl WorkerArgs {
         let runner_state = Arc::clone(&state);
         let runner_output = Arc::clone(&output);
         let runner_id = run_id.clone();
+        let streaming_tcp = matches!(settings, ConnectionSettings::Tcp(_));
         let runner = if let Some((runtime, _)) = &streaming_runtime {
             let runtime = Arc::clone(runtime);
             thread::spawn(move || {
-                run_stream_jobs(runtime, receiver, runner_state, runner_output, runner_id)
+                run_stream_jobs(
+                    runtime,
+                    receiver,
+                    runner_state,
+                    runner_output,
+                    runner_id,
+                    streaming_tcp,
+                )
             })
         } else {
             thread::spawn(move || {
@@ -729,11 +718,11 @@ impl WorkerArgs {
         for (key, value) in urls.as_object().unwrap() {
             ready[key] = value.clone();
         }
-        match self.mode {
-            WorkerMode::Live => ready["port"] = json!(settings.port),
-            WorkerMode::Simulate => {
-                ready["simulation_profile_id"] = json!(self.simulation_profile_id.as_deref())
-            }
+        for (key, item) in details.as_object().unwrap() {
+            ready[key] = item.clone();
+        }
+        if let Some(profile) = self.simulation_profile_id.as_deref() {
+            ready["simulation_profile_id"] = json!(profile);
         }
         if self.streaming {
             if let Err(error) = try_emit(&output, &ready) {
@@ -752,7 +741,7 @@ impl WorkerArgs {
         if let Some((runtime, control)) = &streaming_runtime {
             let active = {
                 let current = state.lock().unwrap();
-                stream_status(&run_id, "active", &current, None)
+                with_details(stream_status(&run_id, "active", &current, None), &details)
             };
             let mut current = control.state.lock().unwrap();
             if current.error.is_some() || current.disconnected {
@@ -768,7 +757,10 @@ impl WorkerArgs {
                 let _ = runtime.disconnect();
                 let ended = {
                     let worker = state.lock().unwrap();
-                    stream_status(&run_id, "ended", &worker, Some(&message))
+                    with_details(
+                        stream_status(&run_id, "ended", &worker, Some(&message)),
+                        &details,
+                    )
                 };
                 let _ = try_emit(&output, &ended);
                 return fatal_stream(&output, &run_id, &message, &state.lock().unwrap());
@@ -793,9 +785,8 @@ impl WorkerArgs {
             run_id: &run_id,
             urls: &urls,
             mode,
-            serial_settings: &serial_settings,
-            settings: &settings,
-            port: self.port.as_deref(),
+            connection: &settings,
+            details: &details,
             simulation_profile_id: self.simulation_profile_id.as_deref(),
             stream: streaming_runtime.as_ref().map(|(_, control)| control),
         };
@@ -813,6 +804,10 @@ impl WorkerArgs {
                     );
                     break;
                 }
+            }
+            if let Some(error) = state.lock().unwrap().fatal.clone() {
+                control_error = Some(error);
+                break;
             }
             if runner.is_finished() && !state.lock().unwrap().stopping {
                 control_error = Some("runner stopped unexpectedly".to_string());
@@ -858,7 +853,10 @@ impl WorkerArgs {
             drop(current);
             let ended = {
                 let worker = state.lock().unwrap();
-                stream_status(&run_id, "ended", &worker, control_error.as_deref())
+                with_details(
+                    stream_status(&run_id, "ended", &worker, control_error.as_deref()),
+                    &details,
+                )
             };
             if let Err(error) = try_emit(&output, &ended) {
                 control_error.get_or_insert_with(|| format!("Stream end output failed: {error}"));
@@ -879,13 +877,24 @@ impl WorkerArgs {
 }
 
 fn run_jobs<T: Transport, W: Write>(
-    mut session: SerialSession<T>,
+    session: SerialSession<T>,
     receiver: mpsc::Receiver<Job>,
     state: Arc<Mutex<State>>,
     output: Arc<Mutex<W>>,
     run_id: String,
 ) {
-    run_jobs_with(receiver, state, output, run_id, |operation, state| {
+    run_jobs_tcp(session, receiver, state, output, run_id, false);
+}
+
+fn run_jobs_tcp<T: Transport, W: Write>(
+    mut session: SerialSession<T>,
+    receiver: mpsc::Receiver<Job>,
+    state: Arc<Mutex<State>>,
+    output: Arc<Mutex<W>>,
+    run_id: String,
+    tcp: bool,
+) {
+    run_jobs_with(receiver, state, output, run_id, tcp, |operation, state| {
         execute(&mut session, operation, state)
     });
 }
@@ -896,8 +905,9 @@ fn run_stream_jobs<W: Write>(
     state: Arc<Mutex<State>>,
     output: Arc<Mutex<W>>,
     run_id: String,
+    tcp: bool,
 ) {
-    run_jobs_with(receiver, state, output, run_id, |operation, state| {
+    run_jobs_with(receiver, state, output, run_id, tcp, |operation, state| {
         execute_stream(&runtime, operation, state)
     });
 }
@@ -907,6 +917,7 @@ fn run_jobs_with<W: Write>(
     state: Arc<Mutex<State>>,
     output: Arc<Mutex<W>>,
     run_id: String,
+    tcp: bool,
     mut execute_job: impl FnMut(Operation, &Mutex<State>) -> Result<Value, WorkerOperationError>,
 ) {
     for job in receiver {
@@ -931,13 +942,17 @@ fn run_jobs_with<W: Write>(
                 terminal["result"] = value;
             }
             Err(error) => {
+                let fatal_tcp = tcp && is_fatal_tcp_error(&error);
                 terminal["state"] = json!("failed");
                 terminal["ok"] = json!(false);
                 terminal["exit_code"] = json!(3);
                 match error {
                     WorkerOperationError::Serial(error) => {
-                        terminal["error"] =
-                            common_error("execution", "serial_error", &error.to_string());
+                        terminal["error"] = common_error(
+                            "execution",
+                            if tcp { "tcp_error" } else { "serial_error" },
+                            &error.to_string(),
+                        );
                         terminal["message"] = json!(error.to_string());
                         if let Some(partial) = error.partial() {
                             terminal["partial_hex"] = json!(hex(partial));
@@ -949,12 +964,24 @@ fn run_jobs_with<W: Write>(
                         message,
                         result,
                     } => {
-                        terminal["error"] = common_error("execution", error, &message);
+                        terminal["error"] = common_error(
+                            "execution",
+                            if tcp && error == "serial_error" {
+                                "tcp_error"
+                            } else {
+                                error
+                            },
+                            &message,
+                        );
                         terminal["message"] = json!(message);
                         terminal["result"] = result;
                     }
                     WorkerOperationError::Runtime(message) => {
-                        terminal["error"] = common_error("execution", "serial_error", &message);
+                        terminal["error"] = common_error(
+                            "execution",
+                            if tcp { "tcp_error" } else { "serial_error" },
+                            &message,
+                        );
                         terminal["message"] = json!(message);
                     }
                     WorkerOperationError::Sequence(error) => {
@@ -977,6 +1004,9 @@ fn run_jobs_with<W: Write>(
                         }
                     }
                 }
+                if fatal_tcp {
+                    state.lock().unwrap().fatal = terminal["message"].as_str().map(str::to_owned);
+                }
             }
         }
         {
@@ -989,7 +1019,25 @@ fn run_jobs_with<W: Write>(
             current.last_job = Some(terminal.clone());
             emit(&output, &terminal);
             current.active = None;
+            if current.fatal.is_some() {
+                break;
+            }
         }
+    }
+}
+
+fn is_fatal_tcp_error(error: &WorkerOperationError) -> bool {
+    fn fatal(error: &Error) -> bool {
+        matches!(
+            error,
+            Error::ReadFailed(_) | Error::WriteFailed(_) | Error::FlushFailed(_)
+        )
+    }
+    match error {
+        WorkerOperationError::Serial(error) => fatal(error),
+        WorkerOperationError::Sequence(RunError::Execution(failure)) => fatal(&failure.error),
+        WorkerOperationError::SendFile { error, .. } => *error == "serial_error",
+        _ => false,
     }
 }
 
@@ -1010,13 +1058,11 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
         run_id,
         urls,
         mode,
-        serial_settings,
-        settings,
-        port,
+        connection,
+        details,
         simulation_profile_id,
         stream: streaming,
     } = context;
-    let port = *port;
     let (method, path, body) = match read_request(stream) {
         Ok(request) => request,
         Err(error) => {
@@ -1033,19 +1079,20 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
             let current = state.lock().unwrap();
             let mut value = json!({
                 "schema_version": 3, "service": "serial-tool", "run_id": run_id,
-                "status": if current.stopping { "stopping" } else if current.active.is_some() { "busy" } else { "ready" },
-                "worker_state": if current.stopping { "stopping" } else { "running" },
+                "status": if current.stopping || current.fatal.is_some() { "stopping" } else if current.active.is_some() { "busy" } else { "ready" },
+                "worker_state": if current.fatal.is_some() { "failed" } else if current.stopping { "stopping" } else { "running" },
                 "features": features(),
                 "mode": mode, "active_job": current.active.as_ref().map(identity_json),
-                "last_job": current.last_job, "fatal_error": null,
-                "timestamp_utc": timestamp(), "serial_settings": serial_settings,
+                "last_job": current.last_job, "fatal_error": current.fatal.as_deref().map(|message| common_error("worker", "runtime_error", message)),
+                "timestamp_utc": timestamp(),
             });
             for (key, item) in urls.as_object().unwrap() {
                 value[key] = item.clone();
             }
-            if let Some(port) = port {
-                value["port"] = json!(port);
-            } else if let Some(profile) = simulation_profile_id {
+            for (key, item) in details.as_object().unwrap() {
+                value[key] = item.clone();
+            }
+            if let Some(profile) = simulation_profile_id {
                 value["simulation_profile_id"] = json!(profile);
             }
             if let Some(streaming) = streaming {
@@ -1071,7 +1118,7 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
             write_response(stream, 200, &value)
         }
         ("POST", "/command") => {
-            let (identity, operation) = match parse_command(&body, settings, run_id) {
+            let (identity, operation) = match parse_command(&body, connection, run_id) {
                 Ok(parsed) => parsed,
                 Err(value) => return write_response(stream, 400, &value),
             };
@@ -1090,7 +1137,7 @@ fn handle_http<W: Write>(stream: &mut TcpStream, context: &HttpContext<'_, W>) -
                 );
             }
             let mut current = state.lock().unwrap();
-            let reason = if current.stopping {
+            let reason = if current.stopping || current.fatal.is_some() {
                 Some("stopping")
             } else if current.active.is_some() {
                 Some("busy")
@@ -1201,7 +1248,7 @@ fn valid_stop_body(body: &[u8]) -> bool {
 
 fn parse_command(
     body: &[u8],
-    settings: &SerialSettings,
+    settings: &ConnectionSettings,
     run_id: &str,
 ) -> Result<(JobIdentity, Operation), Value> {
     let parsed: Value = serde_json::from_slice(body)
@@ -1286,14 +1333,18 @@ fn parse_command(
                 .ok_or_else(|| reject("sequence must be an object"))?;
             let sequence = Sequence::from_json_str(&value.to_string())
                 .map_err(|error| validation(run_id, Some(command), job_id, &error.to_string()))?;
-            match &sequence.transport {
-                SequenceTransport::Serial(config) if config.matches_serial_settings(settings) => {}
-                SequenceTransport::Serial(_) => {
+            match (&sequence.transport, settings) {
+                (SequenceTransport::Serial(config), ConnectionSettings::Serial(serial))
+                    if config.matches_serial_settings(serial) => {}
+                (SequenceTransport::Tcp(_), ConnectionSettings::Tcp(tcp))
+                    if sequence.transport.matches_tcp_settings(tcp) => {}
+                (SequenceTransport::Serial(_), ConnectionSettings::Serial(_))
+                | (SequenceTransport::Tcp(_), ConnectionSettings::Tcp(_)) => {
                     return Err(reject(
-                        "sequence serial settings must match Worker startup settings",
+                        "sequence settings must match Worker startup settings",
                     ));
                 }
-                SequenceTransport::Tcp(_) => {
+                _ => {
                     return Err(reject(
                         "sequence transport must match Worker startup transport",
                     ));
@@ -1549,9 +1600,8 @@ mod tests {
             run_id: "run",
             urls: &urls,
             mode: "simulate",
-            serial_settings: &settings_json,
-            settings: &settings,
-            port: None,
+            connection: &ConnectionSettings::Serial(settings),
+            details: &json!({"transport": "serial", "serial_settings": settings_json}),
             simulation_profile_id: Some("loopback-v1"),
             stream: None,
         };
@@ -1812,6 +1862,17 @@ mod tests {
         path: &str,
         body: Value,
     ) -> (u16, Value) {
+        worker_http(state, sender, output, "POST", path, body)
+    }
+
+    fn worker_http(
+        state: &Arc<Mutex<State>>,
+        sender: &mpsc::Sender<Job>,
+        output: &Mutex<Vec<u8>>,
+        method: &str,
+        path: &str,
+        body: Value,
+    ) -> (u16, Value) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         client
@@ -1821,7 +1882,7 @@ mod tests {
         let body = body.to_string();
         write!(
             client,
-            "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}",
             body.len()
         )
         .unwrap();
@@ -1845,9 +1906,8 @@ mod tests {
                 run_id: "send-file-run",
                 urls: &urls,
                 mode: "simulate",
-                serial_settings: &serial_settings,
-                settings: &settings,
-                port: None,
+                connection: &ConnectionSettings::Serial(settings),
+                details: &json!({"transport": "serial", "serial_settings": serial_settings}),
                 simulation_profile_id: Some("loopback-v1"),
                 stream: None,
             },
@@ -1861,6 +1921,80 @@ mod tests {
             head.split_whitespace().nth(1).unwrap().parse().unwrap(),
             serde_json::from_str(body).unwrap(),
         )
+    }
+
+    #[test]
+    fn tcp_streaming_runtime_failures_report_tcp_error() {
+        let fixture = SendFileFixture::new(8);
+        for (command, operation) in [
+            ("send", Operation::Send(vec![0xaa])),
+            ("send-file", Operation::SendFile(fixture.0.clone())),
+        ] {
+            let state = Arc::new(Mutex::new(State::new()));
+            let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+            let (sender, receiver) = mpsc::channel();
+            let identity = JobIdentity {
+                worker_job_id: "job-1".into(),
+                command: command.into(),
+                job_id: None,
+                state: "accepted",
+                timestamp_utc: timestamp(),
+            };
+            state.lock().unwrap().active = Some(identity.clone());
+            sender
+                .send(Job {
+                    identity,
+                    operation,
+                })
+                .unwrap();
+            drop(sender);
+            run_stream_jobs(
+                Arc::new(PersistentRuntime::default()),
+                receiver,
+                Arc::clone(&state),
+                Arc::clone(&output),
+                "run".into(),
+                true,
+            );
+            let data = output.lock().unwrap();
+            let events: Vec<Value> = std::str::from_utf8(&data)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(events.len(), 2, "{command}");
+            assert_eq!(events[1]["event"], "job_finished");
+            assert_eq!(events[1]["state"], "failed");
+            assert_eq!(events[1]["error"]["code"], "tcp_error", "{command}");
+            assert_eq!(state.lock().unwrap().failed, 1);
+        }
+    }
+
+    #[test]
+    fn fatal_worker_status_is_failed_and_rejects_new_jobs() {
+        let state = Arc::new(Mutex::new(State::new()));
+        state.lock().unwrap().fatal = Some("TCP socket closed".into());
+        let (sender, receiver) = mpsc::channel();
+        let output = Mutex::new(Vec::<u8>::new());
+
+        let (status_code, status) =
+            worker_http(&state, &sender, &output, "GET", "/status", json!({}));
+        assert_eq!(status_code, 200);
+        assert_eq!(status["status"], "stopping");
+        assert_eq!(status["worker_state"], "failed");
+        assert_eq!(status["fatal_error"]["code"], "runtime_error");
+
+        let (code, rejected) = send_file_http(
+            &state,
+            &sender,
+            &output,
+            "/command",
+            json!({"schema_version": 3, "command": "send", "arguments": {"tx_hex": "01"}}),
+        );
+        assert_eq!(code, 409);
+        assert_eq!(rejected["reason"], "stopping");
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(state.lock().unwrap().accepted, 0);
     }
 
     #[test]

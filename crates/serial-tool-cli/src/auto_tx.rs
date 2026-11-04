@@ -8,7 +8,7 @@ use serial_tool_core::runtime::{Event, Mode, PersistentRuntime, RuntimeError};
 
 use crate::{
     CliError, PayloadArgs,
-    terminal::{ConnectionArgs, DisplayArgs},
+    terminal::{ConnectionArgs, DisplayArgs, connect_runtime},
 };
 
 #[derive(Debug, Args)]
@@ -61,7 +61,7 @@ impl AutoTxArgs {
             return 3;
         }
         let runtime = PersistentRuntime::default();
-        if let Err(error) = runtime.connect(mode, settings, move |event| {
+        if let Err(error) = connect_runtime(&runtime, mode, settings, move |event| {
             let _ = sender.send(Message::Event(event));
         }) {
             eprintln!("{error}");
@@ -174,12 +174,11 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let (observed, observations) = mpsc::channel();
         let events = sender.clone();
-        runtime
-            .connect(mode, settings.clone(), move |event| {
-                let _ = observed.send(event.clone());
-                let _ = events.send(Message::Event(event));
-            })
-            .unwrap();
+        connect_runtime(&runtime, mode, settings.clone(), move |event| {
+            let _ = observed.send(event.clone());
+            let _ = events.send(Message::Event(event));
+        })
+        .unwrap();
         let (code, data) = thread::scope(|scope| {
             let controller = scope.spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(5);
@@ -227,7 +226,7 @@ mod tests {
             runtime.send(vec![1]),
             Err(RuntimeError::Disconnected)
         ));
-        runtime.connect(mode, settings, |_| {}).unwrap();
+        connect_runtime(&runtime, mode, settings, |_| {}).unwrap();
         runtime.send(vec![1]).unwrap();
         runtime.disconnect().unwrap();
     }
@@ -279,11 +278,10 @@ mod tests {
             let runtime = PersistentRuntime::default();
             let (sender, receiver) = mpsc::channel();
             let events = sender.clone();
-            runtime
-                .connect(mode, settings.clone(), move |event| {
-                    let _ = events.send(Message::Event(event));
-                })
-                .unwrap();
+            connect_runtime(&runtime, mode, settings.clone(), move |event| {
+                let _ = events.send(Message::Event(event));
+            })
+            .unwrap();
             if stop_first {
                 sender.send(Message::Stop).unwrap();
             }
@@ -302,7 +300,7 @@ mod tests {
                 ),
                 3
             );
-            runtime.connect(mode, settings.clone(), |_| {}).unwrap();
+            connect_runtime(&runtime, mode, settings.clone(), |_| {}).unwrap();
             runtime.disconnect().unwrap();
         }
         let runtime = PersistentRuntime::default();

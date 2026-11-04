@@ -1,6 +1,6 @@
 # Serial Tool
 
-Serial Tool is a generic Serial / COM execution tool. It is written in Rust,
+Serial Tool is a generic COM / TCP client execution tool. It is written in Rust,
 targets Windows first, and keeps its Core portable where practical.
 
 The root workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
@@ -75,12 +75,14 @@ serial-tool send --port COM4 --baud 115200 --file payload.bin --dry-run --json
 serial-tool receive --port COM4 --baud 115200 --max-bytes 256
 serial-tool query --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A" --until-hex "0D 0A" --max-bytes 1024
 serial-tool query --port COM4 --baud 115200 --text "STATUS?" --until-text "OK" --max-bytes 1024 --dry-run --json
+serial-tool send --transport tcp --host 127.0.0.1 --tcp-port 5025 --hex "AA 55"
+serial-tool query --transport tcp --host 127.0.0.1 --tcp-port 5025 --text "STATUS?" --until-text "OK"
 ```
 
 `send` requires exactly one of `--text`, `--hex`, or `--file`. File input reads
 the entire nonempty file as raw bytes, without decoding, hex parsing, or line
 ending conversion. Missing or unreadable files are input errors (exit 2).
-Dry-run reads and validates the file without opening a port. File input uses
+Dry-run reads and validates the file without opening a port or TCP socket, and without DNS. File input uses
 the same TX machine fields as text and hex input.
 `query` requires exactly one of `--text` or `--hex` and exactly one of
 `--until-text` or `--until-hex`; it does not accept `--file`. Text uses UTF-8 bytes
@@ -88,8 +90,13 @@ exactly as supplied and does not append CR or LF. Use hex for explicit control
 bytes. Raw bytes are authoritative; machine output represents them as lowercase
 hex without separators.
 
-`send`, `receive`, and `query` require `--port` and `--baud`. Defaults are 8
-data bits, no parity, 1 stop bit, no flow control, and a 1000 ms timeout.
+`--transport` defaults to `serial`; Serial `send`, `receive`, and `query`
+require `--port` and `--baud`. Defaults are 8 data bits, no parity, 1 stop bit,
+no flow control, and a 1000 ms timeout. TCP requires `--transport tcp`,
+`--host`, and `--tcp-port` (1..65535), without UART options. TCP defaults to a
+3000 ms connect timeout and 1000 ms read/write I/O timeout; override with
+`--connect-timeout-ms` / `--io-timeout-ms`. Transport-only options cannot be
+mixed. TCP Live supports IPv4, IPv6, and hostnames; dry-run never resolves DNS.
 `receive` performs one bounded read. Dry-run validates the plan without opening
 or checking the port. Use `--format text|json|jsonl` (default `text`), or
 `--json` as an alias for `--format json`. See the
@@ -104,15 +111,17 @@ machine output remains canonical lowercase hex regardless of `--rx-display`.
 
 ## Interactive CLI terminal
 
-The human-interactive terminal keeps one connection open for continuous RX
+The human-interactive terminal keeps one COM or TCP connection open for continuous RX
 and line-oriented manual TX:
 
 ```sh
 serial-tool terminal --mode live --port COM4 --baud 115200
 serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopback-v1
+serial-tool terminal --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
+serial-tool terminal --transport tcp --mode simulate --simulation-profile-id loopback-v1
 ```
 
-It accepts the same serial line settings as the one-shot commands, plus
+It accepts the same transport settings as the one-shot commands, plus
 `--rx-display hex|text|both|stream|hex-stream` (default `hex`), `--tx-display hex|off`
 (default `hex`), `--tx-format text|hex` (default `text`), and
 `--line-ending none|lf|crlf` (default `none`). Enter submits a line;
@@ -153,11 +162,12 @@ periodically, and continues receiving RX until Ctrl+C:
 serial-tool auto-tx --mode live --port COM4 --baud 115200 --text "STATUS?" --interval-ms 1000
 serial-tool auto-tx --mode live --port COM4 --baud 115200 --hex "AA 55" --interval-ms 500
 serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --file payload.bin --interval-ms 1000
+serial-tool auto-tx --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --hex "AA 55" --interval-ms 500
 ```
 
-Live requires `--port` and forbids `--simulation-profile-id`; Simulation
-requires `--simulation-profile-id loopback-v1` and forbids `--port`. The command
-accepts Terminal's serial settings, `--rx-display`, and `--tx-display` options.
+Live requires the selected transport's resource and forbids `--simulation-profile-id`;
+Simulation requires `--simulation-profile-id loopback-v1` and forbids resource
+options. The command accepts Terminal's connection settings, `--rx-display`, and `--tx-display` options.
 Exactly one of `--text`, `--hex`, or `--file` is required; payloads must be
 nonempty. Text and hex use the same exact-byte rules as `send`. File input is
 read once before connecting; changes to the file do not affect the running
@@ -166,7 +176,7 @@ payload. `--interval-ms` is a required positive integer in milliseconds.
 Core's persistent runtime sends the first payload immediately and measures each
 subsequent interval from completion of the previous send and flush. It does
 not catch up missed intervals. Ctrl+C stops periodic TX and disconnects;
-connection or serial I/O failures exit 3 and release the connection. There is
+connection or device I/O failures exit 3 and release the connection. There is
 no stdin interaction, dry-run, or JSON/JSONL contract for `auto-tx`.
 
 ## Worker RX Streaming (optional)
@@ -217,8 +227,9 @@ UART example:
 
 TCP settings use `"transport": {"type":"tcp","settings":{"io_timeout_ms":1000}}`.
 Neither format stores COM port, TCP host/port, connect timeout or execution mode.
-Core and Desktop can connect and execute both transports; TCP CLI/Worker device
-selectors remain for a subsequent stage.
+Core, Desktop, CLI and Worker use the same Sequence transport format. TCP CLI
+Sequence runs obtain `io_timeout_ms` from the Sequence file rather than a
+separate CLI option.
 
 Save this as `sequence.json`, then use:
 
@@ -226,6 +237,9 @@ Save this as `sequence.json`, then use:
 serial-tool sequence validate --file sequence.json
 serial-tool sequence run --file sequence.json --mode live --port COM4
 serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
+# For a Sequence file whose transport type is tcp:
+serial-tool sequence run --file tcp-sequence.json --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
+serial-tool sequence run --file tcp-sequence.json --transport tcp --mode simulate --simulation-profile-id loopback-v1
 ```
 
 Validation performs no serial I/O, TCP socket connection or DNS lookup. A Sequence file does not store the port or
@@ -235,11 +249,14 @@ complete format.
 
 ## Worker
 
-Start a local Worker for an explicit serial port or deterministic simulation:
+Start a local Worker for an explicit COM or TCP client resource, or deterministic simulation:
 
 ```sh
 serial-tool worker --mode live --port COM4 --baud 115200 --control-port 0
 serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
 ```
 
 Worker implements Common v3.0 (`v3-only`): HTTP and runtime JSONL use schema 3,
