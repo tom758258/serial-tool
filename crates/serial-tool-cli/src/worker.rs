@@ -907,14 +907,9 @@ fn run_stream_jobs<W: Write>(
     run_id: String,
     tcp: bool,
 ) {
-    run_jobs_with(
-        receiver,
-        state,
-        output,
-        run_id,
-        tcp,
-        |operation, state| execute_stream(&runtime, operation, state),
-    );
+    run_jobs_with(receiver, state, output, run_id, tcp, |operation, state| {
+        execute_stream(&runtime, operation, state)
+    });
 }
 
 fn run_jobs_with<W: Write>(
@@ -1946,7 +1941,12 @@ mod tests {
                 timestamp_utc: timestamp(),
             };
             state.lock().unwrap().active = Some(identity.clone());
-            sender.send(Job { identity, operation }).unwrap();
+            sender
+                .send(Job {
+                    identity,
+                    operation,
+                })
+                .unwrap();
             drop(sender);
             run_stream_jobs(
                 Arc::new(PersistentRuntime::default()),
