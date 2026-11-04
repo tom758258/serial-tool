@@ -263,7 +263,8 @@ Worker implements Common v3.0 (`v3-only`): HTTP and runtime JSONL use schema 3,
 while Manifest and ordinary CLI results remain schema 2. `manifest --json`
 declares `multi_job` / `startup` execution and `common.async_jobs` version 1.
 All five commands are `async_job`; there is one active slot, with no extra
-queue, parallel jobs, cancellation, or streaming.
+queue, parallel jobs, or cancellation. With `--streaming`, only `send` and
+`send-file` are accepted; other commands remain available without streaming.
 
 Worker stdout is JSONL. Its HTTP control plane binds only to `127.0.0.1`, and
 the `ready` event supplies the selected endpoint URLs. A live Worker holds one
