@@ -25,6 +25,15 @@ cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-ta
 cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 ```
 
+## Language
+
+The top-right Language control switches between English and Traditional Chinese without reloading.
+The displayed name is the current language. The selected language is remembered locally
+(`serial-tool.locale`); the first launch uses the WebView language preference, with English
+as fallback. Language and Appearance are independent. Switching language never changes
+device connectivity, terminal bytes, Sequence data, or exported file formats.
+Core/CLI/Worker diagnostics and machine-readable data are not translated.
+
 ## Terminal
 
 In Connection Setup, choose COM Port or TCP/IP using the transport tabs.

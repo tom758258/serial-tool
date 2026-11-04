@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useI18n } from './i18n/I18nProvider'
 import type { ConnectionSettings, LineSettings, Sequence, Step, TcpConnectionSettings, Transport } from './model'
 
 type Props = {
@@ -19,20 +20,6 @@ type Props = {
 }
 
 const kinds: Step['type'][] = ['send_text', 'send_bytes', 'wait', 'read', 'read_until', 'repeat']
-const label = (kind: Step['type']) => kind.replace('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())
-const stepDescriptions: Record<Step['type'], string> = {
-  send_text: 'Sends text as UTF-8 bytes. No newline is added automatically.',
-  send_bytes: 'Sends raw bytes in hexadecimal format, e.g., AA 55 0D 0A.',
-  wait: 'Waits for the specified duration in milliseconds before continuing.',
-  read: 'Reads up to the specified number of bytes from the connection.',
-  read_until: 'Reads until the specified delimiter is received, including the delimiter, within the maximum byte limit.',
-  repeat: 'Executes the child steps for the specified number of iterations.',
-}
-const serialFieldLabels: Record<keyof LineSettings, string> = {
-  baud_rate: 'Baud rate', data_bits: 'Data bits', parity: 'Parity',
-  stop_bits: 'Stop bits', flow_control: 'Flow control', timeout_ms: 'Timeout (ms)',
-}
-
 function atPath(steps: Step[], path: number[]): Step {
   let current = steps[path[0]]
   for (const index of path.slice(1)) {
@@ -80,6 +67,7 @@ function numeric(value: string): number {
 }
 
 export default function SequenceEditor(props: Props) {
+  const { t } = useI18n()
   const { draft, onChange, connection, tcpConnection, connectionTransport, disabled, isConnected, serialDifferences } = props
   const [selected, setSelected] = useState<number[] | null>(null)
   const [addKind, setAddKind] = useState<Step['type']>('send_text')
@@ -143,7 +131,7 @@ export default function SequenceEditor(props: Props) {
       return <div className="step-tree" key={path.join('.')}>
         <button type="button" disabled={disabled} className={`step-row ${active ? 'selected' : ''}`}
           onClick={() => setSelected(path)}>
-          <span>{label(item.type)}</span><strong>{item.id || '(no ID)'}</strong>
+          <span>{t('sequence.step.' + item.type)}</span><strong>{item.id || '(no ID)'}</strong>
         </button>
         {item.type === 'repeat' && <div className="nested-steps">{renderSteps(item.steps, path)}</div>}
       </div>
@@ -154,14 +142,14 @@ export default function SequenceEditor(props: Props) {
 
   return <div className="sequence-editor">
     <div className="toolbar">
-      <button disabled={disabled} onClick={() => { setSelected(null); props.onNew() }}>New</button>
-      <button disabled={disabled} onClick={() => { setSelected(null); props.onLoad() }}>Load</button>
-      <button disabled={disabled} onClick={props.onSave}>Save</button>
-      <button disabled={disabled} onClick={props.onValidate}>Validate</button>
-      <button className="primary" disabled={!props.canRun || disabled} onClick={props.onRun}>Run Sequence</button>
+      <button disabled={disabled} onClick={() => { setSelected(null); props.onNew() }}>{t('sequence.new')}</button>
+      <button disabled={disabled} onClick={() => { setSelected(null); props.onLoad() }}>{t('sequence.load')}</button>
+      <button disabled={disabled} onClick={props.onSave}>{t('sequence.save')}</button>
+      <button disabled={disabled} onClick={props.onValidate}>{t('sequence.validate')}</button>
+      <button className="primary" disabled={!props.canRun || disabled} onClick={props.onRun}>{t('sequence.run')}</button>
     </div>
     <div className="sequence-serial panel">
-      <div className="section-heading"><h3>{serial ? 'Required Serial Settings' : 'Required TCP Settings'}</h3>
+      <div className="section-heading"><h3>{t(serial ? 'sequence.required_serial' : 'sequence.required_tcp')}</h3>
         <button disabled={disabled || draft.transport.type !== connectionTransport} onClick={() => edit(next => {
           if (next.transport.type === 'serial' && connectionTransport === 'serial') {
             next.transport.settings = {
@@ -172,70 +160,70 @@ export default function SequenceEditor(props: Props) {
           } else if (next.transport.type === 'tcp' && connectionTransport === 'tcp') {
             next.transport.settings.io_timeout_ms = Number(tcpConnection.io_timeout_ms)
           }
-        })}>Copy from Connection Setup</button></div>
-      <p className="muted">Saved with this Sequence; these settings must match the active connection before running. The device resource and execution mode are selected separately in Connection Setup.</p>
+        })}>{t('sequence.copy_settings')}</button></div>
+      <p className="muted">{t('sequence.settings_help')}</p>
       {serial ? <>
         <div className="field-grid">
-          <label>Baud rate<input disabled={disabled} type="number" value={serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
-          <label>Data bits<select disabled={disabled} value={serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
-          <label>Parity<select disabled={disabled} value={serial.parity} onChange={event => updateSerial('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-          <label>Stop bits<select disabled={disabled} value={serial.stop_bits} onChange={event => updateSerial('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
-          <label>Flow control<select disabled={disabled} value={serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-          <label>Timeout (ms)<input disabled={disabled} type="number" value={serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
+          <label>{t('connection.baud_rate')}<input disabled={disabled} type="number" value={serial.baud_rate} onChange={event => updateSerial('baud_rate', event.target.value)} /></label>
+          <label>{t('connection.data_bits')}<select disabled={disabled} value={serial.data_bits} onChange={event => updateSerial('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
+          <label>{t('connection.parity')}<select disabled={disabled} value={serial.parity} onChange={event => updateSerial('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{t('common.choice.' + value)}</option>)}</select></label>
+          <label>{t('connection.stop_bits')}<select disabled={disabled} value={serial.stop_bits} onChange={event => updateSerial('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
+          <label>{t('connection.flow_control')}<select disabled={disabled} value={serial.flow_control} onChange={event => updateSerial('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{t('common.choice.' + value)}</option>)}</select></label>
+          <label>{t('connection.timeout')}<input disabled={disabled} type="number" value={serial.timeout_ms} onChange={event => updateSerial('timeout_ms', event.target.value)} /></label>
         </div>
         <div className="sequence-serial-status" role="status" aria-live="polite">
-          {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
+          {!isConnected ? <span className="muted">{t('sequence.not_connected')}</span>
             : connectionTransport !== 'serial'
-              ? <span className="sequence-serial-mismatch">Transport mismatch: this Serial Sequence requires a COM Port connection.</span>
-            : serialDifferences.length === 0 ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
-              : <div><span className="sequence-serial-mismatch">Settings mismatch with current connection:</span>
+              ? <span className="sequence-serial-mismatch">{t('sequence.mismatch_serial')}</span>
+            : serialDifferences.length === 0 ? <span className="sequence-serial-match">{t('sequence.settings_match')}</span>
+              : <div><span className="sequence-serial-mismatch">{t('sequence.settings_mismatch')}</span>
                 <ul className="sequence-serial-differences">{serialDifferences.map(field =>
-                  <li key={field}>{serialFieldLabels[field]}: Sequence {String(serial[field])} / Connection {String(connection[field])}</li>)}</ul>
+                  <li key={field}>{t('sequence.mismatch_entry', { field: t('connection.' + field), sequence: String(serial[field]), connection: String(connection[field]) })}</li>)}</ul>
               </div>}
         </div>
       </> : draft.transport.type === 'tcp' && <>
         <div className="field-grid">
-          <label>I/O Timeout (ms)<input disabled={disabled} type="number" min="1"
+          <label>{t('connection.io_timeout')}<input disabled={disabled} type="number" min="1"
             value={draft.transport.settings.io_timeout_ms}
             onChange={event => edit(next => {
               if (next.transport.type === 'tcp') next.transport.settings.io_timeout_ms = numeric(event.target.value)
             })} /></label>
         </div>
         <div className="sequence-serial-status" role="status" aria-live="polite">
-          {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
+          {!isConnected ? <span className="muted">{t('sequence.not_connected')}</span>
             : connectionTransport !== 'tcp'
-              ? <span className="sequence-serial-mismatch">Transport mismatch: this TCP Sequence requires a TCP/IP connection.</span>
+              ? <span className="sequence-serial-mismatch">{t('sequence.mismatch_tcp')}</span>
               : draft.transport.settings.io_timeout_ms === Number(tcpConnection.io_timeout_ms)
-                ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
-                : <span className="sequence-serial-mismatch">I/O Timeout mismatch: Sequence {draft.transport.settings.io_timeout_ms} ms / Connection {tcpConnection.io_timeout_ms} ms.</span>}
+                ? <span className="sequence-serial-match">{t('sequence.settings_match')}</span>
+                : <span className="sequence-serial-mismatch">{t('sequence.io_mismatch', { sequence: draft.transport.settings.io_timeout_ms, connection: tcpConnection.io_timeout_ms })}</span>}
         </div>
       </>}
     </div>
     <div className="editor-columns">
-      <section className="panel palette"><h3>Palette</h3>
-        <label>Step type<select disabled={disabled} value={addKind} onChange={event => setAddKind(event.target.value as Step['type'])}>
-          {kinds.map(kind => <option value={kind} key={kind}>{label(kind)}</option>)}
+      <section className="panel palette"><h3>{t('sequence.palette')}</h3>
+        <label>{t('sequence.step_type')}<select disabled={disabled} value={addKind} onChange={event => setAddKind(event.target.value as Step['type'])}>
+          {kinds.map(kind => <option value={kind} key={kind}>{t('sequence.step.' + kind)}</option>)}
         </select></label>
-        <button disabled={disabled} onClick={() => add(false)}>Add Step</button>
-        <button disabled={disabled || step?.type !== 'repeat'} onClick={() => add(true)}>Add Child</button>
+        <button disabled={disabled} onClick={() => add(false)}>{t('sequence.add_step')}</button>
+        <button disabled={disabled || step?.type !== 'repeat'} onClick={() => add(true)}>{t('sequence.add_child')}</button>
       </section>
-      <section className="panel steps-panel"><h3>Steps</h3>
-        <div className="step-list">{draft.steps.length ? renderSteps(draft.steps) : <p className="muted">Add a step to begin.</p>}</div>
-        <div className="toolbar"><button disabled={disabled || !step} onClick={remove}>Delete</button>
-          <button disabled={disabled || !step} onClick={() => move(-1)}>Move Up</button>
-          <button disabled={disabled || !step} onClick={() => move(1)}>Move Down</button></div>
+      <section className="panel steps-panel"><h3>{t('sequence.steps')}</h3>
+        <div className="step-list">{draft.steps.length ? renderSteps(draft.steps) : <p className="muted">{t('sequence.add_hint')}</p>}</div>
+        <div className="toolbar"><button disabled={disabled || !step} onClick={remove}>{t('sequence.delete')}</button>
+          <button disabled={disabled || !step} onClick={() => move(-1)}>{t('sequence.move_up')}</button>
+          <button disabled={disabled || !step} onClick={() => move(1)}>{t('sequence.move_down')}</button></div>
       </section>
-      <section className="panel properties"><h3>Properties</h3>
-        {!step ? <p className="muted">Select a step.</p> : <div className="properties-fields">
-          <p className="step-kind">{label(step.type)}</p>
-          <p className="muted step-description">{stepDescriptions[step.type]}</p>
+      <section className="panel properties"><h3>{t('sequence.properties')}</h3>
+        {!step ? <p className="muted">{t('sequence.select_step')}</p> : <div className="properties-fields">
+          <p className="step-kind">{t('sequence.step.' + step.type)}</p>
+          <p className="muted step-description">{t('sequence.desc.' + step.type)}</p>
           <label>ID<input disabled={disabled} value={step.id} onChange={event => updateStep({ id: event.target.value })} /></label>
-          {step.type === 'send_text' && <label>Text<textarea disabled={disabled} value={step.text} onChange={event => updateStep({ text: event.target.value })} /></label>}
-          {step.type === 'send_bytes' && <label>Hex<textarea disabled={disabled} value={step.hex} onChange={event => updateStep({ hex: event.target.value })} /></label>}
-          {step.type === 'wait' && <label>Duration ms<input disabled={disabled} type="number" value={step.duration_ms} onChange={event => updateStep({ duration_ms: numeric(event.target.value) })} /></label>}
-          {(step.type === 'read' || step.type === 'read_until') && <label>Max bytes<input disabled={disabled} type="number" value={step.max_bytes} onChange={event => updateStep({ max_bytes: numeric(event.target.value) })} /></label>}
-          {step.type === 'read_until' && <label>Delimiter hex<input disabled={disabled} value={step.delimiter_hex} onChange={event => updateStep({ delimiter_hex: event.target.value })} /></label>}
-          {step.type === 'repeat' && <label>Count<input disabled={disabled} type="number" value={step.count} onChange={event => updateStep({ count: numeric(event.target.value) })} /></label>}
+          {step.type === 'send_text' && <label>{t('common.text')}<textarea disabled={disabled} value={step.text} onChange={event => updateStep({ text: event.target.value })} /></label>}
+          {step.type === 'send_bytes' && <label>{t('common.hex')}<textarea disabled={disabled} value={step.hex} onChange={event => updateStep({ hex: event.target.value })} /></label>}
+          {step.type === 'wait' && <label>{t('sequence.duration')}<input disabled={disabled} type="number" value={step.duration_ms} onChange={event => updateStep({ duration_ms: numeric(event.target.value) })} /></label>}
+          {(step.type === 'read' || step.type === 'read_until') && <label>{t('sequence.max_bytes')}<input disabled={disabled} type="number" value={step.max_bytes} onChange={event => updateStep({ max_bytes: numeric(event.target.value) })} /></label>}
+          {step.type === 'read_until' && <label>{t('sequence.delimiter_hex')}<input disabled={disabled} value={step.delimiter_hex} onChange={event => updateStep({ delimiter_hex: event.target.value })} /></label>}
+          {step.type === 'repeat' && <label>{t('sequence.count')}<input disabled={disabled} type="number" value={step.count} onChange={event => updateStep({ count: numeric(event.target.value) })} /></label>}
         </div>}
       </section>
     </div>

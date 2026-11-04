@@ -4,28 +4,15 @@ import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import SequenceEditor from './SequenceEditor'
+import { useI18n } from './i18n/I18nProvider'
 import { continuousRxHex, defaultLine, defaultTcpConnection, display, freshSequence, hex, rxTextFragments, serialSettingDifferences, sequenceMatches, tcpConnectSettings } from './model'
 import type { ConnectionSettings, Display, Port, RunResult, Sequence, SessionEvent, TcpConnectionSettings, TerminalDisplay, Transport } from './model'
 
 type Status = 'disconnected' | 'connecting' | 'connected' | 'running' | 'disconnecting' | 'error'
 type Theme = 'system' | 'light' | 'dark'
 type HistoryEntry = { direction: 'tx' | 'rx'; bytes: number[] }
-type Notice = { message: string; kind: 'info' | 'success' | 'error' }
+type Notice = { message: string; kind: 'info' | 'success' | 'error'; localized?: boolean; params?: Record<string, string | number> }
 const HISTORY_LIMIT = 5000
-const statusLabels: Record<Status, string> = {
-  disconnected: 'Disconnected', connecting: 'Connecting…', connected: 'Connected',
-  running: 'Running…', disconnecting: 'Disconnecting…', error: 'Error',
-}
-
-function portTypeLabel(kind: string): string {
-  switch (kind) {
-    case 'usb': return 'USB'
-    case 'pci': return 'PCI'
-    case 'bluetooth': return 'Bluetooth'
-    default: return 'Unknown'
-  }
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -45,16 +32,13 @@ function nextTheme(theme: Theme): Theme {
   return 'system'
 }
 
-function themeLabel(theme: Theme): string {
-  return theme[0].toUpperCase() + theme.slice(1)
-}
-
 function exportTimestamp(date = new Date()): string {
   const pad = (value: number) => value.toString().padStart(2, '0')
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
 }
 
 export default function App() {
+  const { locale, toggleLocale, t } = useI18n()
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const [applicationVersion, setApplicationVersion] = useState<string | null>(null)
   const [mode, setMode] = useState<'live' | 'simulation'>('live')
@@ -102,7 +86,7 @@ export default function App() {
   const rxText = useMemo(() => rxTextFragments(history, rxDisplay === 'continuous-text'), [history, rxDisplay])
   const rxHex = useMemo(() => rxDisplay === 'continuous-hex' ? continuousRxHex(history) : '', [history, rxDisplay])
   const nextThemePreference = nextTheme(theme)
-  const nextThemeLabel = themeLabel(nextThemePreference)
+  const nextThemeLabel = t('common.theme.' + nextThemePreference)
 
   useEffect(() => {
     void (async () => {
@@ -177,11 +161,22 @@ export default function App() {
   async function connect() {
     let tcpParameters: ReturnType<typeof tcpConnectSettings> | null = null
     if (transport === 'serial') {
-      if (mode === 'live' && !settings.port) { setNotice({ message: 'Select a port before connecting.', kind: 'error' }); return }
-      if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setNotice({ message: 'Baud rate must be positive.', kind: 'error' }); return }
+      if (mode === 'live' && !settings.port) { setNotice({ message: 'connection.select_port_first', localized: true, kind: 'error' }); return }
+      if (!Number.isInteger(settings.baud_rate) || settings.baud_rate <= 0) { setNotice({ message: 'connection.baud_positive', localized: true, kind: 'error' }); return }
     } else {
       try { tcpParameters = tcpConnectSettings(tcpSettings, mode) }
-      catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }); return }
+      catch (error) {
+        const raw = errorMessage(error)
+        const known: Record<string, string> = {
+          'TCP Host must be a nonempty hostname or IP address, not a URL.': 'connection.validation.host',
+          'TCP Port must be 1–65535.': 'connection.validation.port_range',
+          'TCP Port must be a positive integer.': 'connection.validation.port_integer',
+          'Connect timeout (ms) must be a positive integer.': 'connection.validation.connect_integer',
+          'I/O timeout (ms) must be a positive integer.': 'connection.validation.io_integer',
+        }
+        setNotice({ message: known[raw] ?? raw, localized: Boolean(known[raw]), kind: 'error' })
+        return
+      }
     }
     setAutoTxRunning(false)
     setStatus('connecting')
@@ -248,7 +243,7 @@ export default function App() {
     if (txPending || status !== 'connected') return
     const interval = Number(intervalMs)
     if (!autoTxRunning && (!Number.isSafeInteger(interval) || interval <= 0)) {
-      setNotice({ message: 'Interval must be integer milliseconds greater than zero.', kind: 'error' })
+      setNotice({ message: 'terminal.interval_invalid', localized: true, kind: 'error' })
       return
     }
     const connectionId = currentConnection.current
@@ -273,7 +268,7 @@ export default function App() {
   async function chooseAutoTxFile() {
     if (txLocked) return
     try {
-      const path = await open({ multiple: false, title: 'Auto TX File (Raw)' })
+      const path = await open({ multiple: false, title: t('terminal.auto_file_dialog') })
       if (path && typeof path === 'string') setAutoTxFilePath(path)
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
@@ -283,10 +278,10 @@ export default function App() {
     const connectionId = currentConnection.current
     setTxPending(true)
     try {
-      const path = await open({ multiple: false, title: 'Send File (Raw)' })
+      const path = await open({ multiple: false, title: t('terminal.send_file_dialog') })
       if (!path || typeof path !== 'string' || connectionId !== currentConnection.current) return
       await invoke('send_serial_file', { path })
-      setNotice({ message: `Sent raw bytes from ${path}`, kind: 'success' })
+      setNotice({ message: 'terminal.sent_from_path', params: { path }, localized: true, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
     finally { setTxPending(false) }
   }
@@ -297,11 +292,11 @@ export default function App() {
     try {
       const path = await save({
         defaultPath: `terminal-log_${timestamp}.log`,
-        filters: [{ name: 'Terminal Log (Hex)', extensions: ['log'] }],
+        filters: [{ name: t('terminal.log_filter'), extensions: ['log'] }],
       })
       if (!path) return
       await invoke('save_text_file', { path, content })
-      setNotice({ message: `Saved ${path}`, kind: 'success' })
+      setNotice({ message: 'common.saved_path', params: { path }, localized: true, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
@@ -315,11 +310,11 @@ export default function App() {
     try {
       const path = await save({
         defaultPath,
-        filters: [{ name: 'Raw Binary', extensions: ['bin'] }],
+        filters: [{ name: t('terminal.raw_filter'), extensions: ['bin'] }],
       })
       if (!path) return
       await invoke('save_binary_file', { path, bytes })
-      setNotice({ message: `Saved ${path}`, kind: 'success' })
+      setNotice({ message: 'common.saved_path', params: { path }, localized: true, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
@@ -327,10 +322,10 @@ export default function App() {
     if (!lastRun) return
     const content = JSON.stringify(lastRun, null, 2) + '\n'
     try {
-      const path = await save({ defaultPath: 'sequence-result.json', filters: [{ name: 'Sequence Result JSON', extensions: ['json'] }] })
+      const path = await save({ defaultPath: 'sequence-result.json', filters: [{ name: t('sequence.result_json'), extensions: ['json'] }] })
       if (!path) return
       await invoke('save_text_file', { path, content })
-      setNotice({ message: `Saved ${path}`, kind: 'success' })
+      setNotice({ message: 'common.saved_path', params: { path }, localized: true, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
@@ -339,41 +334,41 @@ export default function App() {
   async function validate() {
     try {
       await invoke('validate_sequence', { json: json() })
-      setNotice({ message: 'Sequence is valid.', kind: 'success' })
+      setNotice({ message: 'sequence.valid', localized: true, kind: 'success' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function loadSequence() {
     try {
-      const path = await open({ multiple: false, filters: [{ name: 'Sequence JSON', extensions: ['json'] }] })
+      const path = await open({ multiple: false, filters: [{ name: t('sequence.sequence_json'), extensions: ['json'] }] })
       if (!path || typeof path !== 'string') return
       const normalized = await invoke<string>('load_sequence', { path })
       setDraft(JSON.parse(normalized) as Sequence)
-      setNotice({ message: `Loaded ${path}`, kind: 'info' })
+      setNotice({ message: 'common.loaded_path', params: { path }, localized: true, kind: 'info' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function saveSequence() {
     try {
       await invoke('validate_sequence', { json: json() })
-      const path = await save({ defaultPath: 'sequence.json', filters: [{ name: 'Sequence JSON', extensions: ['json'] }] })
+      const path = await save({ defaultPath: 'sequence.json', filters: [{ name: t('sequence.sequence_json'), extensions: ['json'] }] })
       if (!path) return
       await invoke('save_sequence', { path, json: json() })
-      setNotice({ message: `Saved ${path}`, kind: 'info' })
+      setNotice({ message: 'common.saved_path', params: { path }, localized: true, kind: 'info' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
   }
 
   async function runSequence() {
     if (!canTransmit || !transportMatches) return
     setStatus('running')
-    setNotice({ message: 'Running sequence…', kind: 'info' })
+    setNotice({ message: 'sequence.running', localized: true, kind: 'info' })
     setLastRun(null)
     try {
       const result = await invoke<RunResult>('run_sequence', { json: json() })
       setLastRun(result)
       setNotice(result.status === 'success'
-        ? { message: 'Sequence completed.', kind: 'success' }
-        : { message: result.error ?? 'Sequence failed.', kind: 'error' })
+        ? { message: 'sequence.completed', localized: true, kind: 'success' }
+        : { message: result.error ?? 'sequence.failed', localized: !result.error, kind: 'error' })
     } catch (error) { setNotice({ message: errorMessage(error), kind: 'error' }) }
     setStatus(previous => previous === 'error' || previous === 'disconnected' ? previous : 'connected')
   }
@@ -382,17 +377,29 @@ export default function App() {
     <header className="topbar"><div><h1>Serial Tool</h1>{applicationVersion && (
       <span className="subtitle">v{applicationVersion}</span>
     )}</div>
-      <div className="appearance-control"><span>Appearance</span>
-        <button type="button" aria-label={`Switch theme to ${nextThemeLabel}`} title={`Switch theme to ${nextThemeLabel}`}
-          onClick={() => setTheme(nextThemePreference)}>◐ {themeLabel(theme)}</button>
+      <div className="header-settings">
+        <div className="header-setting"><span>{t('common.appearance')}</span>
+          <button type="button" aria-label={t('common.switch_theme', { theme: nextThemeLabel })}
+            title={t('common.switch_theme', { theme: nextThemeLabel })}
+            onClick={() => setTheme(nextThemePreference)}>◐ {t('common.theme.' + theme)}</button>
+        </div>
+        <div className="header-setting"><span>{t('common.language')}</span>
+          <button type="button" onClick={toggleLocale}
+            aria-label={t('common.switch_language', { language: locale === 'en' ? '繁體中文' : 'English' })}
+            title={t('common.switch_language', { language: locale === 'en' ? '繁體中文' : 'English' })}>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c-5 5-5 13 0 18M12 3c5 5 5 13 0 18" />
+            </svg> <span lang={locale}>{locale === 'en' ? 'English' : '繁體中文'}</span>
+          </button>
+        </div>
       </div>
     </header>
 
     <section className={`connection panel${connectionExpanded ? '' : ' collapsed'}`}>
-      <div className="section-heading"><h2>Connection Setup</h2><div className="connection-header-actions">
-        <span className={`status ${status}`}>{transport === 'serial' ? 'COM Port' : 'TCP/IP'} · {mode === 'live' ? 'Live' : 'Simulation'} · {statusLabels[status]}</span>
+      <div className="section-heading"><h2>{t('connection.title')}</h2><div className="connection-header-actions">
+        <span className={`status ${status}`}>{t(transport === 'serial' ? 'connection.com_port' : 'connection.tcp')} · {t(mode === 'live' ? 'connection.live' : 'connection.simulation')} · {t('common.status.' + status)}</span>
         <div className="connection-options-wrap" ref={connectionOptionsWrap}>
-          <button type="button" ref={connectionOptionsToggle} className="connection-options-toggle" title="Connection options" aria-label="Connection options"
+          <button type="button" ref={connectionOptionsToggle} className="connection-options-toggle" title={t('connection.options')} aria-label={t('connection.options')}
             aria-expanded={connectionOptionsOpen} aria-controls="connection-options" onClick={() => setConnectionOptionsOpen(previous => !previous)}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="m9 3-.7 2.7-2 .9-2.5-.7-2 3.4 1.9 2v2.4l-1.9 2 2 3.4 2.5-.7 2 .9L9 22h4l.7-2.7 2-.9 2.5.7 2-3.4-1.9-2v-2.4l1.9-2-2-3.4-2.5.7-2-.9L13 3Z" />
@@ -400,123 +407,123 @@ export default function App() {
             </svg>
           </button>
           <div id="connection-options" className="connection-options" hidden={!connectionOptionsOpen}>
-            <h3>Connection options</h3>
+            <h3>{t('connection.options')}</h3>
             <fieldset disabled={settingsLocked} className="execution-mode">
-              <legend>Execution mode</legend>
+              <legend>{t('connection.execution_mode')}</legend>
               <div className="execution-mode-choices">
-                <label><input type="radio" name="execution-mode" value="live" checked={mode === 'live'} onChange={() => setMode('live')} />Live</label>
-                <label><input type="radio" name="execution-mode" value="simulation" checked={mode === 'simulation'} onChange={() => setMode('simulation')} />Simulation</label>
+                <label><input type="radio" name="execution-mode" value="live" checked={mode === 'live'} onChange={() => setMode('live')} />{t('connection.live')}</label>
+                <label><input type="radio" name="execution-mode" value="simulation" checked={mode === 'simulation'} onChange={() => setMode('simulation')} />{t('connection.simulation')}</label>
               </div>
             </fieldset>
-            <p className="connection-options-help">Simulation uses deterministic loopback and does not access a physical serial port or TCP socket.</p>
+            <p className="connection-options-help">{t('connection.simulation_help')}</p>
           </div>
         </div>
-        <button type="button" className="connection-collapse-toggle" title={connectionExpanded ? 'Collapse connection setup' : 'Expand connection setup'}
-          aria-label={connectionExpanded ? 'Collapse connection setup' : 'Expand connection setup'}
+        <button type="button" className="connection-collapse-toggle" title={t(connectionExpanded ? 'connection.collapse' : 'connection.expand')}
+          aria-label={t(connectionExpanded ? 'connection.collapse' : 'connection.expand')}
           aria-expanded={connectionExpanded} aria-controls="connection-setup-body"
           onClick={() => setConnectionExpanded(previous => !previous)}>{connectionExpanded ? '−' : '+'}</button>
       </div></div>
       <div id="connection-setup-body" hidden={!connectionExpanded}>
-      <nav className="transport-tabs" aria-label="Connection transport">
-        <button type="button" disabled={settingsLocked} className={transport === 'serial' ? 'active' : ''} aria-pressed={transport === 'serial'} onClick={() => setTransport('serial')}>COM Port</button>
-        <button type="button" disabled={settingsLocked} className={transport === 'tcp' ? 'active' : ''} aria-pressed={transport === 'tcp'} onClick={() => setTransport('tcp')}>TCP/IP</button>
+      <nav className="transport-tabs" aria-label={t('connection.transport')}>
+        <button type="button" disabled={settingsLocked} className={transport === 'serial' ? 'active' : ''} aria-pressed={transport === 'serial'} onClick={() => setTransport('serial')}>{t('connection.com_port')}</button>
+        <button type="button" disabled={settingsLocked} className={transport === 'tcp' ? 'active' : ''} aria-pressed={transport === 'tcp'} onClick={() => setTransport('tcp')}>{t('connection.tcp')}</button>
       </nav>
       {transport === 'serial' ? <>
       <div className="connection-resource-row">
-        <label>Port<select disabled={settingsLocked || mode === 'simulation'} value={settings.port} onChange={event => updateSetting('port', event.target.value)}>
-          <option value="">Select a port</option>{ports.map(port => <option key={port.port_name} value={port.port_name}>{port.port_name} · {portTypeLabel(port.kind)}{port.vid != null ? ` ${port.vid.toString(16).padStart(4, '0')}:${port.pid?.toString(16).padStart(4, '0')}` : ''}</option>)}
+        <label>{t('connection.port')}<select disabled={settingsLocked || mode === 'simulation'} value={settings.port} onChange={event => updateSetting('port', event.target.value)}>
+          <option value="">{t('connection.select_port')}</option>{ports.map(port => <option key={port.port_name} value={port.port_name}>{port.port_name} · {(['usb', 'pci', 'bluetooth'].includes(port.kind) ? t('connection.port_type.' + port.kind) : t('common.unknown'))}{port.vid != null ? ` ${port.vid.toString(16).padStart(4, '0')}:${port.pid?.toString(16).padStart(4, '0')}` : ''}</option>)}
         </select></label>
-        <button disabled={settingsLocked || mode === 'simulation'} onClick={() => void refreshPorts()}>Refresh ports</button>
+        <button disabled={settingsLocked || mode === 'simulation'} onClick={() => void refreshPorts()}>{t('connection.refresh_ports')}</button>
       </div>
       {mode === 'live' && settings.port && <p className="port-detail">{(() => {
         const port = ports.find(value => value.port_name === settings.port)
         return port ? [port.manufacturer, port.product, port.serial_number].filter(Boolean).join(' · ') : ''
       })()}</p>}
       <div className="connection-serial-grid">
-        <label>Baud rate<input disabled={settingsLocked} type="number" value={settings.baud_rate} onChange={event => updateSetting('baud_rate', event.target.value)} /></label>
-        <label>Data bits<select disabled={settingsLocked} value={settings.data_bits} onChange={event => updateSetting('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Parity<select disabled={settingsLocked} value={settings.parity} onChange={event => updateSetting('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-        <label>Stop bits<select disabled={settingsLocked} value={settings.stop_bits} onChange={event => updateSetting('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
-        <label>Flow control<select disabled={settingsLocked} value={settings.flow_control} onChange={event => updateSetting('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
-        <label>Timeout (ms)<input disabled={settingsLocked} type="number" value={settings.timeout_ms} onChange={event => updateSetting('timeout_ms', event.target.value)} /></label>
+        <label>{t('connection.baud_rate')}<input disabled={settingsLocked} type="number" value={settings.baud_rate} onChange={event => updateSetting('baud_rate', event.target.value)} /></label>
+        <label>{t('connection.data_bits')}<select disabled={settingsLocked} value={settings.data_bits} onChange={event => updateSetting('data_bits', event.target.value)}>{[5, 6, 7, 8].map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>{t('connection.parity')}<select disabled={settingsLocked} value={settings.parity} onChange={event => updateSetting('parity', event.target.value)}>{['none', 'odd', 'even'].map(value => <option key={value} value={value}>{t('common.choice.' + value)}</option>)}</select></label>
+        <label>{t('connection.stop_bits')}<select disabled={settingsLocked} value={settings.stop_bits} onChange={event => updateSetting('stop_bits', event.target.value)}>{[1, 2].map(value => <option key={value}>{value}</option>)}</select></label>
+        <label>{t('connection.flow_control')}<select disabled={settingsLocked} value={settings.flow_control} onChange={event => updateSetting('flow_control', event.target.value)}>{['none', 'software', 'hardware'].map(value => <option key={value} value={value}>{t('common.choice.' + value)}</option>)}</select></label>
+        <label>{t('connection.timeout')}<input disabled={settingsLocked} type="number" value={settings.timeout_ms} onChange={event => updateSetting('timeout_ms', event.target.value)} /></label>
       </div>
       </> : <div className="connection-tcp-grid">
-        <label>Host<input disabled={settingsLocked || mode === 'simulation'} value={tcpSettings.host} placeholder="Hostname or IP address" onChange={event => setTcpSettings(previous => ({ ...previous, host: event.target.value }))} /></label>
-        <label>Port<input disabled={settingsLocked || mode === 'simulation'} inputMode="numeric" value={tcpSettings.port} placeholder="1–65535" onChange={event => setTcpSettings(previous => ({ ...previous, port: event.target.value }))} /></label>
-        <label>Connect Timeout (ms)<input disabled={settingsLocked} inputMode="numeric" value={tcpSettings.connect_timeout_ms} onChange={event => setTcpSettings(previous => ({ ...previous, connect_timeout_ms: event.target.value }))} /></label>
-        <label>I/O Timeout (ms)<input disabled={settingsLocked} inputMode="numeric" value={tcpSettings.io_timeout_ms} onChange={event => setTcpSettings(previous => ({ ...previous, io_timeout_ms: event.target.value }))} /></label>
+        <label>{t('connection.host')}<input disabled={settingsLocked || mode === 'simulation'} value={tcpSettings.host} placeholder={t('connection.host_placeholder')} onChange={event => setTcpSettings(previous => ({ ...previous, host: event.target.value }))} /></label>
+        <label>{t('connection.port')}<input disabled={settingsLocked || mode === 'simulation'} inputMode="numeric" value={tcpSettings.port} placeholder="1–65535" onChange={event => setTcpSettings(previous => ({ ...previous, port: event.target.value }))} /></label>
+        <label>{t('connection.connect_timeout')}<input disabled={settingsLocked} inputMode="numeric" value={tcpSettings.connect_timeout_ms} onChange={event => setTcpSettings(previous => ({ ...previous, connect_timeout_ms: event.target.value }))} /></label>
+        <label>{t('connection.io_timeout')}<input disabled={settingsLocked} inputMode="numeric" value={tcpSettings.io_timeout_ms} onChange={event => setTcpSettings(previous => ({ ...previous, io_timeout_ms: event.target.value }))} /></label>
       </div>}
       <div className="connection-actions">
-        <button className="primary" disabled={settingsLocked || (transport === 'serial' && ((mode === 'live' && !settings.port) || settings.baud_rate <= 0))} onClick={() => void connect()}>Connect</button>
-        <button disabled={status !== 'connected'} onClick={() => void disconnect()}>Disconnect</button>
+        <button className="primary" disabled={settingsLocked || (transport === 'serial' && ((mode === 'live' && !settings.port) || settings.baud_rate <= 0))} onClick={() => void connect()}>{t('connection.connect')}</button>
+        <button disabled={status !== 'connected'} onClick={() => void disconnect()}>{t('connection.disconnect')}</button>
       </div>
       </div>
     </section>
 
-    {notice && <div className={`notice notice-${notice.kind}`} role="status">{notice.message}</div>}
+    {notice && <div className={`notice notice-${notice.kind}`} role="status">{notice.localized ? t(notice.message, notice.params) : notice.message}</div>}
 
-    <nav className="tabs" aria-label="Main views"><button className={tab === 'terminal' ? 'active' : ''} onClick={() => { terminalFollowBottom.current = true; setTab('terminal') }}>Terminal</button>
-      <button className={tab === 'sequence' ? 'active' : ''} onClick={() => setTab('sequence')}>Sequence</button></nav>
+    <nav className="tabs" aria-label={t('terminal.main_views')}><button className={tab === 'terminal' ? 'active' : ''} onClick={() => { terminalFollowBottom.current = true; setTab('terminal') }}>{t('terminal.title')}</button>
+      <button className={tab === 'sequence' ? 'active' : ''} onClick={() => setTab('sequence')}>{t('common.sequence_tab')}</button></nav>
 
     {tab === 'terminal' ? <section className="terminal panel">
-      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>Display Mode <select aria-label="Display Mode" value={rxDisplay} onChange={event => { terminalFollowBottom.current = true; setRxDisplay(event.target.value as TerminalDisplay) }}>
-        <optgroup label="TX/RX Events">
-          <option value="hex">Events · Hex</option>
-          <option value="text">Events · Text</option>
-          <option value="both">Events · Both</option>
+      <div className="section-heading"><h2>{t('terminal.title')}</h2><div className="toolbar"><label>{t('terminal.display_mode')} <select aria-label={t('terminal.display_mode')} value={rxDisplay} onChange={event => { terminalFollowBottom.current = true; setRxDisplay(event.target.value as TerminalDisplay) }}>
+        <optgroup label={t('terminal.txrx_events')}>
+          <option value="hex">{t('terminal.events_hex')}</option>
+          <option value="text">{t('terminal.events_text')}</option>
+          <option value="both">{t('terminal.events_both')}</option>
         </optgroup>
-        <optgroup label="Continuous RX">
-          <option value="continuous-text">Continuous RX · Text</option>
-          <option value="continuous-hex">Continuous RX · Hex</option>
+        <optgroup label={t('terminal.continuous_rx')}>
+          <option value="continuous-text">{t('terminal.continuous_text')}</option>
+          <option value="continuous-hex">{t('terminal.continuous_hex')}</option>
         </optgroup>
       </select></label>
-        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={isContinuous} onChange={event => { terminalFollowBottom.current = true; setShowTx(event.target.checked) }} />Show TX</label>
-        <button onClick={() => { terminalFollowBottom.current = true; setHistory([]); setExportOpen(false) }}>Clear View</button>
+        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={isContinuous} onChange={event => { terminalFollowBottom.current = true; setShowTx(event.target.checked) }} />{t('terminal.show_tx')}</label>
+        <button onClick={() => { terminalFollowBottom.current = true; setHistory([]); setExportOpen(false) }}>{t('terminal.clear_view')}</button>
         <div className="export-menu-wrap">
           <button type="button" disabled={!history.length} aria-expanded={exportOpen} aria-controls="terminal-export-menu"
-            onClick={() => setExportOpen(previous => !previous)}>Export ▼</button>
+            onClick={() => setExportOpen(previous => !previous)}>{t('terminal.export')}</button>
           <div id="terminal-export-menu" className="export-menu" hidden={!exportOpen}>
-            <button type="button" onClick={() => { setExportOpen(false); void exportTerminalLog() }}>Terminal Log (Hex)...</button>
-            <button type="button" disabled={!hasRxBytes} onClick={() => { setExportOpen(false); void exportRaw('rx') }}>RX Raw (.bin)...</button>
-            <button type="button" onClick={() => { setExportOpen(false); void exportRaw('tx-rx') }}>TX + RX Raw (.bin)...</button>
+            <button type="button" onClick={() => { setExportOpen(false); void exportTerminalLog() }}>{t('terminal.export_log')}</button>
+            <button type="button" disabled={!hasRxBytes} onClick={() => { setExportOpen(false); void exportRaw('rx') }}>{t('terminal.export_rx')}</button>
+            <button type="button" onClick={() => { setExportOpen(false); void exportRaw('tx-rx') }}>{t('terminal.export_txrx')}</button>
           </div>
         </div></div></div>
       <div className="terminal-history" aria-live="polite" onScroll={event => {
         const view = event.currentTarget
         terminalFollowBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= 24
-      }}>{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
+      }}>{history.length === 0 && <p className="muted">{t('terminal.empty')}</p>}
         {isContinuous ? <code className={`terminal-continuous ${rxDisplay}`}>{rxDisplay === 'continuous-text' ? rxText.join('') : rxHex}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
           <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :
             rxDisplay === 'hex' ? hex(entry.bytes) :
               rxDisplay === 'text' ? rxText[index] : `${hex(entry.bytes)}  |  ${rxText[index]}`}</code></div>)}
         <div ref={terminalEnd} /></div>
-      <div className="send-box"><div className="section-heading"><h3>Send</h3><div className="segmented"><button disabled={txLocked} className={txFormat === 'text' ? 'active' : ''} onClick={() => setTxFormat('text')}>Text</button><button disabled={txLocked} className={txFormat === 'hex' ? 'active' : ''} onClick={() => setTxFormat('hex')}>Hex</button></div></div>
-        <textarea aria-label="Send data" value={txInput} onChange={event => setTxInput(event.target.value)} placeholder={txFormat === 'hex' ? '4F 4B 0D 0A' : 'Exact UTF-8 text; no line ending added'} disabled={!connected || txLocked} />
-        <div className="toolbar auto-tx-source"><label>Auto TX Source <select aria-label="Auto TX source" disabled={txLocked} value={autoTxSource} onChange={event => setAutoTxSource(event.target.value as 'input' | 'file')}>
-          <option value="input">Input</option><option value="file">File (Raw)</option></select></label>
-          {autoTxSource === 'file' && <><button disabled={txLocked} onClick={() => void chooseAutoTxFile()}>Choose File...</button>
-            <span className="muted auto-tx-file">{autoTxFilePath ?? 'No file selected'}</span></>}
+      <div className="send-box"><div className="section-heading"><h3>{t('terminal.send')}</h3><div className="segmented"><button disabled={txLocked} className={txFormat === 'text' ? 'active' : ''} onClick={() => setTxFormat('text')}>{t('common.text')}</button><button disabled={txLocked} className={txFormat === 'hex' ? 'active' : ''} onClick={() => setTxFormat('hex')}>{t('common.hex')}</button></div></div>
+        <textarea aria-label={t('terminal.send_data')} value={txInput} onChange={event => setTxInput(event.target.value)} placeholder={txFormat === 'hex' ? '4F 4B 0D 0A' : t('terminal.exact_utf8')} disabled={!connected || txLocked} />
+        <div className="toolbar auto-tx-source"><label>{t('terminal.auto_tx_source')} <select aria-label={t('terminal.auto_tx_source')} disabled={txLocked} value={autoTxSource} onChange={event => setAutoTxSource(event.target.value as 'input' | 'file')}>
+          <option value="input">{t('terminal.input')}</option><option value="file">{t('terminal.file_raw')}</option></select></label>
+          {autoTxSource === 'file' && <><button disabled={txLocked} onClick={() => void chooseAutoTxFile()}>{t('terminal.choose_file')}</button>
+            <span className="muted auto-tx-file">{autoTxFilePath ?? t('terminal.no_file')}</span></>}
         </div>
-        <div className="send-actions"><span className="muted">{txFormat === 'text' ? 'Text sends exact UTF-8 bytes.' : 'Hex accepts digits and ASCII whitespace.'} Send File sends raw bytes unchanged.</span>
-          <div className="toolbar"><label>Interval <input aria-label="Auto TX interval (ms)" type="number" min="1" step="1" disabled={!connected || txLocked} value={intervalMs} onChange={event => setIntervalMs(event.target.value)} /> ms</label>
-            <button className="primary" disabled={!canTransmit || !txInput} onClick={() => void send()}>Send</button>
-            <button disabled={!canTransmit} onClick={() => void sendFile()}>Send File (Raw)...</button>
-            <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !autoTxPayloadReady))} onClick={() => void toggleAutoTx()}>{autoTxRunning ? 'Stop Auto TX' : 'Start Auto TX'}</button></div></div>
+        <div className="send-actions"><span className="muted">{t(txFormat === 'text' ? 'terminal.text_note' : 'terminal.hex_note')} {t('terminal.raw_note')}</span>
+          <div className="toolbar"><label>{t('terminal.interval')} <input aria-label={t('terminal.auto_tx_interval')} type="number" min="1" step="1" disabled={!connected || txLocked} value={intervalMs} onChange={event => setIntervalMs(event.target.value)} /> ms</label>
+            <button className="primary" disabled={!canTransmit || !txInput} onClick={() => void send()}>{t('terminal.send')}</button>
+            <button disabled={!canTransmit} onClick={() => void sendFile()}>{t('terminal.send_file')}</button>
+            <button disabled={status !== 'connected' || txPending || (!autoTxRunning && (busy || !autoTxPayloadReady))} onClick={() => void toggleAutoTx()}>{t(autoTxRunning ? 'terminal.stop_auto' : 'terminal.start_auto')}</button></div></div>
       </div>
     </section> : <><SequenceEditor draft={draft} onChange={setDraft} connection={settings} tcpConnection={tcpSettings}
       connectionTransport={transport} disabled={status === 'running'}
       isConnected={connected} serialDifferences={serialDifferences}
       onNew={() => setDraft(freshSequence(settings, transport, Number(tcpSettings.io_timeout_ms)))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
       onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && transportMatches} />
-      <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>Save Result...</button><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
-        <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div></div>
-        {lastRun && <p className={`result-status ${lastRun.status}`}>Status: {lastRun.status}{lastRun.failing_step_id ? ` · ${lastRun.failing_step_id}` : ''}</p>}
+      <section className="panel results"><div className="section-heading"><h2>{t('sequence.last_run')}</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>{t('sequence.save_result')}</button><label>{t('sequence.rx_display')} <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
+        <option value="hex">{t('common.hex')}</option><option value="text">{t('common.text')}</option><option value="both">{t('common.both')}</option></select></label></div></div>
+        {lastRun && <p className={`result-status ${lastRun.status}`}>{t('common.status_label')} {t('sequence.run_status.' + lastRun.status)}{lastRun.failing_step_id ? ` · ${lastRun.failing_step_id}` : ''}</p>}
         <div className="result-content" ref={resultContentRef}>
-        {!lastRun ? <p className="muted">No sequence run in this session.</p> : <>
+        {!lastRun ? <p className="muted">{t('sequence.no_run')}</p> : <>
           {lastRun.error && <p className="error-text">{lastRun.error}</p>}
-          {lastRun.partial_bytes && <p>Partial bytes: <code>{display(lastRun.partial_bytes, resultDisplay)}</code></p>}
-          <h3>Step Results</h3><div className="result-list">{lastRun.step_results.map((result, index) => <div key={index} className="result-row"><strong>{result.step_id}</strong><span>{result.kind}</span><code>{result.bytes ? display(result.bytes, resultDisplay) : result.bytes_written != null ? `${result.bytes_written} bytes written` : result.requested_duration_ms != null ? `${result.requested_duration_ms} ms` : result.completed_iterations != null ? `${result.completed_iterations} iterations` : ''}</code></div>)}</div>
-          <h3>Transcript</h3><div className="result-list">{lastRun.transcript.map((entry, index) => <div key={index} className="result-row"><strong>{entry.direction.toUpperCase()}</strong><span>{entry.step_id}</span><code>{entry.direction === 'rx' ? display(entry.bytes, resultDisplay) : hex(entry.bytes)}</code></div>)}</div>
+          {lastRun.partial_bytes && <p>{t('sequence.partial_bytes')} <code>{display(lastRun.partial_bytes, resultDisplay)}</code></p>}
+          <h3>{t('sequence.step_results')}</h3><div className="result-list">{lastRun.step_results.map((result, index) => <div key={index} className="result-row"><strong>{result.step_id}</strong><span>{t('sequence.step.' + result.kind)}</span><code>{result.bytes ? display(result.bytes, resultDisplay) : result.bytes_written != null ? t('sequence.bytes_written', { count: result.bytes_written }) : result.requested_duration_ms != null ? t('sequence.duration_ms', { count: result.requested_duration_ms }) : result.completed_iterations != null ? t('sequence.iterations', { count: result.completed_iterations }) : ''}</code></div>)}</div>
+          <h3>{t('sequence.transcript')}</h3><div className="result-list">{lastRun.transcript.map((entry, index) => <div key={index} className="result-row"><strong>{entry.direction.toUpperCase()}</strong><span>{entry.step_id}</span><code>{entry.direction === 'rx' ? display(entry.bytes, resultDisplay) : hex(entry.bytes)}</code></div>)}</div>
         </>}
         </div>
       </section></>}
