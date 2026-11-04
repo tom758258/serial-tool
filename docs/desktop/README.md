@@ -17,7 +17,7 @@ restart Serial Tool. If the check passes but Desktop initialization still
 fails, a native startup-error dialog shows the Tauri error details.
 
 From `apps/desktop`, run `npm ci` and `npm run tauri -- dev`. To check the
-frontend, run `npm run typecheck` and `npm run build`. To compile without an
+frontend, run `npm test`, `npm run typecheck`, and `npm run build`. To compile without an
 installer, run `npm run tauri -- build --no-bundle`.
 
 The Tauri crate at `apps/desktop/src-tauri` has its own `Cargo.lock`. Check it

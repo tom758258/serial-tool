@@ -87,7 +87,7 @@ Sequence 是包含 `sequence_version: 1`、`transport.type/settings` 與有序�
     "settings": { "baud_rate": 115200, "data_bits": 8, "parity": "none", "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000 }
   },
   "steps": [
-    { "id": "send-1", "type": "send_bytes", "hex": "aa55" },
+    { "id": "send-1", "type": "send_bytes", "hex": "aa550d0a" },
     { "id": "read-1", "type": "read_until", "delimiter_hex": "0d0a", "max_bytes": 64 }
   ]
 }
