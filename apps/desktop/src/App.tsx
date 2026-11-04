@@ -83,6 +83,7 @@ export default function App() {
   const [resultDisplay, setResultDisplay] = useState<Display>('hex')
   const terminalEnd = useRef<HTMLDivElement>(null)
   const terminalFollowBottom = useRef(true)
+  const resultContentRef = useRef<HTMLDivElement>(null)
   const connectionOptionsWrap = useRef<HTMLDivElement>(null)
   const connectionOptionsToggle = useRef<HTMLButtonElement>(null)
   const currentConnection = useRef(0)
@@ -136,6 +137,10 @@ export default function App() {
     const view = terminalEnd.current?.parentElement
     if (view) view.scrollTop = view.scrollHeight
   }, [history, tab, rxDisplay, showTx])
+
+  useLayoutEffect(() => {
+    if (resultContentRef.current) resultContentRef.current.scrollTop = 0
+  }, [lastRun])
 
   useEffect(() => {
     if (!connectionOptionsOpen) return
@@ -505,13 +510,15 @@ export default function App() {
       onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && transportMatches} />
       <section className="panel results"><div className="section-heading"><h2>Last Sequence Run</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>Save Result...</button><label>RX Display <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
         <option value="hex">Hex</option><option value="text">Text</option><option value="both">Both</option></select></label></div></div>
+        {lastRun && <p className={`result-status ${lastRun.status}`}>Status: {lastRun.status}{lastRun.failing_step_id ? ` · ${lastRun.failing_step_id}` : ''}</p>}
+        <div className="result-content" ref={resultContentRef}>
         {!lastRun ? <p className="muted">No sequence run in this session.</p> : <>
-          <p className={`result-status ${lastRun.status}`}>Status: {lastRun.status}{lastRun.failing_step_id ? ` · ${lastRun.failing_step_id}` : ''}</p>
           {lastRun.error && <p className="error-text">{lastRun.error}</p>}
           {lastRun.partial_bytes && <p>Partial bytes: <code>{display(lastRun.partial_bytes, resultDisplay)}</code></p>}
           <h3>Step Results</h3><div className="result-list">{lastRun.step_results.map((result, index) => <div key={index} className="result-row"><strong>{result.step_id}</strong><span>{result.kind}</span><code>{result.bytes ? display(result.bytes, resultDisplay) : result.bytes_written != null ? `${result.bytes_written} bytes written` : result.requested_duration_ms != null ? `${result.requested_duration_ms} ms` : result.completed_iterations != null ? `${result.completed_iterations} iterations` : ''}</code></div>)}</div>
           <h3>Transcript</h3><div className="result-list">{lastRun.transcript.map((entry, index) => <div key={index} className="result-row"><strong>{entry.direction.toUpperCase()}</strong><span>{entry.step_id}</span><code>{entry.direction === 'rx' ? display(entry.bytes, resultDisplay) : hex(entry.bytes)}</code></div>)}</div>
         </>}
+        </div>
       </section></>}
   </main>
 }

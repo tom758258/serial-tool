@@ -130,7 +130,8 @@ from the device are transmitted as TX if that file is later sent with Send File
 ## Sequence
 
 The editor supports Send Text, Send Bytes, Wait, Read, Read Until, and nested
-Repeat. New, Load, Save, Validate, Add Step, Add Child, Delete, Move Up, and
+Repeat. Properties shows a short explanation for the selected step.
+New, Load, Save, Validate, Add Step, Add Child, Delete, Move Up, and
 Move Down remain available. Drafts may be temporarily invalid while editing.
 Validate, Save and Run use Core's unified Sequence v1 parser and validation.
 
@@ -154,8 +155,10 @@ mismatch disables Run and leaves the connection and draft intact. Core
 rechecks the match before executing the shared StepRunner and producing the
 existing result/transcript.
 The last result, including completed steps, raw-byte transcript, and
-failure partial
-bytes when available, is held only in application memory. Save Result exports
+failure partial bytes when available, is held only in application memory.
+The status and controls remain visible above a 250px scrollable area shared
+by Step Results and Transcript. Each new run starts at the top; switching
+RX display does not reset the scroll position. Save Result exports
 that complete result as JSON with its original byte arrays, regardless of RX
 display. Failed runs retain the failing step, error, completed results,
 transcript, and partial bytes when available. The button is disabled until a
