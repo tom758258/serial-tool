@@ -29,9 +29,10 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .appearance-control { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .85rem; font-weight: 600; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 1rem; }
 .connection .section-heading { margin-bottom: .8rem; }
+.connection.collapsed .section-heading { margin-bottom: 0; }
 .connection-header-actions { display: flex; align-items: center; gap: .5rem; }
 .connection-options-wrap { position: relative; }
-.connection-options-toggle { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; }
+.connection-options-toggle, .connection-collapse-toggle { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; }
 .connection-options-toggle[aria-expanded="true"] { border-color: var(--accent); background: var(--hover); color: var(--accent); }
 .connection-options { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; width: min(360px, calc(100vw - 48px)); padding: .8rem; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 .connection-options h3 { margin-bottom: .6rem; }
@@ -67,7 +68,7 @@ h3 { font-size: 1rem; margin-bottom: .8rem; }
 .export-menu button { display: block; width: 100%; border: 0; text-align: left; background: transparent; }
 .terminal { display: flex; flex-direction: column; min-height: 500px; }
 .terminal .section-heading { margin-bottom: .7rem; }
-.terminal-history { flex: 1; min-height: 220px; max-height: 47vh; overflow: auto; border: 1px solid var(--line); background: var(--bg); padding: .55rem; border-radius: 6px; }
+.terminal-history { flex: 0 0 250px; height: 250px; overflow: auto; border: 1px solid var(--line); background: var(--bg); padding: .55rem; border-radius: 6px; }
 .terminal-entry { display: flex; gap: .8rem; padding: .32rem .38rem; border-bottom: 1px solid var(--line); }
 .terminal-entry .direction { min-width: 2rem; font-weight: 750; font-size: .78rem; color: var(--accent); }
 .terminal-entry.tx .direction { color: #9a6b00; }
