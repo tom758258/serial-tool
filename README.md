@@ -21,7 +21,7 @@ test-record database.
 ## Desktop
 
 The Windows-first Desktop app uses Tauri 2 with React, TypeScript, and Vite.
-It uses Core's persistent runtime through a thin backend adapter. Its Terminal
+Its COM Port and TCP/IP connection controls share Core's persistent runtime through a thin backend adapter. Its Terminal
 provides a persistent Live or Simulation connection, continuous RX, exact Text
 or Hex TX, periodic Auto TX from the Send payload or a raw file, Send File
 (Raw), Events (Hex / Text / Both) or Continuous RX (Text / Hex) display, and a
@@ -217,8 +217,8 @@ UART example:
 
 TCP settings use `"transport": {"type":"tcp","settings":{"io_timeout_ms":1000}}`.
 Neither format stores COM port, TCP host/port, connect timeout or execution mode.
-Core can validate/execute both transports; TCP CLI/Worker device selectors and
-Desktop TCP connection controls are implemented in subsequent stages.
+Core and Desktop can connect and execute both transports; TCP CLI/Worker device
+selectors remain for a subsequent stage.
 
 Save this as `sequence.json`, then use:
 

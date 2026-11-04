@@ -27,21 +27,31 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 ## Terminal
 
-In Connection Setup, use the Connection options gear to choose the execution
-mode. Live uses an explicit physical port; Refresh ports lists available ports
-and USB metadata without opening them. Simulation uses deterministic loopback
-without opening a physical serial port. Port and Refresh ports are disabled in
-Simulation, and the selected port is retained when switching modes. Set baud
-rate, data bits, parity, stop bits, flow control, and timeout, then Connect.
-Numeric inputs hide the native up/down spinner while retaining number input
-semantics; select dropdowns remain unchanged.
-Connection settings, including execution mode, are locked while connecting,
-connected, running, or disconnecting. The gear remains available to view the
-options; the panel closes on a second gear click, on a click outside it, or on
-Escape, which also returns focus to the gear. Closing the panel only hides it
-and never resets the selected mode. The header shows the current mode and
-connection status. The app automatically receives available bytes while
-connected.
+In Connection Setup, choose COM Port or TCP/IP using the transport tabs.
+COM Port Live uses an explicit physical port; Refresh ports lists available ports
+and USB metadata without opening them. Set baud rate, data bits, parity, stop
+bits, flow control and timeout. In TCP/IP Live, enter a hostname, IPv4 or IPv6
+address, device Port (1–65535), Connect Timeout (default 3000ms) and shared
+read/write I/O Timeout (default 1000ms). Host and Port are separate fields;
+do not enter an HTTP URL. TCP is a raw byte-stream client: it does not provide
+HTTP, frames, auto-reconnect, or a guarantee that DNS plus all address attempts
+complete within a single Connect Timeout.
+
+The Connection options gear controls one shared Live/Simulation mode for both
+transports. Simulation uses deterministic `loopback-v1`, with no COM access,
+DNS lookup, or TCP socket; COM Port selection and TCP Host/Port are disabled
+but retain their values. TCP timeouts must remain valid in Simulation.
+The COM and TCP form values are separately retained when switching tabs,
+but neither is saved across app restarts. Numeric COM inputs retain native
+number semantics with hidden spin buttons; TCP Port/Timeout inputs preserve
+partial text while typing and validate on Connect.
+
+Transport, connection settings and execution mode are locked while connecting,
+connected, running or disconnecting. The gear remains available to view the
+options; it closes on a second click, outside click or Escape (which restores
+focus). Hiding options does not reset the mode. The header shows
+COM Port or TCP/IP, mode, and the existing connection status. Incoming bytes
+are automatically received for either transport while connected.
 
 Send Text transmits the exact UTF-8 bytes entered without adding CR or LF.
 Send Hex accepts ASCII whitespace and case-insensitive pairs of hex digits.
@@ -81,8 +91,8 @@ Events (Hex, lossy UTF-8 Text with escaped controls, or Both) and Continuous RX
 (Text or Hex). Switching modes only rerenders stored raw bytes; it never sends
 data, reconnects, changes the Send Text/Hex format, or changes the Auto TX
 payload. Events keep separate TX/RX rows; TX rows use their existing Hex format.
-Clear View only clears the on-screen history. It does not clear serial buffers
-or affect the device.
+Clear View only clears the on-screen history. It does not clear device buffers
+or affect the connection.
 
 Continuous RX Text retains the former Stream presentation: RX-only content
 without direction badges or event rows. RX fragments concatenate without
@@ -125,20 +135,24 @@ Move Down remain available. Drafts may be temporarily invalid while editing.
 Validate, Save and Run use Core's unified Sequence v1 parser and validation.
 
 Sequence files use `transport: {type, settings}`, not the legacy root `serial`.
-UART Sequence settings contain the original six line parameters; the COM port
-and execution mode are selected separately. New makes a UART draft from the
-current COM Connection Setup, and Copy from Connection Setup updates only
-UART drafts. Load preserves either the UART or TCP transport and does not
-convert one to the other. TCP files expose their saved I/O Timeout in the same
-editor and can be loaded, validated, edited and saved without connecting.
-Desktop TCP device connection controls are part of the subsequent TCP Desktop
-stage; the current COM session cannot execute a TCP Sequence.
+UART Sequence settings contain the original six line parameters. TCP Sequence
+settings contain only `io_timeout_ms`, never Host, Port or Connect Timeout.
+The device resource and execution mode are selected in Connection Setup.
 
-For UART Sequences, the editor shows Not connected, Settings match or Settings
-mismatch, including differing values. Run is disabled unless a connected UART
-session matches all six settings. Transport/settings mismatch never changes
-the active connection or Sequence. Run rechecks the settings in Core before
-executing the same StepRunner and producing the existing result/transcript.
+New creates an empty UART or TCP draft according to the selected transport tab.
+Load keeps the JSON's own transport, including when it differs from the current
+tab. Save and Validate work without a connection. Copy from Connection Setup
+is available only when the editor transport matches the Connection Setup tab,
+and copies only the applicable settings (six UART line parameters or TCP I/O
+Timeout). Neither changing transport tabs nor copying changes the connection
+or automatically converts a loaded Sequence.
+
+The editor shows Not connected, Settings match, or an explicit transport or
+settings mismatch. Run requires an active session of the same transport and
+matching settings: all six UART settings or the single TCP I/O Timeout. A
+mismatch disables Run and leaves the connection and draft intact. Core
+rechecks the match before executing the shared StepRunner and producing the
+existing result/transcript.
 The last result, including completed steps, raw-byte transcript, and
 failure partial
 bytes when available, is held only in application memory. Save Result exports
@@ -151,7 +165,7 @@ result exists. There is no saved run history or automatic result directory.
 
 Tauri commands and the Desktop backend are thin adapters for Core's shared
 persistent runtime, including conversion to the existing UI event and result
-DTOs. One Core owner thread holds the connected `SerialSession`.
+DTOs. One Core owner thread holds the connected `SerialSession` for UART, TCP or Simulation.
 It handles manual sends, periodic scheduling, continuous RX, Sequence
 runs, and disconnect commands. The monitor checks the session's buffered byte
 count and the transport's pending RX count before reading, with a short wait
@@ -160,4 +174,4 @@ between empty polls. Commands are checked before the next monitor read.
 while a Sequence runs, and monitoring resumes afterward. Core rejects manual
 Send, Auto TX, and Sequence as Busy while another send, Auto TX, or Sequence
 is accepted or running; conflicting requests are not queued for later execution.
-The configured serial timeout remains unchanged. Desktop does not use the CLI, Worker, HTTP, or persistent run data.
+The configured connection I/O timeout remains unchanged. Desktop does not use the CLI, Worker, HTTP, or persistent run data.

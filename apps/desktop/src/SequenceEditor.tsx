@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import type { ConnectionSettings, LineSettings, Sequence, Step } from './model'
+import type { ConnectionSettings, LineSettings, Sequence, Step, TcpConnectionSettings, Transport } from './model'
 
 type Props = {
   draft: Sequence
   onChange: (next: Sequence) => void
   connection: ConnectionSettings
+  tcpConnection: TcpConnectionSettings
+  connectionTransport: Transport
   disabled: boolean
   isConnected: boolean
   serialDifferences: (keyof LineSettings)[]
@@ -70,7 +72,7 @@ function numeric(value: string): number {
 }
 
 export default function SequenceEditor(props: Props) {
-  const { draft, onChange, connection, disabled, isConnected, serialDifferences } = props
+  const { draft, onChange, connection, tcpConnection, connectionTransport, disabled, isConnected, serialDifferences } = props
   const [selected, setSelected] = useState<number[] | null>(null)
   const [addKind, setAddKind] = useState<Step['type']>('send_text')
   const step = selected ? (() => { try { return atPath(draft.steps, selected) } catch { return null } })() : null
@@ -152,13 +154,15 @@ export default function SequenceEditor(props: Props) {
     </div>
     <div className="sequence-serial panel">
       <div className="section-heading"><h3>{serial ? 'Required Serial Settings' : 'Required TCP Settings'}</h3>
-        <button disabled={disabled || !serial} onClick={() => edit(next => {
-          if (next.transport.type === 'serial') {
+        <button disabled={disabled || draft.transport.type !== connectionTransport} onClick={() => edit(next => {
+          if (next.transport.type === 'serial' && connectionTransport === 'serial') {
             next.transport.settings = {
               baud_rate: connection.baud_rate, data_bits: connection.data_bits,
               parity: connection.parity, stop_bits: connection.stop_bits,
               flow_control: connection.flow_control, timeout_ms: connection.timeout_ms,
             }
+          } else if (next.transport.type === 'tcp' && connectionTransport === 'tcp') {
+            next.transport.settings.io_timeout_ms = Number(tcpConnection.io_timeout_ms)
           }
         })}>Copy from Connection Setup</button></div>
       <p className="muted">Saved with this Sequence; these settings must match the active connection before running. The device resource and execution mode are selected separately in Connection Setup.</p>
@@ -173,6 +177,8 @@ export default function SequenceEditor(props: Props) {
         </div>
         <div className="sequence-serial-status" role="status" aria-live="polite">
           {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
+            : connectionTransport !== 'serial'
+              ? <span className="sequence-serial-mismatch">Transport mismatch: this Serial Sequence requires a COM Port connection.</span>
             : serialDifferences.length === 0 ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
               : <div><span className="sequence-serial-mismatch">Settings mismatch with current connection:</span>
                 <ul className="sequence-serial-differences">{serialDifferences.map(field =>
@@ -188,7 +194,12 @@ export default function SequenceEditor(props: Props) {
             })} /></label>
         </div>
         <div className="sequence-serial-status" role="status" aria-live="polite">
-          <span className="sequence-serial-mismatch">TCP Sequence cannot run on the current COM Port connection.</span>
+          {!isConnected ? <span className="muted">Not connected — connect using the required settings before running.</span>
+            : connectionTransport !== 'tcp'
+              ? <span className="sequence-serial-mismatch">Transport mismatch: this TCP Sequence requires a TCP/IP connection.</span>
+              : draft.transport.settings.io_timeout_ms === Number(tcpConnection.io_timeout_ms)
+                ? <span className="sequence-serial-match">✓ Settings match current connection.</span>
+                : <span className="sequence-serial-mismatch">I/O Timeout mismatch: Sequence {draft.transport.settings.io_timeout_ms} ms / Connection {tcpConnection.io_timeout_ms} ms.</span>}
         </div>
       </>}
     </div>
