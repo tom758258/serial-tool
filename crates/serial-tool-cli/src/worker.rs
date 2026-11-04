@@ -11,17 +11,16 @@ use std::{
 use clap::{Args, ValueEnum};
 use serde_json::{Map, Value, json};
 use serial_tool_core::{
-    Direction, Error, RunError, Sequence, SequenceTransport, SerialSession,
-    SimulationTransport, StepRunner,
-    Transport,
+    Direction, Error, RunError, Sequence, SequenceTransport, SerialSession, SimulationTransport,
+    StepRunner, Transport,
     runtime::{Event as RuntimeEvent, Mode as RuntimeMode, PersistentRuntime},
 };
 use uuid::Uuid;
 
 #[cfg(test)]
-use serial_tool_core::{DataBits, FlowControl, Parity, SerialSettings, StopBits};
-#[cfg(test)]
 use crate::settings_json;
+#[cfg(test)]
+use serial_tool_core::{DataBits, FlowControl, Parity, SerialSettings, StopBits};
 
 use crate::{
     CliError, ConnectionSettings, DeviceTransport, SerialArgs, hex, max_bytes, parse_bytes,
@@ -555,7 +554,8 @@ impl WorkerArgs {
             }
             _ => {}
         }
-        self.device.settings(matches!(self.mode, WorkerMode::Simulate))
+        self.device
+            .settings(matches!(self.mode, WorkerMode::Simulate))
     }
 
     pub(crate) fn run(self) -> i32 {
@@ -749,7 +749,10 @@ impl WorkerArgs {
                 let _ = runtime.disconnect();
                 let ended = {
                     let worker = state.lock().unwrap();
-                    with_details(stream_status(&run_id, "ended", &worker, Some(&message)), &details)
+                    with_details(
+                        stream_status(&run_id, "ended", &worker, Some(&message)),
+                        &details,
+                    )
                 };
                 let _ = try_emit(&output, &ended);
                 return fatal_stream(&output, &run_id, &message, &state.lock().unwrap());
@@ -895,9 +898,14 @@ fn run_stream_jobs<W: Write>(
     output: Arc<Mutex<W>>,
     run_id: String,
 ) {
-    run_jobs_with(receiver, state, output, run_id, false, |operation, state| {
-        execute_stream(&runtime, operation, state)
-    });
+    run_jobs_with(
+        receiver,
+        state,
+        output,
+        run_id,
+        false,
+        |operation, state| execute_stream(&runtime, operation, state),
+    );
 }
 
 fn run_jobs_with<W: Write>(
@@ -966,7 +974,8 @@ fn run_jobs_with<W: Write>(
                     }
                     WorkerOperationError::Runtime(message) => {
                         terminal["error"] = common_error(
-                            "execution", if tcp { "tcp_error" } else { "serial_error" },
+                            "execution",
+                            if tcp { "tcp_error" } else { "serial_error" },
                             &message,
                         );
                         terminal["message"] = json!(message);
@@ -1015,7 +1024,10 @@ fn run_jobs_with<W: Write>(
 
 fn is_fatal_tcp_error(error: &WorkerOperationError) -> bool {
     fn fatal(error: &Error) -> bool {
-        matches!(error, Error::ReadFailed(_) | Error::WriteFailed(_) | Error::FlushFailed(_))
+        matches!(
+            error,
+            Error::ReadFailed(_) | Error::WriteFailed(_) | Error::FlushFailed(_)
+        )
     }
     match error {
         WorkerOperationError::Serial(error) => fatal(error),
@@ -1324,9 +1336,15 @@ fn parse_command(
                     if sequence.transport.matches_tcp_settings(tcp) => {}
                 (SequenceTransport::Serial(_), ConnectionSettings::Serial(_))
                 | (SequenceTransport::Tcp(_), ConnectionSettings::Tcp(_)) => {
-                    return Err(reject("sequence settings must match Worker startup settings"));
+                    return Err(reject(
+                        "sequence settings must match Worker startup settings",
+                    ));
                 }
-                _ => return Err(reject("sequence transport must match Worker startup transport")),
+                _ => {
+                    return Err(reject(
+                        "sequence transport must match Worker startup transport",
+                    ));
+                }
             }
             Operation::RunSequence(sequence)
         }

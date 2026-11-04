@@ -311,8 +311,17 @@ fn send_sources_are_exclusive_and_query_keeps_text_hex_only() {
 #[test]
 fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
     let dry = run(&[
-        "send", "--transport", "tcp", "--host", "invalid.example",
-        "--tcp-port", "5025", "--hex", "00 FF", "--dry-run", "--json",
+        "send",
+        "--transport",
+        "tcp",
+        "--host",
+        "invalid.example",
+        "--tcp-port",
+        "5025",
+        "--hex",
+        "00 FF",
+        "--dry-run",
+        "--json",
     ]);
     assert_eq!(dry.status.code(), Some(0), "{dry:?}");
     let value = object(&dry);
@@ -322,16 +331,48 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
     assert_eq!(value["tx_hex"], "00ff");
     assert_eq!(value["schema_version"], 2);
     for options in [
-        vec!["--transport", "tcp", "--host", "localhost", "--tcp-port", "5025", "--baud", "9600"],
-        vec!["--transport", "serial", "--port", "COM1", "--baud", "9600", "--host", "localhost"],
-        vec!["--transport", "tcp", "--host", "localhost", "--tcp-port", "0"],
         vec![
-            "--transport", "tcp", "--host", "localhost", "--tcp-port", "5025",
-            "--io-timeout-ms", "0",
+            "--transport",
+            "tcp",
+            "--host",
+            "localhost",
+            "--tcp-port",
+            "5025",
+            "--baud",
+            "9600",
+        ],
+        vec![
+            "--transport",
+            "serial",
+            "--port",
+            "COM1",
+            "--baud",
+            "9600",
+            "--host",
+            "localhost",
+        ],
+        vec![
+            "--transport",
+            "tcp",
+            "--host",
+            "localhost",
+            "--tcp-port",
+            "0",
+        ],
+        vec![
+            "--transport",
+            "tcp",
+            "--host",
+            "localhost",
+            "--tcp-port",
+            "5025",
+            "--io-timeout-ms",
+            "0",
         ],
         vec!["--transport", "tcp", "--host", "localhost"],
     ] {
-        let args = std::iter::once("send").chain(options.iter().copied())
+        let args = std::iter::once("send")
+            .chain(options.iter().copied())
             .chain(["--text", "X", "--dry-run", "--json"])
             .collect::<Vec<_>>();
         let invalid = run(&args);
@@ -342,13 +383,25 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
     let port = listener.local_addr().unwrap().port().to_string();
     let server = thread::spawn(move || {
         let (mut socket, _) = listener.accept().unwrap();
-        socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
         let mut bytes = [0u8; 3];
         socket.read_exact(&mut bytes).unwrap();
         bytes
     });
-    let sent = run(&["send", "--transport", "tcp", "--host", "127.0.0.1",
-        "--tcp-port", &port, "--hex", "00 55 FF", "--json"]);
+    let sent = run(&[
+        "send",
+        "--transport",
+        "tcp",
+        "--host",
+        "127.0.0.1",
+        "--tcp-port",
+        &port,
+        "--hex",
+        "00 55 FF",
+        "--json",
+    ]);
     assert_eq!(sent.status.code(), Some(0), "{sent:?}");
     assert_eq!(server.join().unwrap(), [0, 0x55, 0xff]);
     assert_eq!(object(&sent)["tx_hex"], "0055ff");
@@ -359,8 +412,16 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
         let (mut socket, _) = listener.accept().unwrap();
         socket.write_all(b"X").unwrap();
     });
-    let received = run(&["receive", "--transport", "tcp", "--host", "127.0.0.1",
-        "--tcp-port", &port, "--json"]);
+    let received = run(&[
+        "receive",
+        "--transport",
+        "tcp",
+        "--host",
+        "127.0.0.1",
+        "--tcp-port",
+        &port,
+        "--json",
+    ]);
     assert_eq!(received.status.code(), Some(0), "{received:?}");
     server.join().unwrap();
     assert_eq!(object(&received)["rx_hex"], "58");
@@ -374,8 +435,20 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
         socket.write_all(b"OK\r\n").unwrap();
         bytes
     });
-    let queried = run(&["query", "--transport", "tcp", "--host", "127.0.0.1",
-        "--tcp-port", &port, "--hex", "AA 55", "--until-hex", "0D 0A", "--json"]);
+    let queried = run(&[
+        "query",
+        "--transport",
+        "tcp",
+        "--host",
+        "127.0.0.1",
+        "--tcp-port",
+        &port,
+        "--hex",
+        "AA 55",
+        "--until-hex",
+        "0D 0A",
+        "--json",
+    ]);
     assert_eq!(queried.status.code(), Some(0), "{queried:?}");
     assert_eq!(server.join().unwrap(), [0xaa, 0x55]);
     assert_eq!(object(&queried)["rx_hex"], "4f4b0d0a");

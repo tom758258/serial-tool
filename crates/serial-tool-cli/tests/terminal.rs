@@ -187,8 +187,15 @@ fn hex_stream_terminal_joins_binary_rx_and_routes_diagnostics_to_stderr() {
 fn tcp_simulation_terminal_uses_shared_runtime_without_uart_settings() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_serial-tool"))
         .args([
-            "terminal", "--transport", "tcp", "--mode", "simulate",
-            "--simulation-profile-id", "loopback-v1", "--tx-format", "hex",
+            "terminal",
+            "--transport",
+            "tcp",
+            "--mode",
+            "simulate",
+            "--simulation-profile-id",
+            "loopback-v1",
+            "--tx-format",
+            "hex",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

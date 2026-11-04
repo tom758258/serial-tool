@@ -3,8 +3,8 @@ use std::{
     io::{Read, Write},
     net::TcpListener,
     path::PathBuf,
-    thread,
     process::{Command, Output},
+    thread,
 };
 
 use serde_json::{Value, json};
@@ -311,8 +311,17 @@ fn tcp_sequence_run_reuses_step_runner_and_rejects_transport_mismatch() {
     let name = path.to_str().unwrap();
 
     let simulation = run(&[
-        "sequence", "run", "--file", name, "--transport", "tcp",
-        "--mode", "simulate", "--simulation-profile-id", "loopback-v1", "--json",
+        "sequence",
+        "run",
+        "--file",
+        name,
+        "--transport",
+        "tcp",
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
     ]);
     assert_eq!(simulation.status.code(), Some(0), "{simulation:?}");
     let result = object(&simulation);
@@ -320,8 +329,17 @@ fn tcp_sequence_run_reuses_step_runner_and_rejects_transport_mismatch() {
     assert_eq!(result["step_results"].as_array().unwrap().len(), 2);
 
     let mismatch = run(&[
-        "sequence", "run", "--file", name, "--transport", "serial",
-        "--mode", "simulate", "--simulation-profile-id", "loopback-v1", "--json",
+        "sequence",
+        "run",
+        "--file",
+        name,
+        "--transport",
+        "serial",
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
     ]);
     assert_eq!(mismatch.status.code(), Some(2));
     assert_eq!(object(&mismatch)["exit_code"], 2);
@@ -330,15 +348,28 @@ fn tcp_sequence_run_reuses_step_runner_and_rejects_transport_mismatch() {
     let port = listener.local_addr().unwrap().port().to_string();
     let server = thread::spawn(move || {
         let (mut socket, _) = listener.accept().unwrap();
-        socket.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
         let mut tx = [0u8; 6];
         socket.read_exact(&mut tx).unwrap();
         socket.write_all(b"OK\r\n").unwrap();
         tx
     });
     let live = run(&[
-        "sequence", "run", "--file", name, "--transport", "tcp",
-        "--mode", "live", "--host", "127.0.0.1", "--tcp-port", &port, "--json",
+        "sequence",
+        "run",
+        "--file",
+        name,
+        "--transport",
+        "tcp",
+        "--mode",
+        "live",
+        "--host",
+        "127.0.0.1",
+        "--tcp-port",
+        &port,
+        "--json",
     ]);
     fs::remove_file(path).unwrap();
     assert_eq!(live.status.code(), Some(0), "{live:?}");

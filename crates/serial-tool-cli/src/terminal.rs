@@ -509,7 +509,7 @@ mod tests {
         for eof_deadline in [None, Some(Instant::now())] {
             let runtime = PersistentRuntime::default();
             let (sender, receiver) = mpsc::channel();
-            runtime.connect(mode, settings.clone(), |_| {}).unwrap();
+            connect_runtime(&runtime, mode, settings.clone(), |_| {}).unwrap();
             sender
                 .send(Message::Event(Event::ConnectionError {
                     message: "queued connection failure".into(),

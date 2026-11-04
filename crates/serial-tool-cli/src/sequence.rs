@@ -100,9 +100,7 @@ impl RunArgs {
         let sequence = Sequence::load(&self.file).map_err(CliError::Sequence)?;
         let simulated = matches!(self.mode, RunMode::Simulate);
         let profile = self.simulation_profile_id.as_deref();
-        if (simulated && profile != Some("loopback-v1"))
-            || (!simulated && profile.is_some())
-        {
+        if (simulated && profile != Some("loopback-v1")) || (!simulated && profile.is_some()) {
             return Err(CliError::Input(
                 "simulate requires loopback-v1; live forbids simulation profile",
             ));
@@ -122,7 +120,9 @@ impl RunArgs {
                     }
                     "loopback-v1".to_string()
                 } else {
-                    self.port.clone().ok_or(CliError::Input("serial live requires --port"))?
+                    self.port
+                        .clone()
+                        .ok_or(CliError::Input("serial live requires --port"))?
                 };
                 let report = if simulated {
                     run_steps(
@@ -143,12 +143,19 @@ impl RunArgs {
                 }
                 let (host, port) = if simulated {
                     if self.host.is_some() || self.tcp_port.is_some() {
-                        return Err(CliError::Input("TCP simulation forbids --host and --tcp-port"));
+                        return Err(CliError::Input(
+                            "TCP simulation forbids --host and --tcp-port",
+                        ));
                     }
                     (String::new(), 0)
                 } else {
-                    (self.host.clone().ok_or(CliError::Input("TCP live requires --host"))?,
-                     self.tcp_port.ok_or(CliError::Input("TCP live requires --tcp-port"))?)
+                    (
+                        self.host
+                            .clone()
+                            .ok_or(CliError::Input("TCP live requires --host"))?,
+                        self.tcp_port
+                            .ok_or(CliError::Input("TCP live requires --tcp-port"))?,
+                    )
                 };
                 let settings = TcpSettings {
                     host,
@@ -171,7 +178,10 @@ impl RunArgs {
                     format!("{}:{}", settings.host, settings.port)
                 };
                 let report = if simulated {
-                    run_steps(&mut SerialSession::new(SimulationTransport::loopback()), &sequence.steps)?
+                    run_steps(
+                        &mut SerialSession::new(SimulationTransport::loopback()),
+                        &sequence.steps,
+                    )?
                 } else {
                     let transport = TcpTransport::connect(&settings).map_err(CliError::Runtime)?;
                     run_steps(&mut SerialSession::new(transport), &sequence.steps)?

@@ -131,7 +131,10 @@ impl ConnectionSettings {
                 let mut value =
                     json!({"transport": "serial", "serial_settings": settings_json(settings)});
                 if simulated {
-                    value["serial_settings"].as_object_mut().unwrap().remove("port");
+                    value["serial_settings"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("port");
                 } else {
                     value["port"] = json!(settings.port);
                 }
@@ -209,14 +212,18 @@ impl SerialArgs {
                 {
                     return Err(CliError::Input("serial transport forbids TCP options"));
                 }
-                let baud = self.baud.ok_or(CliError::Input("serial transport requires --baud"))?;
+                let baud = self
+                    .baud
+                    .ok_or(CliError::Input("serial transport requires --baud"))?;
                 let port = if simulated {
                     if self.port.is_some() {
                         return Err(CliError::Input("simulate forbids --port"));
                     }
                     "simulation".to_string()
                 } else {
-                    self.port.clone().ok_or(CliError::Input("serial live requires --port"))?
+                    self.port
+                        .clone()
+                        .ok_or(CliError::Input("serial live requires --port"))?
                 };
                 let settings = SerialSettings {
                     port,
@@ -267,12 +274,15 @@ impl SerialArgs {
                         }
                         String::new()
                     } else {
-                        self.host.clone().ok_or(CliError::Input("TCP live requires --host"))?
+                        self.host
+                            .clone()
+                            .ok_or(CliError::Input("TCP live requires --host"))?
                     },
                     port: if simulated {
                         0
                     } else {
-                        self.tcp_port.ok_or(CliError::Input("TCP live requires --tcp-port"))?
+                        self.tcp_port
+                            .ok_or(CliError::Input("TCP live requires --tcp-port"))?
                     },
                     connect_timeout: Duration::from_millis(self.connect_timeout_ms.unwrap_or(3000)),
                     io_timeout: Duration::from_millis(self.io_timeout_ms.unwrap_or(1000)),
@@ -703,7 +713,12 @@ impl Cli {
                         spaced_hex(&tx)
                     )
                 } else {
-                    format!("Send: {} bytes sent to {} ({})", tx.len(), target, spaced_hex(&tx))
+                    format!(
+                        "Send: {} bytes sent to {} ({})",
+                        tx.len(),
+                        target,
+                        spaced_hex(&tx)
+                    )
                 };
                 Ok((value, text))
             }
@@ -750,7 +765,9 @@ impl Cli {
                 let delimiter = args.delimiter.bytes()?;
                 let limit = max_bytes(args.max_bytes)?;
                 if delimiter.len() > limit {
-                    return Err(CliError::Input("max-bytes must be at least the delimiter length"));
+                    return Err(CliError::Input(
+                        "max-bytes must be at least the delimiter length",
+                    ));
                 }
                 let target = settings.target();
                 let mut value = json!({

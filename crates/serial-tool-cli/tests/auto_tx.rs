@@ -156,13 +156,33 @@ fn cli_help_lists_new_commands_sources_and_display_modes() {
 #[test]
 fn tcp_auto_tx_validates_transport_options_before_connecting() {
     for extras in [
-        vec!["--transport", "tcp", "--mode", "live", "--host", "127.0.0.1", "--tcp-port", "0"],
         vec![
-            "--transport", "tcp", "--mode", "simulate", "--simulation-profile-id", "periodic-rx-v1",
+            "--transport",
+            "tcp",
+            "--mode",
+            "live",
+            "--host",
+            "127.0.0.1",
+            "--tcp-port",
+            "0",
         ],
         vec![
-            "--transport", "tcp", "--mode", "simulate", "--simulation-profile-id", "loopback-v1",
-            "--baud", "115200",
+            "--transport",
+            "tcp",
+            "--mode",
+            "simulate",
+            "--simulation-profile-id",
+            "periodic-rx-v1",
+        ],
+        vec![
+            "--transport",
+            "tcp",
+            "--mode",
+            "simulate",
+            "--simulation-profile-id",
+            "loopback-v1",
+            "--baud",
+            "115200",
         ],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_serial-tool"))

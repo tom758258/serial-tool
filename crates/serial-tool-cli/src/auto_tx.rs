@@ -174,8 +174,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let (observed, observations) = mpsc::channel();
         let events = sender.clone();
-        runtime
-            .connect(mode, settings.clone(), move |event| {
+        connect_runtime(&runtime, mode, settings.clone(), move |event| {
                 let _ = observed.send(event.clone());
                 let _ = events.send(Message::Event(event));
             })
@@ -227,7 +226,7 @@ mod tests {
             runtime.send(vec![1]),
             Err(RuntimeError::Disconnected)
         ));
-        runtime.connect(mode, settings, |_| {}).unwrap();
+        connect_runtime(&runtime, mode, settings, |_| {}).unwrap();
         runtime.send(vec![1]).unwrap();
         runtime.disconnect().unwrap();
     }
@@ -279,8 +278,7 @@ mod tests {
             let runtime = PersistentRuntime::default();
             let (sender, receiver) = mpsc::channel();
             let events = sender.clone();
-            runtime
-                .connect(mode, settings.clone(), move |event| {
+            connect_runtime(&runtime, mode, settings.clone(), move |event| {
                     let _ = events.send(Message::Event(event));
                 })
                 .unwrap();
@@ -302,7 +300,7 @@ mod tests {
                 ),
                 3
             );
-            runtime.connect(mode, settings.clone(), |_| {}).unwrap();
+            connect_runtime(&runtime, mode, settings.clone(), |_| {}).unwrap();
             runtime.disconnect().unwrap();
         }
         let runtime = PersistentRuntime::default();
