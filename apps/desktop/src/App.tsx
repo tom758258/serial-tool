@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { invoke, Channel } from '@tauri-apps/api/core'
 import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -61,6 +61,7 @@ export default function App() {
   const [transport, setTransport] = useState<Transport>('serial')
   const [tcpSettings, setTcpSettings] = useState<TcpConnectionSettings>(defaultTcpConnection)
   const [connectionOptionsOpen, setConnectionOptionsOpen] = useState(false)
+  const [connectionExpanded, setConnectionExpanded] = useState(true)
   const [exportOpen, setExportOpen] = useState(false)
   const [settings, setSettings] = useState<ConnectionSettings>({ port: '', ...defaultLine })
   const [ports, setPorts] = useState<Port[]>([])
@@ -81,6 +82,7 @@ export default function App() {
   const [lastRun, setLastRun] = useState<RunResult | null>(null)
   const [resultDisplay, setResultDisplay] = useState<Display>('hex')
   const terminalEnd = useRef<HTMLDivElement>(null)
+  const terminalFollowBottom = useRef(true)
   const connectionOptionsWrap = useRef<HTMLDivElement>(null)
   const connectionOptionsToggle = useRef<HTMLButtonElement>(null)
   const currentConnection = useRef(0)
@@ -129,7 +131,8 @@ export default function App() {
     }
   }, [theme])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!terminalFollowBottom.current) return
     const view = terminalEnd.current?.parentElement
     if (view) view.scrollTop = view.scrollHeight
   }, [history, tab, rxDisplay, showTx])
@@ -196,6 +199,7 @@ export default function App() {
       }
     }
     const previousHistory = history
+    terminalFollowBottom.current = true
     setHistory([])
     try {
       await invoke(transport === 'serial' ? 'connect_serial' : 'connect_tcp', {
@@ -379,7 +383,7 @@ export default function App() {
       </div>
     </header>
 
-    <section className="connection panel">
+    <section className={`connection panel${connectionExpanded ? '' : ' collapsed'}`}>
       <div className="section-heading"><h2>Connection Setup</h2><div className="connection-header-actions">
         <span className={`status ${status}`}>{transport === 'serial' ? 'COM Port' : 'TCP/IP'} · {mode === 'live' ? 'Live' : 'Simulation'} · {statusLabels[status]}</span>
         <div className="connection-options-wrap" ref={connectionOptionsWrap}>
@@ -402,7 +406,12 @@ export default function App() {
             <p className="connection-options-help">Simulation uses deterministic loopback and does not access a physical serial port or TCP socket.</p>
           </div>
         </div>
+        <button type="button" className="connection-collapse-toggle" title={connectionExpanded ? 'Collapse connection setup' : 'Expand connection setup'}
+          aria-label={connectionExpanded ? 'Collapse connection setup' : 'Expand connection setup'}
+          aria-expanded={connectionExpanded} aria-controls="connection-setup-body"
+          onClick={() => setConnectionExpanded(previous => !previous)}>{connectionExpanded ? '−' : '+'}</button>
       </div></div>
+      <div id="connection-setup-body" hidden={!connectionExpanded}>
       <nav className="transport-tabs" aria-label="Connection transport">
         <button type="button" disabled={settingsLocked} className={transport === 'serial' ? 'active' : ''} aria-pressed={transport === 'serial'} onClick={() => setTransport('serial')}>COM Port</button>
         <button type="button" disabled={settingsLocked} className={transport === 'tcp' ? 'active' : ''} aria-pressed={transport === 'tcp'} onClick={() => setTransport('tcp')}>TCP/IP</button>
@@ -436,15 +445,16 @@ export default function App() {
         <button className="primary" disabled={settingsLocked || (transport === 'serial' && ((mode === 'live' && !settings.port) || settings.baud_rate <= 0))} onClick={() => void connect()}>Connect</button>
         <button disabled={status !== 'connected'} onClick={() => void disconnect()}>Disconnect</button>
       </div>
+      </div>
     </section>
 
     {notice && <div className={`notice notice-${notice.kind}`} role="status">{notice.message}</div>}
 
-    <nav className="tabs" aria-label="Main views"><button className={tab === 'terminal' ? 'active' : ''} onClick={() => setTab('terminal')}>Terminal</button>
+    <nav className="tabs" aria-label="Main views"><button className={tab === 'terminal' ? 'active' : ''} onClick={() => { terminalFollowBottom.current = true; setTab('terminal') }}>Terminal</button>
       <button className={tab === 'sequence' ? 'active' : ''} onClick={() => setTab('sequence')}>Sequence</button></nav>
 
     {tab === 'terminal' ? <section className="terminal panel">
-      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>Display Mode <select aria-label="Display Mode" value={rxDisplay} onChange={event => setRxDisplay(event.target.value as TerminalDisplay)}>
+      <div className="section-heading"><h2>Terminal</h2><div className="toolbar"><label>Display Mode <select aria-label="Display Mode" value={rxDisplay} onChange={event => { terminalFollowBottom.current = true; setRxDisplay(event.target.value as TerminalDisplay) }}>
         <optgroup label="TX/RX Events">
           <option value="hex">Events · Hex</option>
           <option value="text">Events · Text</option>
@@ -455,8 +465,8 @@ export default function App() {
           <option value="continuous-hex">Continuous RX · Hex</option>
         </optgroup>
       </select></label>
-        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={isContinuous} onChange={event => setShowTx(event.target.checked)} />Show TX</label>
-        <button onClick={() => { setHistory([]); setExportOpen(false) }}>Clear View</button>
+        <label className="show-tx"><input type="checkbox" checked={showTx} disabled={isContinuous} onChange={event => { terminalFollowBottom.current = true; setShowTx(event.target.checked) }} />Show TX</label>
+        <button onClick={() => { terminalFollowBottom.current = true; setHistory([]); setExportOpen(false) }}>Clear View</button>
         <div className="export-menu-wrap">
           <button type="button" disabled={!history.length} aria-expanded={exportOpen} aria-controls="terminal-export-menu"
             onClick={() => setExportOpen(previous => !previous)}>Export ▼</button>
@@ -466,7 +476,10 @@ export default function App() {
             <button type="button" onClick={() => { setExportOpen(false); void exportRaw('tx-rx') }}>TX + RX Raw (.bin)...</button>
           </div>
         </div></div></div>
-      <div className="terminal-history" aria-live="polite">{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
+      <div className="terminal-history" aria-live="polite" onScroll={event => {
+        const view = event.currentTarget
+        terminalFollowBottom.current = view.scrollHeight - view.scrollTop - view.clientHeight <= 24
+      }}>{history.length === 0 && <p className="muted">Incoming bytes appear here automatically after connection.</p>}
         {isContinuous ? <code className={`terminal-continuous ${rxDisplay}`}>{rxDisplay === 'continuous-text' ? rxText.join('') : rxHex}</code> : history.map((entry, index) => (showTx || entry.direction === 'rx') && <div className={`terminal-entry ${entry.direction}`} key={index}>
           <span className="direction">{entry.direction.toUpperCase()}</span><code>{entry.direction === 'tx' ? hex(entry.bytes) :
             rxDisplay === 'hex' ? hex(entry.bytes) :
