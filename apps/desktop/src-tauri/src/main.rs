@@ -7,7 +7,11 @@ mod runtime;
 #[cfg(windows)]
 mod webview2;
 
-use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use runtime::{Event, Mode, RunResult, SessionManager};
 use serde::{Deserialize, Serialize};
@@ -396,29 +400,6 @@ async fn open_help(app: tauri::AppHandle, locale: String, theme: String) -> Resu
     .map_err(|error| error.to_string())?
 }
 
-#[cfg(test)]
-mod help_tests {
-    use super::help_url;
-
-    #[test]
-    fn help_url_accepts_only_bundled_pages_and_supported_themes() {
-        for (locale, page) in [("en", "desktop.html"), ("zh-TW", "desktop.zh-TW.html")] {
-            for theme in ["system", "light", "dark"] {
-                assert_eq!(
-                    help_url(locale, theme).unwrap(),
-                    tauri::WebviewUrl::App(format!("help/{page}?theme={theme}").into())
-                );
-            }
-        }
-        for locale in ["", "zh-CN", "../index.html", "en?x=1"] {
-            assert!(help_url(locale, "light").is_err());
-        }
-        for theme in ["", "auto", "Dark", "light&url=https://example.com"] {
-            assert!(help_url("en", theme).is_err());
-        }
-    }
-}
-
 fn main() {
     #[cfg(windows)]
     if !webview2::preflight() {
@@ -452,5 +433,28 @@ fn main() {
         webview2::show_startup_error(&error.to_string());
         #[cfg(not(windows))]
         panic!("failed to run Serial Tool desktop: {error}");
+    }
+}
+
+#[cfg(test)]
+mod help_tests {
+    use super::help_url;
+
+    #[test]
+    fn help_url_accepts_only_bundled_pages_and_supported_themes() {
+        for (locale, page) in [("en", "desktop.html"), ("zh-TW", "desktop.zh-TW.html")] {
+            for theme in ["system", "light", "dark"] {
+                assert_eq!(
+                    help_url(locale, theme).unwrap(),
+                    tauri::WebviewUrl::App(format!("help/{page}?theme={theme}").into())
+                );
+            }
+        }
+        for locale in ["", "zh-CN", "../index.html", "en?x=1"] {
+            assert!(help_url(locale, "light").is_err());
+        }
+        for theme in ["", "auto", "Dark", "light&url=https://example.com"] {
+            assert!(help_url("en", theme).is_err());
+        }
     }
 }
