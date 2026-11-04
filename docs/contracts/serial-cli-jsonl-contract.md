@@ -28,8 +28,9 @@ than sending them to the terminal. `both` presents hex and text together.
 
 Runtime result objects include `event`, `schema_version`, UTC ISO 8601
 `timestamp_utc`, and `ok: true`. `send`, `receive`, and `query` also include
-`command` and `transport` (`serial` or `tcp`); Serial outputs keep `port`,
-while TCP outputs have `tcp_settings` with `host`, `port`,
+`command`. Existing Serial outputs keep their original `port` field and
+key set; TCP outputs additionally have `transport: "tcp"` and `tcp_settings`
+with `host`, `port`,
 `connect_timeout_ms` and `io_timeout_ms`. `send` and `query` include `tx_hex` and
 `tx_bytes`; `receive` and `query` include `rx_hex` and `rx_bytes`; `query`
 includes `delimiter_hex`. Hex is lowercase, has two digits per byte, and has
@@ -96,17 +97,19 @@ CLI argument/validation errors exit 2; runtime connect and I/O errors exit 3.
   one bounded raw read. `query` writes and flushes TX, then reads through a raw
   delimiter using Core's session buffer.
 - `dry_run`: plan validation for `send`, `receive`, or `query`, with `command`,
-  `transport`, applicable settings/target and TX, delimiter or `max_bytes`
-  fields. UART preserves `performs_serial_io: false` and `serial_settings`;
-  TCP also emits `performs_tcp_io: false` with `tcp_settings`.
+  applicable settings/target and TX, delimiter or `max_bytes` fields.
+  UART preserves its original fields, including `performs_serial_io: false`
+  and `serial_settings`; TCP additionally emits `transport: "tcp"`,
+  `performs_tcp_io: false` and `tcp_settings`.
   Neither mode opens the port/socket or performs DNS; `run_id` is omitted.
 - `sequence_validate`: successful no-I/O UART/TCP Sequence format validation with `ok: true`,
   `sequence_version: 1`, and `defined_steps`, the recursively defined Step
   count (not the runtime execution count).
 - `sequence_run`: successful one-shot execution with `ok: true`,
   `sequence_version: 1`, `mode` (`live` or `simulate`), `step_results`, and
-  `transcript`, and `transport`. UART Live results contain `port`; TCP Live
-  results contain `tcp_settings` (I/O timeout from the Sequence JSON), while
+  `transcript`. Existing UART result fields are unchanged and UART Live results
+  contain `port`; TCP adds `transport: "tcp"`, with Live results containing
+  `tcp_settings` (I/O timeout from the Sequence JSON), while
   simulation results contain `simulation_profile_id`. Neither has `run_id`
   or `worker_job_id`.
   `step_results` preserve completion order, including each repeat child

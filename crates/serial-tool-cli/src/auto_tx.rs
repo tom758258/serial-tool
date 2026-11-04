@@ -175,10 +175,10 @@ mod tests {
         let (observed, observations) = mpsc::channel();
         let events = sender.clone();
         connect_runtime(&runtime, mode, settings.clone(), move |event| {
-                let _ = observed.send(event.clone());
-                let _ = events.send(Message::Event(event));
-            })
-            .unwrap();
+            let _ = observed.send(event.clone());
+            let _ = events.send(Message::Event(event));
+        })
+        .unwrap();
         let (code, data) = thread::scope(|scope| {
             let controller = scope.spawn(move || {
                 let deadline = Instant::now() + Duration::from_secs(5);
@@ -279,9 +279,9 @@ mod tests {
             let (sender, receiver) = mpsc::channel();
             let events = sender.clone();
             connect_runtime(&runtime, mode, settings.clone(), move |event| {
-                    let _ = events.send(Message::Event(event));
-                })
-                .unwrap();
+                let _ = events.send(Message::Event(event));
+            })
+            .unwrap();
             if stop_first {
                 sender.send(Message::Stop).unwrap();
             }

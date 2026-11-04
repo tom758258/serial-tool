@@ -193,14 +193,13 @@ impl RunArgs {
         let mut value = json!({
             "event": "sequence_run", "schema_version": 2, "timestamp_utc": timestamp(),
             "ok": true, "sequence_version": sequence.sequence_version,
-            "transport": match self.transport {
-                TransportKind::Serial => "serial",
-                TransportKind::Tcp => "tcp",
-            },
             "mode": match self.mode { RunMode::Live => "live", RunMode::Simulate => "simulate" },
             "step_results": sequence_result::step_results_json(&report),
             "transcript": sequence_result::transcript_json(&report),
         });
+        if matches!(self.transport, TransportKind::Tcp) {
+            value["transport"] = json!("tcp");
+        }
         if simulated {
             value["simulation_profile_id"] = json!(resource);
         } else if let Some(settings) = &tcp_settings {

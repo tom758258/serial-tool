@@ -151,6 +151,14 @@ impl ConnectionSettings {
         }
     }
 
+    fn one_shot_output(&self) -> Value {
+        let mut value = self.output(false);
+        if matches!(self, Self::Serial(_)) {
+            value.as_object_mut().unwrap().remove("transport");
+        }
+        value
+    }
+
     pub(crate) fn open(&self) -> Result<DeviceTransport, Error> {
         match self {
             Self::Serial(settings) => SerialTransport::open(settings).map(DeviceTransport::Serial),
@@ -693,7 +701,7 @@ impl Cli {
                     "schema_version": 2, "timestamp_utc": timestamp(), "ok": true,
                     "command": "send", "tx_hex": hex(&tx), "tx_bytes": tx.len(),
                 });
-                let details = settings.output(false);
+                let details = settings.one_shot_output();
                 for (key, item) in details.as_object().unwrap() {
                     value[key] = item.clone();
                 }
@@ -731,7 +739,7 @@ impl Cli {
                     "schema_version": 2, "timestamp_utc": timestamp(), "ok": true,
                     "command": "receive",
                 });
-                for (key, item) in settings.output(false).as_object().unwrap() {
+                for (key, item) in settings.one_shot_output().as_object().unwrap() {
                     value[key] = item.clone();
                 }
                 if args.dry_run {
@@ -776,7 +784,7 @@ impl Cli {
                     "command": "query", "tx_hex": hex(&tx), "tx_bytes": tx.len(),
                     "delimiter_hex": hex(&delimiter),
                 });
-                for (key, item) in settings.output(false).as_object().unwrap() {
+                for (key, item) in settings.one_shot_output().as_object().unwrap() {
                     value[key] = item.clone();
                 }
                 if args.dry_run {
