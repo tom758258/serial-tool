@@ -20,6 +20,14 @@ type Props = {
 
 const kinds: Step['type'][] = ['send_text', 'send_bytes', 'wait', 'read', 'read_until', 'repeat']
 const label = (kind: Step['type']) => kind.replace('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+const stepDescriptions: Record<Step['type'], string> = {
+  send_text: 'Sends text as UTF-8 bytes. No newline is added automatically.',
+  send_bytes: 'Sends raw bytes in hexadecimal format, e.g., AA 55 0D 0A.',
+  wait: 'Waits for the specified duration in milliseconds before continuing.',
+  read: 'Reads up to the specified number of bytes from the connection.',
+  read_until: 'Reads until the specified delimiter is received, including the delimiter, within the maximum byte limit.',
+  repeat: 'Executes the child steps for the specified number of iterations.',
+}
 const serialFieldLabels: Record<keyof LineSettings, string> = {
   baud_rate: 'Baud rate', data_bits: 'Data bits', parity: 'Parity',
   stop_bits: 'Stop bits', flow_control: 'Flow control', timeout_ms: 'Timeout (ms)',
@@ -220,6 +228,7 @@ export default function SequenceEditor(props: Props) {
       <section className="panel properties"><h3>Properties</h3>
         {!step ? <p className="muted">Select a step.</p> : <div className="properties-fields">
           <p className="step-kind">{label(step.type)}</p>
+          <p className="muted step-description">{stepDescriptions[step.type]}</p>
           <label>ID<input disabled={disabled} value={step.id} onChange={event => updateStep({ id: event.target.value })} /></label>
           {step.type === 'send_text' && <label>Text<textarea disabled={disabled} value={step.text} onChange={event => updateStep({ text: event.target.value })} /></label>}
           {step.type === 'send_bytes' && <label>Hex<textarea disabled={disabled} value={step.hex} onChange={event => updateStep({ hex: event.target.value })} /></label>}
