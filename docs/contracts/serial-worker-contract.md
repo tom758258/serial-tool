@@ -226,9 +226,10 @@ For `run-sequence`, the same runner thread executes the existing Core
 `state: "failed"`, Common Error code `sequence_execution_error`,
 `exit_code: 3`, `step_id`, completed `step_results`, and completed `transcript`.
 When Core supplies partial RX,
-`partial_hex` and `partial_bytes` are also present. In ordinary mode, execution failure leaves the Worker ready for another
-command. In Streaming mode, an I/O Owner failure ends monitoring and fails
-the Worker rather than leaving the stream healthy. The single active slot and
+`partial_hex` and `partial_bytes` are also present. In ordinary mode, nonfatal execution failure leaves the Worker ready for
+another command. Fatal TCP transport failures terminate the Worker as described
+above. In Streaming mode, an I/O Owner failure ends monitoring and fails the
+Worker rather than leaving the stream healthy. The single active slot and
 busy rejection apply to `run-sequence` and all other commands alike.
 
 ## Raw binary file sending
