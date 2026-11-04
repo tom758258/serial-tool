@@ -131,7 +131,7 @@ export default function SequenceEditor(props: Props) {
       return <div className="step-tree" key={path.join('.')}>
         <button type="button" disabled={disabled} className={`step-row ${active ? 'selected' : ''}`}
           onClick={() => setSelected(path)}>
-          <span>{t('sequence.step.' + item.type)}</span><strong>{item.id || '(no ID)'}</strong>
+          <span>{t('sequence.step.' + item.type)}</span><strong>{item.id || t('sequence.no_id')}</strong>
         </button>
         {item.type === 'repeat' && <div className="nested-steps">{renderSteps(item.steps, path)}</div>}
       </div>
