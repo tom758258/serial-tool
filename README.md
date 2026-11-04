@@ -1,41 +1,48 @@
+[繁體中文](README.zh-TW.md)
+
 # Serial Tool
 
-Serial Tool is a generic COM / TCP client execution tool. It is written in Rust,
-targets Windows first, and keeps its Core portable where practical.
+Serial Tool is a Windows-first, Rust-based tool for raw UART/COM and TCP **client** communication. It provides a shared Core, an engineering CLI/Worker, and a Tauri 2 Desktop application. Core remains portable where practical.
 
-The root workspace contains `serial-tool-core` and `serial-tool-cli`. Core owns serial
-settings, port discovery, raw byte transport, deterministic simulation,
-session RX buffering, and a shared persistent runtime with one I/O owner and
-continuous RX. Desktop, the interactive terminal, and CLI Auto TX use this runtime.
-The `serial-tool` CLI provides engineering commands and machine-readable output
-through Core, including a persistent Serial Worker.
+Serial Tool is a communication and execution tool, **not** a device-specific controller, workflow orchestrator, protocol decoder, or test-record database.
 
-Core also provides a linear Serial Step Runner with `SendText`, `SendBytes`,
-`Wait`, `Read`, `ReadUntil`, and `Repeat`. JSON Sequence files persist line
-settings and steps. Execution keeps step results and a logical TX/RX transcript
-in memory. There is no workflow engine.
+## Features
 
-This project is not a device-specific controller, workflow orchestrator, or
-test-record database.
+- Connect to COM ports or raw TCP endpoints; transmit and receive exact bytes.
+- Send UTF-8 text, hexadecimal bytes, or unchanged raw files; monitor continuous RX.
+- Use interactive Terminal and periodic Auto TX on supported Live or Simulation connections.
+- Build, validate, load, save, and run linear Sequence v1 steps: Send Text, Send Bytes, Wait, Read, Read Until, and Repeat.
+- View Terminal traffic in event or continuous RX modes and export available raw bytes or a hex transcript; export the latest Sequence result as JSON.
+- Use deterministic `loopback-v1` simulation without hardware. The optional `periodic-rx-v1` profile is **only** for Streaming Simulation Workers.
+- Integrate a machine-readable local Worker through Common Worker Protocol v3; CLI/Manifest machine output retains its separate schema.
+- Switch the Desktop interface between English and Traditional Chinese, and select System, Light, or Dark appearance.
 
-## Desktop
+The TCP connection is a **raw byte-stream client**: no TCP server, automatic reconnection, application framing, or device protocol is provided.
 
-The Windows-first Desktop app uses Tauri 2 with React, TypeScript, and Vite.
-Its COM Port and TCP/IP connection controls share Core's persistent runtime through a thin backend adapter. Its Terminal
-provides a persistent Live or Simulation connection, continuous RX, exact Text
-or Hex TX, periodic Auto TX from the Send payload or a raw file, Send File
-(Raw), Events (Hex / Text / Both) or Continuous RX (Text / Hex) display, and a
-Show TX control. Terminal history can be exported as a TX/RX hexadecimal text log, RX raw binary, or
-flattened TX+RX raw binary; the last Sequence result can be saved as JSON.
-The Sequence editor loads, saves, validates, and runs the six
-Core step types on the current connection. System, Light, and Dark themes are
-available.
+## Components
 
-Windows Desktop requires the system Microsoft Edge WebView2 Runtime. Serial Tool
-checks it before creating a Tauri window and offers the official Microsoft
-download page in a native dialog if it is unavailable. It does not download or
-install the runtime automatically. See [Desktop documentation](docs/desktop/README.md)
-for startup behavior.
+- **Core** (`crates/serial-tool-core`): transport, settings, simulation, persistent session runtime, RX ownership, and Sequence execution.
+- **CLI / Worker** (`crates/serial-tool-cli`): command-line operations, interactive terminal, and local HTTP/JSONL Worker adapter over Core.
+- **Desktop** (`apps/desktop`): React/TypeScript/Vite interface with a Tauri 2 Rust adapter. It uses Core directly, not the CLI or Worker.
+
+See the [monorepo layout](docs/architecture/monorepo-layout.md) for the two separate Rust workspaces and ownership boundaries.
+
+## Quick start
+
+Install a Rust toolchain supporting edition 2024. From the repository root:
+
+```sh
+cargo build --workspace --locked
+cargo test --workspace --locked
+cargo run -p serial-tool-cli -- list-ports
+cargo run -p serial-tool-cli -- send --port COM4 --baud 115200 --hex "AA 55" --dry-run
+```
+
+Dry-run validates a supported operation without opening a COM port, TCP socket, or DNS connection. For a real command, select the correct device and remove `--dry-run`.
+
+### Desktop
+
+Install Node.js/npm and Tauri 2 platform prerequisites. Windows requires the **system** Microsoft Edge WebView2 Runtime; the application does not install it for you.
 
 ```sh
 cd apps/desktop
@@ -43,258 +50,23 @@ npm ci
 npm run tauri -- dev
 ```
 
-For frontend checks, run `npm test`, `npm run typecheck`, and `npm run build` from
-`apps/desktop`. See [Desktop documentation](docs/desktop/README.md) for usage,
-architecture, and backend checks.
+The Desktop supports COM/TCP Live connections and hardware-free loopback simulation. Read the [Desktop User Guide](docs/desktop/USER_GUIDE.md) before operating a device.
 
-## Build and test
+## Build and validation
 
-Install a Rust toolchain that supports edition 2024, then run:
+The root Cargo workspace contains Core and CLI; `apps/desktop/src-tauri` is a separate Cargo workspace with its own lockfile. For focused development commands and validation, follow [Core](docs/core/README.md), [CLI](docs/cli/README.md), [Desktop](docs/desktop/README.md), and [AGENTS.md](AGENTS.md). Default automated tests do not require physical hardware.
 
-```sh
-cargo build --workspace --locked
-cargo test --workspace --locked
-```
+## Documentation
 
-The automated tests use simulation and require no serial hardware. The Common
-Worker, CLI JSON/JSONL, and orchestrator contracts are in [`docs/contracts`](docs/contracts/).
+| Audience | English | 繁體中文 |
+| --- | --- | --- |
+| Project overview | This README | [README.zh-TW](README.zh-TW.md) |
+| Core developers | [Core README](docs/core/README.md) | [Core 說明](docs/core/README.zh-TW.md) |
+| CLI / Worker developers | [CLI README](docs/cli/README.md) | [CLI 說明](docs/cli/README.zh-TW.md) |
+| CLI operators | [CLI User Guide](docs/cli/USER_GUIDE.md) | [CLI 使用指南](docs/cli/USER_GUIDE.zh-TW.md) |
+| Desktop developers | [Desktop README](docs/desktop/README.md) | [Desktop 說明](docs/desktop/README.zh-TW.md) |
+| Desktop operators | [Desktop User Guide](docs/desktop/USER_GUIDE.md) | [Desktop 使用指南](docs/desktop/USER_GUIDE.zh-TW.md) |
 
-## CLI usage
+Engineering references: [Repository architecture](docs/architecture/monorepo-layout.md), [Serial CLI JSON/JSONL contract](docs/contracts/serial-cli-jsonl-contract.md), [Serial Worker contract](docs/contracts/serial-worker-contract.md), [Serial Sequence contract](docs/contracts/serial-sequence-contract.md), and [Orchestrator integration contract](docs/contracts/serial-orchestrator-workflows.md). The [contracts directory](docs/contracts/) also holds the shared Common contracts.
 
-Run `cargo run -p serial-tool-cli -- <command>` from the workspace, or use the
-`serial-tool` binary after building. For example:
-
-```sh
-serial-tool manifest --json
-serial-tool list-ports
-serial-tool list-ports --json
-serial-tool send --port COM4 --baud 115200 --text "STATUS?"
-serial-tool send --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A"
-serial-tool send --port COM4 --baud 115200 --file payload.bin
-serial-tool send --port COM4 --baud 115200 --file payload.bin --dry-run --json
-serial-tool receive --port COM4 --baud 115200 --max-bytes 256
-serial-tool query --port COM4 --baud 115200 --hex "00 55 AA FF 0D 0A" --until-hex "0D 0A" --max-bytes 1024
-serial-tool query --port COM4 --baud 115200 --text "STATUS?" --until-text "OK" --max-bytes 1024 --dry-run --json
-serial-tool send --transport tcp --host 127.0.0.1 --tcp-port 5025 --hex "AA 55"
-serial-tool query --transport tcp --host 127.0.0.1 --tcp-port 5025 --text "STATUS?" --until-text "OK"
-```
-
-`send` requires exactly one of `--text`, `--hex`, or `--file`. File input reads
-the entire nonempty file as raw bytes, without decoding, hex parsing, or line
-ending conversion. Missing or unreadable files are input errors (exit 2).
-Dry-run reads and validates the file without opening a port or TCP socket, and without DNS. File input uses
-the same TX machine fields as text and hex input.
-`query` requires exactly one of `--text` or `--hex` and exactly one of
-`--until-text` or `--until-hex`; it does not accept `--file`. Text uses UTF-8 bytes
-exactly as supplied and does not append CR or LF. Use hex for explicit control
-bytes. Raw bytes are authoritative; machine output represents them as lowercase
-hex without separators.
-
-`--transport` defaults to `serial`; Serial `send`, `receive`, and `query`
-require `--port` and `--baud`. Defaults are 8 data bits, no parity, 1 stop bit,
-no flow control, and a 1000 ms timeout. TCP requires `--transport tcp`,
-`--host`, and `--tcp-port` (1..65535), without UART options. TCP defaults to a
-3000 ms connect timeout and 1000 ms read/write I/O timeout; override with
-`--connect-timeout-ms` / `--io-timeout-ms`. Transport-only options cannot be
-mixed. TCP Live supports IPv4, IPv6, and hostnames; dry-run never resolves DNS.
-`receive` performs one bounded read. Dry-run validates the plan without opening
-or checking the port. Use `--format text|json|jsonl` (default `text`), or
-`--json` as an alias for `--format json`. See the
-[Serial CLI machine contract](docs/contracts/serial-cli-jsonl-contract.md) for
-event fields and exit codes.
-
-`receive`, `query`, and `sequence run` accept `--rx-display hex|text|both`
-(default `hex`). RX remains raw bytes internally; `--rx-display` changes only
-human-readable text output. `hex` uses spaced uppercase bytes, `text` uses
-lossy UTF-8 with control characters escaped, and `both` shows both. JSON/JSONL
-machine output remains canonical lowercase hex regardless of `--rx-display`.
-
-## Interactive CLI terminal
-
-The human-interactive terminal keeps one COM or TCP connection open for continuous RX
-and line-oriented manual TX:
-
-```sh
-serial-tool terminal --mode live --port COM4 --baud 115200
-serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopback-v1
-serial-tool terminal --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
-serial-tool terminal --transport tcp --mode simulate --simulation-profile-id loopback-v1
-```
-
-It accepts the same transport settings as the one-shot commands, plus
-`--rx-display hex|text|both|stream|hex-stream` (default `hex`), `--tx-display hex|off`
-(default `hex`), `--tx-format text|hex` (default `text`), and
-`--line-ending none|lf|crlf` (default `none`). Enter submits a line;
-its stdin CR/LF is removed before applying the requested text line ending.
-Hex sends exact bytes using the existing parser and ignores text line endings.
-Invalid input is reported without ending the terminal. EOF or Ctrl+C gracefully
-disconnects; EOF allows a short 50 ms window for final monitor events, without
-waiting for a device response. Terminal has no JSON/JSONL output contract.
-Worker remains the machine persistent interface and uses its existing runtime.
-
-Text is an escaped log presentation. Stream presents RX text without prefixes
-or event-boundary line breaks: LF creates a newline, CR is omitted, and other
-control characters remain escaped. Output is flushed even without LF. CLI
-UTF-8 decoding remains lossy per RX event, so characters split across events
-may display replacement characters. Stream uses stdout for RX and stderr for
-lifecycle messages, errors, and TX hex logs. `--tx-display off` only hides TX
-presentation; bytes are still sent. For an RX-only capture, use:
-
-```sh
-serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display stream --tx-display off > rx.txt
-```
-
-Hex Stream presents every RX byte as two uppercase hex digits, separated by
-exactly one space across events, with no prefix, trailing space, or newline.
-For example, events `AA 55` and `0D 0A` produce `AA 55 0D 0A`. It flushes each
-RX event and routes lifecycle messages and TX logs to stderr, like Stream:
-
-```sh
-serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display hex-stream --tx-display off > rx.hex
-```
-
-## CLI Auto TX
-
-`auto-tx` keeps one Live or Simulation connection open, sends a fixed payload
-periodically, and continues receiving RX until Ctrl+C:
-
-```sh
-serial-tool auto-tx --mode live --port COM4 --baud 115200 --text "STATUS?" --interval-ms 1000
-serial-tool auto-tx --mode live --port COM4 --baud 115200 --hex "AA 55" --interval-ms 500
-serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --file payload.bin --interval-ms 1000
-serial-tool auto-tx --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --hex "AA 55" --interval-ms 500
-```
-
-Live requires the selected transport's resource and forbids `--simulation-profile-id`;
-Simulation requires `--simulation-profile-id loopback-v1` and forbids resource
-options. The command accepts Terminal's connection settings, `--rx-display`, and `--tx-display` options.
-Exactly one of `--text`, `--hex`, or `--file` is required; payloads must be
-nonempty. Text and hex use the same exact-byte rules as `send`. File input is
-read once before connecting; changes to the file do not affect the running
-payload. `--interval-ms` is a required positive integer in milliseconds.
-
-Core's persistent runtime sends the first payload immediately and measures each
-subsequent interval from completion of the previous send and flush. It does
-not catch up missed intervals. Ctrl+C stops periodic TX and disconnects;
-connection or device I/O failures exit 3 and release the connection. There is
-no stdin interaction, dry-run, or JSON/JSONL contract for `auto-tx`.
-
-## Worker RX Streaming (optional)
-
-The persistent Worker also supports opt-in full-duplex RX streaming using the
-Common v3 Optional Streaming Extension:
-
-```sh
-serial-tool worker --mode live --port COM4 --baud 115200 --streaming
-serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --streaming
-serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming
-```
-
-Streaming starts with the Worker (`run_bound`) and reports raw incoming RX
-as JSONL `rx` events (`rx_hex` / `rx_bytes`). TX is performed through
-existing asynchronous `send` and `send-file` HTTP commands while RX
-continues. `receive`, `query`, and `run-sequence` are available only
-without `--streaming`, and non-streaming Worker operation is unchanged.
-The simulated `loopback-v1` returns transmitted bytes as RX. The separate
-`periodic-rx-v1` profile autonomously generates an incrementing 4-byte
-big-endian counter every approximately 100 ms, without TX or TX echo;
-it is only valid for Streaming Simulation Workers. No orchestration buffer,
-replay, or device protocol decoding is added.
-See [Serial Worker Contract](docs/contracts/serial-worker-contract.md).
-
-## Sequences
-
-A Sequence JSON file keeps `sequence_version: 1` and now uses
-`transport.type/settings`. UART files contain the existing six serial line
-settings; TCP files contain only `io_timeout_ms`. The former top-level
-`serial` shape is not supported.
-
-UART example:
-
-```json
-{
-  "sequence_version": 1,
-  "transport": {
-    "type": "serial",
-    "settings": { "baud_rate": 115200, "data_bits": 8, "parity": "none", "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000 }
-  },
-  "steps": [
-    { "id": "send-frame", "type": "send_bytes", "hex": "0055aaff0d0a" },
-    { "id": "read-frame", "type": "read_until", "delimiter_hex": "0d0a", "max_bytes": 64 }
-  ]
-}
-```
-
-TCP settings use `"transport": {"type":"tcp","settings":{"io_timeout_ms":1000}}`.
-Neither format stores COM port, TCP host/port, connect timeout or execution mode.
-Core, Desktop, CLI and Worker use the same Sequence transport format. TCP CLI
-Sequence runs obtain `io_timeout_ms` from the Sequence file rather than a
-separate CLI option.
-
-Save this as `sequence.json`, then use:
-
-```sh
-serial-tool sequence validate --file sequence.json
-serial-tool sequence run --file sequence.json --mode live --port COM4
-serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
-# For a Sequence file whose transport type is tcp:
-serial-tool sequence run --file tcp-sequence.json --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
-serial-tool sequence run --file tcp-sequence.json --transport tcp --mode simulate --simulation-profile-id loopback-v1
-```
-
-Validation performs no serial I/O, TCP socket connection or DNS lookup. A Sequence file does not store the port or
-execution mode; choose those at runtime. See the
-[Serial Sequence contract](docs/contracts/serial-sequence-contract.md) for the
-complete format.
-
-## Worker
-
-Start a local Worker for an explicit COM or TCP client resource, or deterministic simulation:
-
-```sh
-serial-tool worker --mode live --port COM4 --baud 115200 --control-port 0
-serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
-serial-tool worker --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025 --control-port 0
-serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopback-v1 --control-port 0
-serial-tool worker --transport tcp --mode simulate --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
-```
-
-Worker implements Common v3.0 (`v3-only`): HTTP and runtime JSONL use schema 3,
-while Manifest and ordinary CLI results remain schema 2. `manifest --json`
-declares `multi_job` / `startup` execution and `common.async_jobs` version 1.
-All five commands are `async_job`; there is one active slot, with no extra
-queue, parallel jobs, or cancellation. With `--streaming`, only `send` and
-`send-file` are accepted; other commands remain available without streaming.
-
-Worker stdout is JSONL. Its HTTP control plane binds only to `127.0.0.1`, and
-the `ready` event supplies the selected endpoint URLs. A live Worker holds one
-COM port through a persistent session. Simulation profile `loopback-v1` makes
-each written byte available for later reads without opening hardware. `/stop`
-closes the session without sending device-specific bytes. See the
-[Serial Worker contract](docs/contracts/serial-worker-contract.md) for requests,
-events, and lifecycle details.
-
-Worker commands are `send`, `send-file`, `receive`, `query`, and `run-sequence`.
-Submit raw files using `POST /command` with, for example:
-
-```json
-{"schema_version":3,"command":"send-file","arguments":{"path":"C:\\TestData\\payload.bin"},"job_id":"send-file-001"}
-```
-
-The path must be absolute and accessible on the Worker host. `send-file`
-streams raw bytes in chunks of up to 4 KiB and reports `file_bytes` and
-confirmed `bytes_written`, without payload hex. `/stop` cooperatively stops
-remaining chunks after current I/O returns; an already completed transfer
-remains successful. Simulation retains loopback bytes in memory, so prefer
-small files there. See the Worker contract for partial results and errors.
-
-HTTP `202` acknowledges admission. Completion uses `job_finished` with
-`state: "succeeded"` or `"failed"`, `ok`, `result`, and a Common Error or null;
-`GET /status` exposes the same terminal in `last_job`. `/stop` returns HTTP
-`200`, `status: "accepted"`; shutdown still requires summary, stdout EOF,
-and actual process exit.
-
-`run-sequence` accepts an inline Sequence object whose line settings must
-match the Worker startup settings. See the
-[Serial Orchestrator workflow contract](docs/contracts/serial-orchestrator-workflows.md)
-for the future orchestration flow.
+The source of truth for machine fields, Worker lifecycle, and Sequence JSON is the applicable contract, not a translated guide. CLI `--help` documents command arguments; a bundled offline `user-guide` command and Desktop Help window are **not part of this version**.
