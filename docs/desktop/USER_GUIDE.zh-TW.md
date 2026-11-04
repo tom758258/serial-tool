@@ -1,8 +1,6 @@
-[English](USER_GUIDE.md) | [Desktop 技術說明](README.zh-TW.md) | [專案介紹](../../README.zh-TW.md)
-
 # Serial Tool Desktop 使用指南
 
-本指南說明目前已實作的 Windows Desktop 操作，適用於需要透過 COM 埠或原始 TCP 收發設備資料的使用者。開發設定與技術責任請見 [Desktop README](README.zh-TW.md)。
+本指南說明目前已實作的 Windows Desktop 操作，適用於需要透過 COM 埠或原始 TCP 收發設備資料的使用者。
 
 ## 啟動與畫面
 
@@ -15,6 +13,10 @@ Windows 必須安裝系統 Microsoft Edge WebView2 Runtime；如果未偵測到�
 右上角語言按鈕顯示目前選用的 English／繁體中文，可立即切換，不重載畫面；手動選擇保存在本機 `serial-tool.locale`。首次開啟時參考 WebView 語言，其餘以英文備援。語言與外觀彼此獨立，外觀可選系統、淺色或深色。
 
 語言切換不會更動連線、Terminal 位元組、Sequence 資料或任何匯出格式；Core／CLI／Worker 原始診斷及機器可讀輸出不翻譯。
+
+## 離線說明
+
+按右上角「**說明**」可於獨立視窗開啟內建離線使用指南，並沿用當下的介面語言（English／繁體中文）及外觀（系統／淺色／深色）。Help 視窗可以自行切換語言，不影響主視窗。若主視窗的語言或外觀後來變更，關閉再重新開啟 Help 即會套用。指南本身不需要網路；指向 GitHub 開發文件的連結是額外線上參考。
 
 ## 連線設定：COM 埠／TCP/IP
 
@@ -94,4 +96,4 @@ Editor 提示未連線、設定相符或具體 Transport／Settings 不相符。
 - **匯出無資料：** 匯出僅使用目前 History，Clear View 與 5000 筆上限都會影響資料。
 - **Auto TX 時無法 Send File／Run：** 先 Stop Auto TX。
 
-本版本沒有永久 Run History、持續寫檔 Capture、Protocol Framing 或內建 Offline Help 視窗。正式格式參考 [Sequence Contract](../contracts/serial-sequence-contract.md) 與 [Worker Contract](../contracts/serial-worker-contract.md)。
+本版本沒有永久 Run History、持續寫檔 Capture 或 Protocol Framing。

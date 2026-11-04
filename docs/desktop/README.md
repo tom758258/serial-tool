@@ -1,5 +1,3 @@
-[繁體中文](README.zh-TW.md) | [Desktop User Guide](USER_GUIDE.md) | [Project](../../README.md)
-
 # Serial Tool Desktop
 
 The Windows-first Desktop uses Tauri 2, React, TypeScript and Vite. This README documents setup, implementation boundaries, and maintainer-facing behavior. For everyday operations, use the [Desktop User Guide](USER_GUIDE.md).

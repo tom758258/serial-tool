@@ -7,7 +7,7 @@ mod runtime;
 #[cfg(windows)]
 mod webview2;
 
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{path::Path, sync::{Arc, Mutex}, time::Duration};
 
 use runtime::{Event, Mode, RunResult, SessionManager};
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,7 @@ use serial_tool_core::{
     DataBits, FlowControl, Parity, PortType, Sequence, SerialSettings, StopBits, TcpSettings,
     list_ports,
 };
-use tauri::{State, ipc::Channel};
+use tauri::{Manager, State, ipc::Channel};
 
 #[derive(Deserialize)]
 struct SettingsDto {
@@ -359,6 +359,66 @@ async fn run_sequence(
         .map_err(|error| error.to_string())?
 }
 
+fn help_url(locale: &str, theme: &str) -> Result<tauri::WebviewUrl, String> {
+    let page = match locale {
+        "en" => "desktop.html",
+        "zh-TW" => "desktop.zh-TW.html",
+        _ => return Err("Help language must be en or zh-TW".into()),
+    };
+    match theme {
+        "system" | "light" | "dark" => Ok(tauri::WebviewUrl::App(
+            format!("help/{page}?theme={theme}").into(),
+        )),
+        _ => Err("Help theme must be system, light, or dark".into()),
+    }
+}
+
+#[tauri::command]
+async fn open_help(app: tauri::AppHandle, locale: String, theme: String) -> Result<(), String> {
+    let url = help_url(&locale, &theme)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        static HELP_WINDOW: Mutex<()> = Mutex::new(());
+        let _guard = HELP_WINDOW.lock().map_err(|error| error.to_string())?;
+        if let Some(window) = app.get_webview_window("help") {
+            window.show().map_err(|error| error.to_string())?;
+            window.set_focus().map_err(|error| error.to_string())?;
+        } else {
+            tauri::WebviewWindowBuilder::new(&app, "help", url)
+                .title("Serial Tool Help")
+                .inner_size(1200.0, 800.0)
+                .resizable(true)
+                .build()
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[cfg(test)]
+mod help_tests {
+    use super::help_url;
+
+    #[test]
+    fn help_url_accepts_only_bundled_pages_and_supported_themes() {
+        for (locale, page) in [("en", "desktop.html"), ("zh-TW", "desktop.zh-TW.html")] {
+            for theme in ["system", "light", "dark"] {
+                assert_eq!(
+                    help_url(locale, theme).unwrap(),
+                    tauri::WebviewUrl::App(format!("help/{page}?theme={theme}").into())
+                );
+            }
+        }
+        for locale in ["", "zh-CN", "../index.html", "en?x=1"] {
+            assert!(help_url(locale, "light").is_err());
+        }
+        for theme in ["", "auto", "Dark", "light&url=https://example.com"] {
+            assert!(help_url("en", theme).is_err());
+        }
+    }
+}
+
 fn main() {
     #[cfg(windows)]
     if !webview2::preflight() {
@@ -369,6 +429,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(SessionManager::default()))
         .invoke_handler(tauri::generate_handler![
+            open_help,
             list_serial_ports,
             connect_serial,
             connect_tcp,

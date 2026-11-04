@@ -58,15 +58,13 @@ The root Cargo workspace contains Core and CLI; `apps/desktop/src-tauri` is a se
 
 ## Documentation
 
-| Audience | English | 繁體中文 |
-| --- | --- | --- |
-| Project overview | This README | [README.zh-TW](README.zh-TW.md) |
-| Core developers | [Core README](docs/core/README.md) | [Core 說明](docs/core/README.zh-TW.md) |
-| CLI / Worker developers | [CLI README](docs/cli/README.md) | [CLI 說明](docs/cli/README.zh-TW.md) |
-| CLI operators | [CLI User Guide](docs/cli/USER_GUIDE.md) | [CLI 使用指南](docs/cli/USER_GUIDE.zh-TW.md) |
-| Desktop developers | [Desktop README](docs/desktop/README.md) | [Desktop 說明](docs/desktop/README.zh-TW.md) |
-| Desktop operators | [Desktop User Guide](docs/desktop/USER_GUIDE.md) | [Desktop 使用指南](docs/desktop/USER_GUIDE.zh-TW.md) |
+- [Core README](docs/core/README.md)
+- [CLI README](docs/cli/README.md)
+- [CLI User Guide](docs/cli/USER_GUIDE.md)
+- [Desktop README](docs/desktop/README.md)
+- [Desktop User Guide](docs/desktop/USER_GUIDE.md)
+- [Offline Help maintenance](docs/help/README.md)
 
 Engineering references: [Repository architecture](docs/architecture/monorepo-layout.md), [Serial CLI JSON/JSONL contract](docs/contracts/serial-cli-jsonl-contract.md), [Serial Worker contract](docs/contracts/serial-worker-contract.md), [Serial Sequence contract](docs/contracts/serial-sequence-contract.md), and [Orchestrator integration contract](docs/contracts/serial-orchestrator-workflows.md). The [contracts directory](docs/contracts/) also holds the shared Common contracts.
 
-The source of truth for machine fields, Worker lifecycle, and Sequence JSON is the applicable contract, not a translated guide. CLI `--help` documents command arguments; a bundled offline `user-guide` command and Desktop Help window are **not part of this version**.
+The source of truth for machine fields, Worker lifecycle, and Sequence JSON is the applicable contract, not a translated guide. CLI `--help` documents command arguments; a bundled CLI offline `user-guide` command is **not part of this version**. Desktop provides a bilingual offline Help window.

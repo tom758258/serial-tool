@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<!-- Generated file. Do not edit directly. -->
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serial Tool Desktop 使用指南</title>
+  <script>
+    (() => {
+      const query = new URLSearchParams(location.search).get("theme");
+      const preference = ["system", "light", "dark"].includes(query) ? query : "system";
+      const media = matchMedia("(prefers-color-scheme: dark)");
+      const update = () => {
+        document.documentElement.dataset.theme = preference === "system"
+          ? (media.matches ? "dark" : "light") : preference;
+      };
+      update();
+      if (preference === "system") media.addEventListener("change", update);
+    })();
+  </script>
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <aside class="help-sidebar">
+    <div class="help-sidebar-title">Serial Tool Help</div>
+    <nav class="help-languages" aria-label="Language">
+      <a href="desktop.html" hreflang="en" lang="en">English</a>
+      <span aria-hidden="true"> | </span>
+      <a href="desktop.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
+    </nav>
+    <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
+    <nav id="toc" aria-labelledby="toc-title"></nav>
+  </aside>
+
+  <main class="help-content" id="help-content">
+<h1>Serial Tool Desktop 使用指南</h1>
+<p>本指南說明目前已實作的 Windows Desktop 操作，適用於需要透過 COM 埠或原始 TCP 收發設備資料的使用者。</p>
+<h2 id="section-1">啟動與畫面</h2>
+<p>Windows 必須安裝系統 Microsoft Edge WebView2 Runtime；如果未偵測到，Serial Tool 會提供開啟 Microsoft 官方頁面的原生警告，<strong>不會</strong>自行安裝，且不建立應用視窗。使用已建置的 <code>Serial Tool.exe</code>，或在 <code>apps/desktop</code> 使用 <code>npm run tauri -- dev</code> 啟動開發版。</p>
+<p>主要功能區域是<strong>連線設定（Connection Setup）</strong>、<strong>終端機（Terminal）</strong>及<strong>序列（Sequence）</strong>。先選傳輸類型、實機／模擬，再連線。Desktop 模擬僅使用固定 <code>loopback-v1</code>；<code>periodic-rx-v1</code> <strong>只供 Streaming Simulation Worker</strong>，不是 Desktop 選項。</p>
+<h2 id="section-2">語言與外觀</h2>
+<p>右上角語言按鈕顯示目前選用的 English／繁體中文，可立即切換，不重載畫面；手動選擇保存在本機 <code>serial-tool.locale</code>。首次開啟時參考 WebView 語言，其餘以英文備援。語言與外觀彼此獨立，外觀可選系統、淺色或深色。</p>
+<p>語言切換不會更動連線、Terminal 位元組、Sequence 資料或任何匯出格式；Core／CLI／Worker 原始診斷及機器可讀輸出不翻譯。</p>
+<h2 id="section-3">離線說明</h2>
+<p>按右上角「<strong>說明</strong>」可於獨立視窗開啟內建離線使用指南，並沿用當下的介面語言（English／繁體中文）及外觀（系統／淺色／深色）。Help 視窗可以自行切換語言，不影響主視窗。若主視窗的語言或外觀後來變更，關閉再重新開啟 Help 即會套用。指南本身不需要網路；指向 GitHub 開發文件的連結是額外線上參考。</p>
+<h2 id="section-4">連線設定：COM 埠／TCP/IP</h2>
+<p>在連線設定分頁選擇 COM 埠或 TCP/IP。實機 COM 埠要選實體 Port；「重新整理 COM 埠」會列出 Port 與 USB Metadata，<strong>不會</strong>先開啟它們。依設備設定鮑率、資料位元、同位檢查、停止位元、流量控制與逾時。</p>
+<p>TCP/IP 實機輸入 Hostname／IPv4／IPv6、設備 Port（1～65535）、Connect Timeout（預設 3000 ms）、共用讀寫 I/O Timeout（預設 1000 ms）。Host 和 Port 是不同欄位，不要填完整 HTTP URL。TCP 是 Raw Byte Stream <strong>Client</strong>，沒有 HTTP、封包 Frame、自動重連；Connect Timeout 不保證涵蓋 DNS 與全部候選位址嘗試的總時間。</p>
+<p>連線設定的齒輪控制 COM 與 TCP <strong>共用的</strong>實機／模擬模式。模擬為確定性的 <code>loopback-v1</code>，不開實體 COM、DNS 或 TCP Socket。COM Port／TCP Host／Port 在模擬時停用，但原值會保留；TCP Timeout 仍須有效。</p>
+<p>切換 COM／TCP 分頁會各自保留此次執行期間的輸入值，<strong>關閉程式後不保存連線設定</strong>。COM 數字欄位仍採原生數字語意但隱藏 Spin Buttons；TCP Port／Timeout 輸入時保留未完成文字，按「連線」再驗證。</p>
+<p>Connecting、Connected、Running、Disconnecting 時鎖定傳輸、設定及模式；先中斷連線才能切換。齒輪選項可再按一次、點外側或按 Escape 收合（Escape 恢復焦點）；收合不會清除模式。Header 顯示 COM／TCP、模式及連線狀態；連線後兩種傳輸都自動持續接收 RX。</p>
+<h2 id="section-5">終端機：傳送及顯示</h2>
+<p>文字傳送會原樣輸出 UTF-8 位元組，<strong>不自動加入 CR／LF</strong>；Hex 可輸入大小寫十六進位配對與 ASCII 空白。Terminal 最多保留 <strong>5000 筆</strong> TX／RX Event 在記憶體，沒有永久 History。</p>
+<p>顯示模式有事件（Hex、跳脫控制字元的 Lossy UTF-8 文字、兩者），以及連續 RX（文字／Hex）。切換顯示模式只重新呈現已保存的 Raw Bytes，不會傳送、重連，或更改 Send Text／Hex Format 與 Auto TX Payload。事件模式保持 TX／RX 各自成列，TX 列使用原來的 Hex。</p>
+<p>「清除畫面」只清掉畫面 History，不影響裝置 Buffer 或連線。連續 RX 文字只顯示 RX，不加方向標籤或事件分行；LF 產生換行、CR 略過、其他控制字元跳脫，且可處理橫跨 RX Event 的 UTF-8 字元。這<strong>不是</strong> ANSI／VT100 終端機模擬器。</p>
+<p>連續 RX Hex 把所有接收位元組以兩位大寫 Hex、每個 Byte 間恰好一個空白接續顯示；空 Event 不插入分隔。CR／LF／NUL 仍以 Hex 顯示。兩種連續 RX 都不含 TX Events、事件標籤或時間戳記。</p>
+<p>「顯示 TX」預設開啟，關閉時只隱藏事件模式的 TX 列，不停止 TX 或清除 History。連續 RX 模式會暫時停用此控制但保留偏好；回到事件模式時仍適用。Sequence Result 的 RX 顯示只有 Hex／文字／兩者。</p>
+<h2 id="section-6">自動傳送（Auto TX）</h2>
+<p>來源預設「輸入內容」，使用與 Manual Send 共用的 Text／Hex Payload；切換來源不清除 Send 欄位。按「啟動自動傳送」後<strong>立即</strong>傳第一筆，再以正整數毫秒間隔重複，直到 Stop Auto TX 或 Disconnect。間隔從上一筆 Send 完成後起算，延遲週期不補送；持續 RX 不停止。</p>
+<p>Auto TX 期間來源、Payload、格式、選定檔案與間隔被鎖定；Manual Send、Send File、Run Sequence 不可操作，但 Disconnect、顯示模式及 Clear View 仍可用。連線錯誤自動停止 Auto TX；其他 TX 請求由 Core 回報 Busy。</p>
+<p>選 Input 須提供非空 Text／Hex，選 File (Raw) 則須有檔案，兩者不合併。File (Raw) 可選任意副檔名，選擇時只保存路徑；啟動時 Rust Backend <strong>一次讀取整份檔案</strong>的 Raw Bytes，重複發送固定 Snapshot，不做 UTF-8、換行或 Hex Text 轉換。</p>
+<p>空檔、遺失或無法讀取的檔案會被拒絕，Auto TX 不啟動；執行中修改檔案不影響目前 Payload，停止後重新啟動才會重讀。Stop 不會中斷已開始的單次 Send。沒有分塊進度、Playlist、每週期重讀、檔案監視或 Mid-file Cancellation。</p>
+<h2 id="section-7">傳送檔案（Send File Raw）</h2>
+<p>Send File 由 Rust Backend 傳送選定檔案的<strong>原始位元組</strong>，拒絕空檔，不做 UTF-8、換行或十六進位文字解析。例如檔案內是文字 <code>AA 55</code>，實際傳送為 <code>41 41 20 35 35</code>，而非 <code>AA 55</code>。</p>
+<p>傳送檔案期間其他 TX 和 Sequence 不可同時執行。此版本把整份檔案讀入記憶體，沒有 Progress／Cancellation／Chunk Delay／XMODEM／YMODEM。</p>
+<h2 id="section-8">終端機匯出</h2>
+<p>匯出是當下 History Snapshot，提供三種格式：</p>
+<table><thead><tr><th>格式</th><th>匯出內容</th></tr></thead><tbody><tr><td>終端機紀錄（Hex）</td><td>人類可讀的大寫 Hex，每筆一行，例如 <code>TX 00 FF</code>、<code>RX 00 FF</code></td></tr><tr><td>RX 原始資料（.bin）</td><td>只串接 RX 位元組</td></tr><tr><td>TX + RX 原始資料（.bin）</td><td>依 History 順序串接所有 TX／RX 位元組</td></tr></tbody></table>
+<p>Raw 匯出不保留方向標籤、分隔符號、換行、事件邊界、時間戳記或其他 Metadata。預設檔名帶本機時間 <code>YYYYMMDD_HHmmss</code>。顯示模式或「顯示 TX」只影響畫面，不影響匯出；收到至少一個 RX Byte 才能使用 RX Raw。</p>
+<p>Clear View 清除後無法匯出先前紀錄；超過 5000 筆而被移除的舊 Event 亦不能匯出。這不是持續 Capture Writer。TX + RX Raw 只是攤平的歷史位元組，<strong>不是</strong>可回放方向／時間的 Session Replay；若將其送回設備，原 RX Byte 也會作為 TX 發送。</p>
+<h2 id="section-9">Sequence Editor 與結果</h2>
+<p>Editor 支援 <strong>Send Text、Send Bytes、Wait、Read、Read Until、巢狀 Repeat</strong> 六種步驟，Properties 顯示選定步驟說明。提供 New、Load、Save、Validate、Add Step、Add Child、Delete、Move Up、Move Down。編輯中的 Draft 可以暫時不合法，但 Validate／Save／Run 都透過 Core 的 Sequence v1 Parser 和驗證。</p>
+<p>Sequence JSON 使用 <code>transport: {type, settings}</code>，舊的根欄位 <code>serial</code> 不再支援。UART 保存原六項線路設定；TCP <strong>只保存 <code>io_timeout_ms</code></strong>，不保存 Host、Port 或 Connect Timeout。實際設備資源與模式另外在 Connection Setup 選擇。</p>
+<p>New 依目前 COM／TCP 分頁建立空白 Draft；Load 保留檔案自己的 Transport，即使與目前分頁不同。Save、Validate 不需建立連線。「從連線設定複製」只有 Editor Transport 與 Connection Setup 分頁一致時能用，只複製 UART 六項設定或 TCP I/O Timeout。切換分頁或複製設定不會修改已建立的連線，亦不會自動轉換載入的 Sequence。</p>
+<p>Editor 提示未連線、設定相符或具體 Transport／Settings 不相符。Run 要求同一傳輸、完全匹配的 UART 六項或 TCP I/O Timeout；不符合則停用 Run，保留連線和 Draft。Core 執行前也會重驗。</p>
+<p>最近一筆結果只保存在記憶體，包含完成步驟、Raw-byte Transcript，以及失敗時可取得的 Partial Bytes。狀態與控制位於高度 250px 的 Step Results／Transcript 共用捲動區上方。新的 Run 從頂端顯示；切換 RX 顯示不重設 Scroll Position。</p>
+<p>「儲存結果」匯出<strong>完整 JSON</strong>及原始 Byte Arrays，不受 Hex／文字／兩者顯示選擇影響。失敗結果也保留失敗步驟、Error、已完成步驟、Transcript 和可取得的 Partial Bytes；沒有結果則無法儲存。沒有持久 Run History 或自動結果目錄。</p>
+<h2 id="section-10">常見問題與限制</h2>
+<ul><li><strong>不能切換 COM／TCP：</strong> 先中斷連線，連線中或執行中會鎖定設定。</li><li><strong>文字亂碼：</strong> 用 Hex 檢查原始位元組；文字是顯示方式，不是設備解碼器。</li><li><strong>Text 傳送後沒有回覆：</strong> 確認設備是否要求 CR／LF；Text 不會自動加入。</li><li><strong>TCP 連線失敗：</strong> 檢查 Host/IP 與 Port，不要填 HTTP URL；不會自動重連。</li><li><strong>Sequence Run 不可使用：</strong> 先 Validate，並核對目前連線 Transport／Settings。</li><li><strong>匯出無資料：</strong> 匯出僅使用目前 History，Clear View 與 5000 筆上限都會影響資料。</li><li><strong>Auto TX 時無法 Send File／Run：</strong> 先 Stop Auto TX。</li></ul>
+<p>本版本沒有永久 Run History、持續寫檔 Capture 或 Protocol Framing。</p>
+  </main>
+
+  <script>
+    (function () {
+      var isTraditionalChinese =
+        document.documentElement.lang.toLowerCase() === "zh-tw";
+
+      var strings = isTraditionalChinese
+        ? {
+            contents: "\u7ae0\u7bc0\u5c0e\u89bd",
+            copy: "\u8907\u88fd",
+            copied: "\u5df2\u8907\u88fd",
+            copyFailed: "\u8907\u88fd\u5931\u6548"
+          }
+        : {
+            contents: "Contents",
+            copy: "Copy",
+            copied: "Copied",
+            copyFailed: "Copy failed"
+          };
+
+      document.getElementById("toc-title").textContent = strings.contents;
+      document.querySelectorAll(".help-languages a").forEach(function (link) {
+        if (link.hreflang === document.documentElement.lang) {
+          link.setAttribute("aria-current", "page");
+        }
+      });
+
+      function buildTableOfContents() {
+        var toc = document.getElementById("toc");
+        if (!toc) return;
+
+        var headings = document.querySelectorAll(
+          "#help-content h2[id], #help-content h3[id]"
+        );
+        var fragment = document.createDocumentFragment();
+
+        headings.forEach(function (heading) {
+          var link = document.createElement("a");
+          link.href = "#" + heading.id;
+          link.textContent = heading.textContent;
+          if (heading.tagName === "H3") {
+            link.className = "level-3";
+          }
+          fragment.appendChild(link);
+        });
+
+        toc.appendChild(fragment);
+      }
+
+      function wrapCodeBlocks() {
+        document.querySelectorAll("#help-content pre").forEach(
+          function (pre) {
+            if (pre.closest(".code-wrapper")) return;
+
+            var wrapper = document.createElement("div");
+            wrapper.className = "code-wrapper";
+            pre.parentNode.insertBefore(wrapper, pre);
+            wrapper.appendChild(pre);
+
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "copy-btn";
+            button.textContent = strings.copy;
+            button.addEventListener("click", function () {
+              if (
+                !navigator.clipboard ||
+                typeof navigator.clipboard.writeText !== "function"
+              ) {
+                button.textContent = strings.copyFailed;
+                setTimeout(function () {
+                  button.textContent = strings.copy;
+                }, 1600);
+                return;
+              }
+
+              navigator.clipboard.writeText(pre.innerText).then(
+                function () {
+                  button.textContent = strings.copied;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                },
+                function () {
+                  button.textContent = strings.copyFailed;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                }
+              );
+            });
+            wrapper.appendChild(button);
+          }
+        );
+      }
+
+      function observeActiveSection() {
+        var tocLinks = document.querySelectorAll("#toc a");
+        if (!tocLinks.length) return;
+
+        var observer = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (entry) {
+              if (!entry.isIntersecting) return;
+
+              tocLinks.forEach(function (link) {
+                link.classList.toggle(
+                  "active",
+                  link.getAttribute("href") === "#" + entry.target.id
+                );
+              });
+            });
+          },
+          { rootMargin: "-10% 0px -70% 0px" }
+        );
+
+        headings.forEach(function (heading) {
+          observer.observe(heading);
+        });
+      }
+
+      function preserveHelpThemeQuery() {
+        var override = null;
+        try {
+          var q = new URLSearchParams(location.search).get("theme");
+          if (q === "system" || q === "light" || q === "dark") override = q;
+        } catch (_error) {}
+        if (!override) return;
+        document.querySelectorAll('a[href]').forEach(function (anchor) {
+          var href = anchor.getAttribute("href");
+          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
+          if (href.indexOf(".html") === -1) return;
+          if (href.indexOf("?theme=") !== -1) return;
+          var hashIndex = href.indexOf("#");
+          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
+          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+          anchor.setAttribute("href", base + "?theme=" + override + hash);
+        });
+      }
+
+      var headings = document.querySelectorAll(
+        "#help-content h2[id], #help-content h3[id]"
+      );
+      buildTableOfContents();
+      wrapCodeBlocks();
+      observeActiveSection();
+      preserveHelpThemeQuery();
+    })();
+  </script>
+</body>
+</html>

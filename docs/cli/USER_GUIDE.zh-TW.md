@@ -1,5 +1,3 @@
-[English](USER_GUIDE.md) | [CLI 技術參考](README.zh-TW.md) | [專案介紹](../../README.zh-TW.md)
-
 # Serial Tool CLI 使用指南
 
 本指南提供已安裝 `serial-tool` CLI 的日常操作方式。進階選項請見 [CLI README](README.zh-TW.md)，各指令接受的參數以 `serial-tool <command> --help` 為準。**目前尚未實作**內建 `serial-tool user-guide` 指令。

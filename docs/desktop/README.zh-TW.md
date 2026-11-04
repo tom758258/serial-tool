@@ -1,5 +1,3 @@
-[English](README.md) | [Desktop 使用指南](USER_GUIDE.zh-TW.md) | [專案介紹](../../README.zh-TW.md)
-
 # Serial Tool Desktop
 
 Desktop 是以 Windows 為優先的 Tauri 2／React／TypeScript／Vite 應用程式。本文件提供開發設定、元件責任及技術限制；一般操作請參考 [Desktop 使用指南](USER_GUIDE.zh-TW.md)。

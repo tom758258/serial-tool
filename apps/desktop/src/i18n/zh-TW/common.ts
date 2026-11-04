@@ -1,6 +1,8 @@
 export const common = {
   "common.appearance": "外觀",
   "common.language": "語言",
+  "common.help": "說明",
+  "common.help_open_failed": "無法開啟說明：{reason}",
   "common.theme.system": "系統",
   "common.theme.light": "淺色",
   "common.theme.dark": "深色",

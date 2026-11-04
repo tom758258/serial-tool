@@ -392,6 +392,12 @@ export default function App() {
             </svg> <span lang={locale}>{locale === 'en' ? 'English' : '繁體中文'}</span>
           </button>
         </div>
+        <div className="header-setting"><span>{t('common.help')}</span>
+          <button type="button" onClick={() => {
+            void invoke('open_help', { locale, theme }).catch(error =>
+              setNotice({ message: 'common.help_open_failed', params: { reason: errorMessage(error) }, localized: true, kind: 'error' }))
+          }}>{t('common.help')}</button>
+        </div>
       </div>
     </header>
 

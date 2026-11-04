@@ -1,8 +1,6 @@
-[繁體中文](USER_GUIDE.zh-TW.md) | [Desktop Technical README](README.md) | [Project](../../README.md)
-
 # Serial Tool Desktop User Guide
 
-This guide describes the existing Windows-first Desktop controls for operators of COM or raw TCP devices. For developer setup and technical ownership, see the [Desktop README](README.md).
+This guide describes the existing Windows-first Desktop controls for operators of COM or raw TCP devices.
 
 ## Getting started
 
@@ -19,6 +17,10 @@ as fallback. Language and Appearance are independent. Appearance supports System
 Light, and Dark modes. Switching language never changes
 device connectivity, terminal bytes, Sequence data, or exported file formats.
 Core/CLI/Worker diagnostics and machine-readable data are not translated.
+
+## Offline Help
+
+Select **Help** at the top right to open the built-in offline guide in a separate window. It uses the current language (English or Traditional Chinese) and appearance (System, Light, or Dark). Help can switch language independently of the main window. Close and reopen Help to apply later changes to the main window's preferences. The guide works offline; developer-document links to GitHub are optional online references.
 
 ## Connection Setup: COM and TCP
 
@@ -178,4 +180,4 @@ result exists. There is no saved run history or automatic result directory.
 - **Export unavailable:** Exports use current in-memory Terminal history. Clear View and the 5000-event cap discard data from the export snapshot.
 - **Send File or Sequence disabled during Auto TX:** Stop Auto TX first.
 
-There is no persistent run-history database, continuous disk capture, protocol framing, or built-in offline Help window in this version. The [Sequence Contract](../contracts/serial-sequence-contract.md) and [Worker Contract](../contracts/serial-worker-contract.md) define machine-facing behavior.
+There is no persistent run-history database, continuous disk capture, or protocol framing in this version.

@@ -1,5 +1,3 @@
-[English](README.md) | [CLI 使用指南](USER_GUIDE.zh-TW.md) | [專案介紹](../../README.zh-TW.md)
-
 # Serial Tool CLI／Worker
 
 本文件是 `crates/serial-tool-cli` 的工程與指令詳細參考。一般操作流程請看 [CLI 使用指南](USER_GUIDE.zh-TW.md)；機器可讀欄位及生命週期則以 [contracts](../contracts/) 為準，不以一般說明或翻譯取代正式 Schema。

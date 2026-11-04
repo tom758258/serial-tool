@@ -58,15 +58,13 @@ Root Cargo Workspace 包含 Core 與 CLI；`apps/desktop/src-tauri` 是另一個
 
 ## 文件導覽
 
-| 對象 | English | 繁體中文 |
-| --- | --- | --- |
-| 專案介紹 | [README](README.md) | 本文件 |
-| Core 開發者 | [Core README](docs/core/README.md) | [Core 說明](docs/core/README.zh-TW.md) |
-| CLI／Worker 開發者 | [CLI README](docs/cli/README.md) | [CLI 說明](docs/cli/README.zh-TW.md) |
-| CLI 操作人員 | [CLI User Guide](docs/cli/USER_GUIDE.md) | [CLI 使用指南](docs/cli/USER_GUIDE.zh-TW.md) |
-| Desktop 開發者 | [Desktop README](docs/desktop/README.md) | [Desktop 說明](docs/desktop/README.zh-TW.md) |
-| Desktop 操作人員 | [Desktop User Guide](docs/desktop/USER_GUIDE.md) | [Desktop 使用指南](docs/desktop/USER_GUIDE.zh-TW.md) |
+- [Core 說明](docs/core/README.zh-TW.md)
+- [CLI 說明](docs/cli/README.zh-TW.md)
+- [CLI 使用指南](docs/cli/USER_GUIDE.zh-TW.md)
+- [Desktop 說明](docs/desktop/README.zh-TW.md)
+- [Desktop 使用指南](docs/desktop/USER_GUIDE.zh-TW.md)
+- [離線說明維護文件](docs/help/README.md)
 
 工程文件：[Repository 架構](docs/architecture/monorepo-layout.md)、[CLI JSON／JSONL 合約](docs/contracts/serial-cli-jsonl-contract.md)、[Worker 合約](docs/contracts/serial-worker-contract.md)、[序列合約](docs/contracts/serial-sequence-contract.md) 及 [Orchestrator 整合合約](docs/contracts/serial-orchestrator-workflows.md)。共用 Common 合約亦放在 [contracts](docs/contracts/)。
 
-機器可讀欄位、Worker 生命週期及 Sequence JSON 以正式合約為準，而非翻譯後的指南。CLI `--help` 用於指令參數說明；**本版本尚未提供**內建離線 `user-guide` 指令或 Desktop Help 視窗。
+機器可讀欄位、Worker 生命週期及 Sequence JSON 以正式合約為準，而非翻譯後的指南。CLI `--help` 用於指令參數說明；**本版本尚未提供** CLI 內建離線 `user-guide` 指令；Desktop 已提供雙語離線說明視窗。

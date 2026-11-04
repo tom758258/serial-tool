@@ -1,5 +1,3 @@
-[繁體中文](README.zh-TW.md) | [Project](../../README.md) | [Monorepo Layout](../architecture/monorepo-layout.md)
-
 # Serial Tool Core
 
 `serial-tool-core` is the shared Rust communication and execution library used by the CLI/Worker and by the Tauri Desktop backend. It owns device I/O and transport-independent execution behavior; adapters own human interaction, UI, and machine-facing presentation.

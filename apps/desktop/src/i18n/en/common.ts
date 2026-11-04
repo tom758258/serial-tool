@@ -1,6 +1,8 @@
 export const common = {
   "common.appearance": "Appearance",
   "common.language": "Language",
+  "common.help": "Help",
+  "common.help_open_failed": "Failed to open Help: {reason}",
   "common.theme.system": "System",
   "common.theme.light": "Light",
   "common.theme.dark": "Dark",
