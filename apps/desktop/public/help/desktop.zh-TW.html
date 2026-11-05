@@ -91,7 +91,7 @@
 <p>Clear View 清除後無法匯出先前紀錄；超過 5000 筆而被移除的舊 Event 亦不能匯出。這不是持續 Capture Writer。TX + RX Raw 只是攤平的歷史位元組，<strong>不是</strong>可回放方向／時間的 Session Replay；若將其送回設備，原 RX Byte 也會作為 TX 發送。</p>
 <h2 id="sequence-editor-與結果">Sequence Editor 與結果</h2>
 <p>Editor 支援 <strong>Send Text、Send Bytes、Wait、Read、Read Until、巢狀 Repeat</strong> 六種步驟，Properties 顯示選定步驟說明。提供 New、Load、Save、Validate、Add Step、Add Child、Delete、Move Up、Move Down。編輯中的 Draft 可以暫時不合法，但 Validate／Save／Run 都透過 Core 的 Sequence v1 Parser 和驗證。</p>
-<p>Sequence JSON 使用 <code>transport: {type, settings}</code>，舊的根欄位 <code>serial</code> 不再支援。UART 保存原六項線路設定；TCP **只保存 <code>io_timeout_ms</code>**，不保存 Host、Port 或 Connect Timeout。實際設備資源與模式另外在 Connection Setup 選擇。</p>
+<p>Sequence JSON 使用 <code>transport: {type, settings}</code>，舊的根欄位 <code>serial</code> 不再支援。UART 保存原六項線路設定；TCP <strong>只保存 <code>io_timeout_ms</code></strong>，不保存 Host、Port 或 Connect Timeout。實際設備資源與模式另外在 Connection Setup 選擇。</p>
 <p>New 依目前 COM／TCP 分頁建立空白 Draft；Load 保留檔案自己的 Transport，即使與目前分頁不同。Save、Validate 不需建立連線。「從連線設定複製」只有 Editor Transport 與 Connection Setup 分頁一致時能用，只複製 UART 六項設定或 TCP I/O Timeout。切換分頁或複製設定不會修改已建立的連線，亦不會自動轉換載入的 Sequence。</p>
 <p>Editor 提示未連線、設定相符或具體 Transport／Settings 不相符。Run 要求同一傳輸、完全匹配的 UART 六項或 TCP I/O Timeout；不符合則停用 Run，保留連線和 Draft。Core 執行前也會重驗。</p>
 <p>最近一筆結果只保存在記憶體，包含完成步驟、Raw-byte Transcript，以及失敗時可取得的 Partial Bytes。狀態與控制位於高度 250px 的 Step Results／Transcript 共用捲動區上方。新的 Run 從頂端顯示；切換 RX 顯示不重設 Scroll Position。</p>
