@@ -95,7 +95,7 @@ try {
         }
     }
     Invoke-Step "build-windows" {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-all.ps1") 2>&1 | Out-Host
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build-all.ps1")
         if ($LASTEXITCODE -ne 0) { throw "build-all.ps1 failed (exit $LASTEXITCODE)." }
     }
     Invoke-Step "artifacts" {
