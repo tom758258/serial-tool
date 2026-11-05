@@ -1,0 +1,40 @@
+Serial Tool — Third-Party Notices
+
+Serial Tool itself is licensed under the MIT License (see LICENSE).
+Third-party components retain their own copyright and license terms.
+
+serialport 4.10.1 (Rust runtime dependency)
+------------------------------------------
+License: Mozilla Public License, Version 2.0 (MPL-2.0).
+Corresponding upstream source: https://github.com/serialport/serialport-rs/tree/v4.10.1
+Package: https://crates.io/crates/serialport/4.10.1
+Full license text: licenses/MPL-2.0.txt
+Serial Tool does not assert that serialport is MIT-licensed.
+The upstream MPL-covered source is available at the URLs above.
+
+Other principal runtime dependencies
+------------------------------------
+Tauri 2 and Rust/plugin API packages — MIT OR Apache-2.0
+  https://github.com/tauri-apps/tauri
+React 19.3.0, React DOM 19.3.0, scheduler 0.28.0 — MIT
+  https://github.com/facebook/react
+@tauri-apps/api 2.11.1 — Apache-2.0 OR MIT
+@tauri-apps/plugin-dialog 2.7.3 — MIT OR Apache-2.0
+  https://github.com/tauri-apps/tauri
+webbrowser (Rust crate) — MIT OR Apache-2.0
+  https://github.com/amodm/webbrowser-rs
+
+Dependency and distribution scope
+---------------------------------
+The locked Rust root/Desktop graphs and the npm lockfile were reviewed for
+the Windows two-EXE distribution. These entries highlight important directly
+distributed dependencies, not a complete transitive copyright inventory.
+Other applicable dependency copyright/license notices must be honored.
+Exact resolved packages are tracked in Cargo.lock,
+apps/desktop/src-tauri/Cargo.lock, and apps/desktop/package-lock.json.
+
+npm also locks lightningcss 1.33.0 and platform-specific lightningcss
+binaries as MPL-2.0. They are frontend build-time tools, not separate
+components of the released two-EXE payload. Microsoft Edge WebView2 Runtime
+is supplied by the Windows system and is not bundled by Serial Tool.
+Vendor names and trademarks belong to their respective owners.
