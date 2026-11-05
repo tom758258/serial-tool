@@ -112,4 +112,6 @@ Root Cargo Workspace 包含 Core 與 CLI；`apps/desktop/src-tauri` 是另一個
 
 Copyright (c) 2026 tom758258。Serial Tool 採用 [MIT License](LICENSE)。第三方授權資訊及另行採用 MPL-2.0 的 `serialport` 元件，請參閱 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)；MPL-2.0 全文收錄於 [licenses/MPL-2.0.txt](licenses/MPL-2.0.txt)。
 
+Serial Tool 的應用程式圖示使用 ChatGPT 中的 OpenAI 圖像生成功能製作，並由專案維護者審查及挑選。
+
 Serial Tool 為獨立、非官方專案，與硬體、作業系統及框架廠商沒有隸屬、背書或贊助關係。第三方名稱、產品及商標均屬各自權利人所有。使用者須遵守適用的第三方軟體、驅動程式、硬體與文件授權條款。MIT License 不提供保固。
