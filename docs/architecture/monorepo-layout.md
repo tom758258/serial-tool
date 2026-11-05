@@ -7,6 +7,8 @@ Serial Tool is a Rust Core + CLI/Worker + Tauri 2 Desktop repository. This docum
 ```text
 .
 |-- AGENTS.md
+|-- LICENSE / THIRD_PARTY_NOTICES.txt
+|-- licenses/MPL-2.0.txt
 |-- Cargo.toml / Cargo.lock         # Root Rust workspace
 |-- crates/
 |   |-- serial-tool-core/
@@ -28,8 +30,10 @@ Serial Tool is a Rust Core + CLI/Worker + Tauri 2 Desktop repository. This docum
 |   |-- core/                      # Core engineering README
 |   |-- cli/                       # CLI/Worker README and operator guide
 |   |-- desktop/                   # Desktop README and operator guide
-|   `-- contracts/                 # Common and Serial machine contracts
-|-- scripts/                       # Windows build entry point
+|   |-- contracts/                # Common and Serial machine contracts
+|   |-- help/                     # Offline Help sources
+|   `-- testing-guidelines.md    # Focused validation rules
+|-- scripts/                       # Windows build, release acceptance, Help generator
 `-- .github/workflows/            # Rust/Desktop CI and Windows build
 ```
 
@@ -48,7 +52,9 @@ One session has one Core I/O owner: continuous RX monitoring and the Sequence St
 - `docs/cli/README*.md`: CLI/Worker technical reference; `docs/cli/USER_GUIDE*.md`: operator workflow.
 - `docs/desktop/README*.md`: Tauri/Desktop development; `docs/desktop/USER_GUIDE*.md`: operator workflow.
 - `docs/contracts/`: canonical Common and Serial machine-facing contracts. Keep JSON keys, protocol versions and public semantics defined here, not independently in translated guides.
-- `AGENTS.md`: repository development and validation policy. Actual code and contracts take precedence over explanatory documentation.
+- `AGENTS.md`: repository development and validation policy.
+- `docs/testing-guidelines.md`: test scope, review standards, and CI/release validation boundaries.
+- `LICENSE` and `THIRD_PARTY_NOTICES.txt`: project MIT license and third-party notices; `licenses/MPL-2.0.txt` contains the serialport license text. Actual code and contracts take precedence over explanatory documentation.
 
 English is the primary maintenance language for public guides; Traditional Chinese documents remain semantically aligned. The architecture and contracts can remain English-only. Serial Tool has no separate WebUI or supported-device model registry, so neither `docs/webui/` nor `supported-models.md` is appropriate.
 

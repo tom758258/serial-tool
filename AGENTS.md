@@ -12,27 +12,7 @@ Keep changes small, preserve clear component ownership, and do not build future 
 
 ## 2. Repository And Architecture Boundaries
 
-The intended initial repository structure is:
-
-```text
-serial-tool/
-├─ crates/
-│  ├─ serial-tool-core/
-│  └─ serial-tool-cli/
-├─ examples/
-├─ tests/
-├─ Cargo.toml
-├─ Cargo.lock
-├─ README.md
-└─ AGENTS.md
-```
-
-The Desktop application lives at:
-
-```text
-apps/desktop/                 # Tauri 2 + React/TypeScript/Vite
-└─ src-tauri/                 # Separate Cargo workspace
-```
+The current layout is documented in [Monorepo Layout](docs/architecture/monorepo-layout.md). Main components are `crates/serial-tool-core/`, `crates/serial-tool-cli/`, and `apps/desktop/` (Tauri 2 + React/TypeScript/Vite, with a separate Rust workspace).
 
 Architecture rules:
 
@@ -55,7 +35,7 @@ Architecture rules:
 - Do not silently guess communication parameters when correctness depends on them.
 - Handle port-open, read, write, timeout, disconnect, malformed input, and cancellation paths explicitly.
 - Avoid unnecessary background threads, async runtimes, channels, or buffering layers unless the implementation actually needs them.
-- TCP/IP support may be added when there is a concrete requirement, but do not force serial and TCP/IP into a premature generic transport framework.
+- Core supports UART/COM and raw TCP client transports. Do not broaden TCP into server, device-protocol, reconnect, or framing features without a concrete requirement.
 
 ## 4. Orchestrator / Worker Boundary
 
@@ -99,6 +79,7 @@ Architecture rules:
 
 ## 8. Testing And Validation
 
+- Follow [Testing Guidelines](docs/testing-guidelines.md) for test scope, contract boundaries, CI responsibilities, and release acceptance.
 - Default tests and validation must not require real serial hardware.
 - Prefer focused unit tests for parsing, validation, execution decisions, error mapping, and simulation behavior.
 - Add integration tests when they validate an actual cross-component boundary such as CLI-to-Core or worker-to-contract behavior.
@@ -132,6 +113,7 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 - Run the narrowest relevant checks first, then workspace-level checks when practical.
 - If a check is not applicable yet because the corresponding component has not been created, do not add scaffolding only to make the check exist.
 - Report failed, skipped, blocked, or unexecuted verification steps instead of implying they passed.
+- Reserve `scripts/release-acceptance.ps1` for Windows release candidates and packaging/distribution validation, not routine documentation or code changes. It must be hardware-free and separate from live COM/TCP verification. Do not publish a release because ordinary CI or build smoke passed.
 
 ## 9. Scope Control
 
@@ -144,6 +126,7 @@ cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
 
 ## 10. Documentation Boundary
 
+- Keep English and Traditional Chinese root READMEs semantically aligned, including license and release instructions.
 - Keep the root `README.md` as the project overview, setup guide, and primary entry point rather than a complete specification dump.
 - Put durable architecture or contract details in focused documentation only when the implementation needs that level of detail.
 - Keep operator-facing usage separate from maintainer/architecture notes when the documentation grows enough to justify that split.
