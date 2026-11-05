@@ -1,6 +1,6 @@
 # Serial Tool CLI 使用指南
 
-本指南提供已安裝 `serial-tool` CLI 的日常操作方式。進階選項請見 [CLI README](README.zh-TW.md)，各指令接受的參數以 `serial-tool <command> --help` 為準。**目前尚未實作**內建 `serial-tool user-guide` 指令。
+本指南提供已安裝 `serial-tool` CLI 的日常操作方式。進階選項請見 CLI README，各指令接受的參數以 `serial-tool <command> --help` 為準。可使用 `serial-tool user-guide` 開啟英文離線指南，或使用 `serial-tool user-guide --lang zh-TW` 開啟繁體中文指南。
 
 ## 1. 啟動與確認 CLI
 
@@ -43,7 +43,7 @@ serial-tool send --port COM4 --baud 115200 --hex "AA 55" --dry-run --json
 
 `send` 的 `--text`、`--hex`、`--file` 必須擇一；`query` 需指定一種 Text／Hex Payload 與一種 Text／Hex Delimiter，不支援檔案。`--text` 原樣傳送 UTF-8，**不自動加 CR／LF**；使用 Hex 可指定非文字位元組。Raw File 不改變檔案內容。Dry-run 僅驗證，不開啟 COM 或 TCP。
 
-`receive`、`query`、`sequence run` 的 `--rx-display hex|text|both` 只影響人類可閱讀的呈現；JSON／JSONL 仍保持原始位元組機器欄位。輸出與 Exit Code 詳 [CLI Machine Contract](../contracts/serial-cli-jsonl-contract.md)。
+`receive`、`query`、`sequence run` 的 `--rx-display hex|text|both` 只影響人類可閱讀的呈現；JSON／JSONL 仍保持原始位元組機器欄位。輸出與 Exit Code 詳 CLI Machine Contract。
 
 ## 4. 互動式終端機
 
@@ -97,7 +97,7 @@ serial-tool sequence run --file sequence.json --mode live --port COM4
 serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
 ```
 
-TCP Sequence 改用 `"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}`，執行時指定 `--transport tcp --host HOST --tcp-port PORT`。Sequence 不儲存設備資源或執行模式；Validate 不會開啟連線。正式格式詳 [Sequence Contract](../contracts/serial-sequence-contract.md)。
+TCP Sequence 改用 `"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}`，執行時指定 `--transport tcp --host HOST --tcp-port PORT`。Sequence 不儲存設備資源或執行模式；Validate 不會開啟連線。正式格式詳 Sequence Contract。
 
 ## 7. Worker 與 Streaming
 
@@ -114,7 +114,7 @@ Worker 提供僅本機可用的 HTTP 控制面及 JSONL Event。普通 Worker �
 serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
 ```
 
-`periodic-rx-v1` **只供 Streaming Simulation Worker** 使用，不迴送 TX。Streaming Worker 只接受 `send`、`send-file`；RX Event 是原始位元組區段，不保證對應封包。HTTP 接受不代表 Job 完成；Worker Stop 接受也不代表程序已結束。詳 [Worker Contract](../contracts/serial-worker-contract.md)。
+`periodic-rx-v1` **只供 Streaming Simulation Worker** 使用，不迴送 TX。Streaming Worker 只接受 `send`、`send-file`；RX Event 是原始位元組區段，不保證對應封包。HTTP 接受不代表 Job 完成；Worker Stop 接受也不代表程序已結束。詳 Worker Contract。
 
 ## 8. 常見問題及限制
 
@@ -126,4 +126,4 @@ serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodi
 - **Sequence 無法執行：** 確認 JSON 的 Transport／Settings 與執行環境一致，且不使用舊的根欄位 `serial`。
 - **Streaming 命令遭拒：** `receive`、`query`、`run-sequence` 只供非 Streaming Worker。
 
-Serial Tool 不會自動重送失敗資料、解碼設備協定或建立 Capture 資料庫。詳細指令與限制見 [CLI README](README.zh-TW.md)。
+Serial Tool 不會自動重送失敗資料、解碼設備協定或建立 Capture 資料庫。詳細指令與限制見 CLI README。

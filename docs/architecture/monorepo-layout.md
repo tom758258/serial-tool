@@ -56,4 +56,4 @@ English is the primary maintenance language for public guides; Traditional Chine
 
 Only Git-tracked repository documentation is a public source of truth. Private/local project plans, temporary validation results, logs, generated runtime data, and untracked scratch material do **not** become public specifications and must not be copied into GitHub. Do not add run-specific evidence or machine-local identifying paths to published documentation.
 
-Desktop offline HTML Help is generated from bilingual Desktop USER_GUIDE files by scripts/generate_help.py, with tracked assets under apps/desktop/public/help/. The CLI offline user-guide command remains future work.
+Desktop offline HTML Help is generated from bilingual Desktop USER_GUIDE files by scripts/generate_help.py, with tracked assets under apps/desktop/public/help/. The CLI offline user-guide is generated from bilingual CLI USER_GUIDE files into tracked `crates/serial-tool-cli/help/` assets, compiled into the CLI executable, and opened via the default browser using local runtime cache.

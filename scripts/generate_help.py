@@ -1,9 +1,9 @@
-"""Generate and verify the tracked Serial Tool Desktop offline Help bundle."""
+"""Generate and verify the tracked Serial Tool Desktop and CLI offline Help bundles."""
 
 import argparse
 import difflib
-import itertools
 import html
+import itertools
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -16,19 +16,22 @@ from markdown.extensions.toc import TocExtension, slugify_unicode
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "apps/desktop/public/help"
-SOURCES = (
-    ("USER_GUIDE.md", "desktop.html", "en"),
-    ("USER_GUIDE.zh-TW.md", "desktop.zh-TW.html", "zh-TW"),
+CLI_OUTPUT = ROOT / "crates/serial-tool-cli/help"
+DESKTOP_NAMES = {"en": "desktop.html", "zh-TW": "desktop.zh-TW.html"}
+CLI_NAMES = {"en": "cli.html", "zh-TW": "cli.zh-TW.html"}
+BUNDLES = (
+    (ROOT / "docs/desktop", OUTPUT, DESKTOP_NAMES),
+    (ROOT / "docs/cli", CLI_OUTPUT, CLI_NAMES),
 )
-FILES = ("desktop.html", "desktop.zh-TW.html", "help.css")
-TOKENS = ("{{lang}}", "{{title}}", "{{content}}")
+TOKENS = ("{{lang}}", "{{title}}", "{{content}}", "{{en_href}}", "{{zh_href}}")
 HTML_WARNING = "<!-- Generated file. Do not edit directly. -->"
 
 
 class HelpLinks(HTMLParser):
-    def __init__(self):
+    def __init__(self, names):
         super().__init__()
         self.languages = {}
+        self.names = set(names.values())
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -42,7 +45,7 @@ class HelpLinks(HTMLParser):
             and not url.netloc
             and not url.query
             and not url.fragment
-            and url.path in ("desktop.html", "desktop.zh-TW.html")
+            and url.path in self.names
         )
         if not (public or bundled):
             raise ValueError(f"Unpackaged or unsafe Help link: {href}")
@@ -52,9 +55,9 @@ class HelpLinks(HTMLParser):
             self.languages[attrs["hreflang"]] = href
 
 
-def render(source, lang, template):
+def render(source, lang, template, names=DESKTOP_NAMES):
     if any(template.count(token) != 1 for token in TOKENS):
-        raise ValueError("Template must contain lang, title, and content tokens exactly once")
+        raise ValueError("Template must contain all Help tokens exactly once")
     title = re.search(r"^# (.+)$", source, re.MULTILINE)
     if title is None:
         raise ValueError("Help source needs an H1 title")
@@ -62,25 +65,32 @@ def render(source, lang, template):
         "fenced_code", "tables", "sane_lists",
         TocExtension(slugify=slugify_unicode),
     ])
-    values = dict(zip(TOKENS, (html.escape(lang), html.escape(title[1]), content)))
+    values = {
+        "{{lang}}": html.escape(lang),
+        "{{title}}": html.escape(title[1]),
+        "{{content}}": content,
+        "{{en_href}}": names["en"],
+        "{{zh_href}}": names["zh-TW"],
+    }
     result = re.sub(r"\{\{\w+\}\}", lambda match: values.get(match[0], match[0]), template)
     result = result.replace("<!DOCTYPE html>\n", f"<!DOCTYPE html>\n{HTML_WARNING}\n", 1)
     if re.search(r"\{\{\w+\}\}", result):
         raise ValueError("Unexpanded template placeholder in Help output")
-    links = HelpLinks()
+    links = HelpLinks(names)
     links.feed(result)
-    expected = {lang: name for _, name, lang in SOURCES}
-    if links.languages != expected:
-        raise ValueError(f"Help language links must point to {expected}")
+    if links.languages != names:
+        raise ValueError(f"Help language links must point to {names}")
     return result
 
 
-def generate(output):
+def generate_bundle(sources, output, names):
     template = (ROOT / "docs/help/template.html").read_text(encoding="utf-8")
     output.mkdir(parents=True, exist_ok=True)
-    for source, name, lang in SOURCES:
-        text = (ROOT / "docs/desktop" / source).read_text(encoding="utf-8")
-        (output / name).write_text(render(text, lang, template), encoding="utf-8", newline="\n")
+    for source_name, lang in (("USER_GUIDE.md", "en"), ("USER_GUIDE.zh-TW.md", "zh-TW")):
+        text = (sources / source_name).read_text(encoding="utf-8")
+        (output / names[lang]).write_text(
+            render(text, lang, template, names), encoding="utf-8", newline="\n"
+        )
     css = (ROOT / "docs/help/help.css").read_text(encoding="utf-8")
     (output / "help.css").write_text(
         "/* Generated; do not edit directly. */\n" + css,
@@ -88,33 +98,42 @@ def generate(output):
     )
 
 
+def generate(output=None):
+    # --output-dir preserves the old Desktop-only override used by maintainers.
+    if output is not None:
+        generate_bundle(ROOT / "docs/desktop", output, DESKTOP_NAMES)
+    else:
+        for sources, directory, names in BUNDLES:
+            generate_bundle(sources, directory, names)
+
+
 def check():
     with TemporaryDirectory(prefix="serial-help-") as temporary:
-        generated = Path(temporary)
-        generate(generated)
-        for name in FILES:
-            tracked = OUTPUT / name
-            # Git may check text out with CRLF on Windows.
-            actual = tracked.read_text(encoding="utf-8") if tracked.is_file() else ""
-            expected = (generated / name).read_text(encoding="utf-8")
-            if actual != expected:
-                diff = difflib.unified_diff(
-                    actual.splitlines(keepends=True),
-                    expected.splitlines(keepends=True),
-                    fromfile=f"tracked/{name}",
-                    tofile=f"generated/{name}",
-                )
-                print("".join(itertools.islice(diff, 60)))
-                raise ValueError(
-                    f"Help bundle is out of sync: {name}; run python scripts/generate_help.py"
-                )
-    print("Help bundle is synchronized; pages, language links, placeholders, and CSS verified.")
+        for index, (sources, output, names) in enumerate(BUNDLES):
+            generated = Path(temporary) / str(index)
+            generate_bundle(sources, generated, names)
+            for name in (*names.values(), "help.css"):
+                tracked = output / name
+                actual = tracked.read_text(encoding="utf-8") if tracked.is_file() else ""
+                expected = (generated / name).read_text(encoding="utf-8")
+                if actual != expected:
+                    diff = difflib.unified_diff(
+                        actual.splitlines(keepends=True),
+                        expected.splitlines(keepends=True),
+                        fromfile=f"tracked/{name}",
+                        tofile=f"generated/{name}",
+                    )
+                    print("".join(itertools.islice(diff, 60)))
+                    raise ValueError(
+                        f"Help bundle is out of sync: {name}; run python scripts/generate_help.py"
+                    )
+    print("Desktop and CLI Help bundles are synchronized and verified.")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Verify tracked output without changing it")
-    parser.add_argument("--output-dir", type=Path, default=OUTPUT)
+    parser.add_argument("--output-dir", type=Path, default=None)
     args = parser.parse_args()
     try:
         if args.check:

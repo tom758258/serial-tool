@@ -2,7 +2,7 @@
 
 import unittest
 
-from generate_help import ROOT, render
+from generate_help import CLI_NAMES, ROOT, render
 
 
 class HelpGenerationTests(unittest.TestCase):
@@ -38,10 +38,18 @@ class HelpGenerationTests(unittest.TestCase):
             self.template.replace("{{content}}", ""),
             self.template + "{{title}}",
             self.template + "{{unknown}}",
-            self.template.replace('href="desktop.zh-TW.html"', 'href="missing.html"'),
+            self.template.replace('href="{{zh_href}}"', 'href="missing.html"'),
         ):
             with self.subTest(template=template), self.assertRaises(ValueError):
                 render("# Guide", "en", template)
+
+    def test_cli_language_links_use_cli_pages(self):
+        output = render("# CLI Guide\n\n## 章節\n", "zh-TW", self.template, CLI_NAMES)
+        self.assertIn('href="cli.html" hreflang="en"', output)
+        self.assertIn('href="cli.zh-TW.html" hreflang="zh-TW"', output)
+        self.assertIn('<h2 id="章節">', output)
+        with self.assertRaises(ValueError):
+            render("# CLI Guide\n\n[local](README.md)", "en", self.template, CLI_NAMES)
 
 
 if __name__ == "__main__":

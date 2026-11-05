@@ -10,6 +10,7 @@ use serial_tool_core::{
 };
 
 mod auto_tx;
+mod help;
 mod sequence;
 mod sequence_result;
 mod terminal;
@@ -26,6 +27,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Open the bundled offline user guide in the default browser.
+    UserGuide(help::UserGuideArgs),
     /// Show static tool identity and Worker availability.
     Manifest(OutputArgs),
     /// Discover serial ports without opening them.
@@ -585,6 +588,7 @@ fn query<T: Transport>(
 impl Cli {
     pub fn run(self) -> i32 {
         let command = match self.command {
+            Command::UserGuide(args) => return args.run(),
             Command::Worker(args) => return args.run(),
             Command::Terminal(args) => return args.run(),
             Command::AutoTx(args) => return args.run(),
@@ -598,7 +602,10 @@ impl Cli {
             Command::Receive(args) => ("receive", &args.output),
             Command::Query(args) => ("query", &args.output),
             Command::Sequence(args) => (args.command_name(), args.output()),
-            Command::Worker(_) | Command::Terminal(_) | Command::AutoTx(_) => unreachable!(),
+            Command::UserGuide(_)
+            | Command::Worker(_)
+            | Command::Terminal(_)
+            | Command::AutoTx(_) => unreachable!(),
         };
         let machine = output.machine();
         match self_.execute() {
@@ -824,7 +831,10 @@ impl Cli {
                 Ok((value, text))
             }
             Command::Sequence(args) => args.execute(),
-            Command::Worker(_) | Command::Terminal(_) | Command::AutoTx(_) => unreachable!(),
+            Command::UserGuide(_)
+            | Command::Worker(_)
+            | Command::Terminal(_)
+            | Command::AutoTx(_) => unreachable!(),
         }
     }
 }
