@@ -79,6 +79,7 @@ jobs:
       - name: Verify Desktop Help bundle
         if: runner.os == 'Linux'
         run: |
+          python -m pip install -r scripts/requirements-help.txt
           python -B scripts/test_generate_help.py
           python scripts/generate_help.py --check
       - name: Frontend tests
