@@ -1,5 +1,3 @@
-[繁體中文](USER_GUIDE.zh-TW.md) | [CLI Reference](README.md) | [Project](../../README.md)
-
 # Serial Tool CLI User Guide
 
 This guide explains everyday use of the installed `serial-tool` CLI. The [CLI README](README.md) includes detailed options; `serial-tool <command> --help` lists currently accepted flags. A bundled `serial-tool user-guide` command is **not yet implemented**.

@@ -1,5 +1,3 @@
-[繁體中文](README.zh-TW.md) | [CLI User Guide](USER_GUIDE.md) | [Project](../../README.md)
-
 # Serial Tool CLI / Worker
 
 This is the engineering and command-reference README for `crates/serial-tool-cli`. For a practical sequence of operations, use the [CLI User Guide](USER_GUIDE.md). For precise machine fields and lifecycle guarantees, use the [contracts](../contracts/); do not treat prose examples as replacements for the published schemas.

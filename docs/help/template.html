@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="{{lang}}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{title}}</title>
+  <script>
+    (() => {
+      const query = new URLSearchParams(location.search).get("theme");
+      const preference = ["system", "light", "dark"].includes(query) ? query : "system";
+      const media = matchMedia("(prefers-color-scheme: dark)");
+      const update = () => {
+        document.documentElement.dataset.theme = preference === "system"
+          ? (media.matches ? "dark" : "light") : preference;
+      };
+      update();
+      if (preference === "system") media.addEventListener("change", update);
+    })();
+  </script>
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <aside class="help-sidebar">
+    <div class="help-sidebar-title">Serial Tool Help</div>
+    <nav class="help-languages" aria-label="Language">
+      <a href="desktop.html" hreflang="en" lang="en">English</a>
+      <span aria-hidden="true"> | </span>
+      <a href="desktop.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
+    </nav>
+    <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
+    <nav id="toc" aria-labelledby="toc-title"></nav>
+  </aside>
+
+  <main class="help-content" id="help-content">
+{{content}}
+  </main>
+
+  <script>
+    (function () {
+      var isTraditionalChinese =
+        document.documentElement.lang.toLowerCase() === "zh-tw";
+
+      var strings = isTraditionalChinese
+        ? {
+            contents: "\u7ae0\u7bc0\u5c0e\u89bd",
+            copy: "\u8907\u88fd",
+            copied: "\u5df2\u8907\u88fd",
+            copyFailed: "\u8907\u88fd\u5931\u6548"
+          }
+        : {
+            contents: "Contents",
+            copy: "Copy",
+            copied: "Copied",
+            copyFailed: "Copy failed"
+          };
+
+      document.getElementById("toc-title").textContent = strings.contents;
+      document.querySelectorAll(".help-languages a").forEach(function (link) {
+        if (link.hreflang === document.documentElement.lang) {
+          link.setAttribute("aria-current", "page");
+        }
+      });
+
+      function buildTableOfContents() {
+        var toc = document.getElementById("toc");
+        if (!toc) return;
+
+        var headings = document.querySelectorAll(
+          "#help-content h2[id], #help-content h3[id]"
+        );
+        var fragment = document.createDocumentFragment();
+
+        headings.forEach(function (heading) {
+          var link = document.createElement("a");
+          link.href = "#" + heading.id;
+          link.textContent = heading.textContent;
+          if (heading.tagName === "H3") {
+            link.className = "level-3";
+          }
+          fragment.appendChild(link);
+        });
+
+        toc.appendChild(fragment);
+      }
+
+      function wrapCodeBlocks() {
+        document.querySelectorAll("#help-content pre").forEach(
+          function (pre) {
+            if (pre.closest(".code-wrapper")) return;
+
+            var wrapper = document.createElement("div");
+            wrapper.className = "code-wrapper";
+            pre.parentNode.insertBefore(wrapper, pre);
+            wrapper.appendChild(pre);
+
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "copy-btn";
+            button.textContent = strings.copy;
+            button.addEventListener("click", function () {
+              if (
+                !navigator.clipboard ||
+                typeof navigator.clipboard.writeText !== "function"
+              ) {
+                button.textContent = strings.copyFailed;
+                setTimeout(function () {
+                  button.textContent = strings.copy;
+                }, 1600);
+                return;
+              }
+
+              navigator.clipboard.writeText(pre.innerText).then(
+                function () {
+                  button.textContent = strings.copied;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                },
+                function () {
+                  button.textContent = strings.copyFailed;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                }
+              );
+            });
+            wrapper.appendChild(button);
+          }
+        );
+      }
+
+      function observeActiveSection() {
+        var tocLinks = document.querySelectorAll("#toc a");
+        if (!tocLinks.length) return;
+
+        var observer = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (entry) {
+              if (!entry.isIntersecting) return;
+
+              tocLinks.forEach(function (link) {
+                link.classList.toggle(
+                  "active",
+                  link.getAttribute("href") === "#" + entry.target.id
+                );
+              });
+            });
+          },
+          { rootMargin: "-10% 0px -70% 0px" }
+        );
+
+        headings.forEach(function (heading) {
+          observer.observe(heading);
+        });
+      }
+
+      function preserveHelpThemeQuery() {
+        var override = null;
+        try {
+          var q = new URLSearchParams(location.search).get("theme");
+          if (q === "system" || q === "light" || q === "dark") override = q;
+        } catch (_error) {}
+        if (!override) return;
+        document.querySelectorAll('a[href]').forEach(function (anchor) {
+          var href = anchor.getAttribute("href");
+          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
+          if (href.indexOf(".html") === -1) return;
+          if (href.indexOf("?theme=") !== -1) return;
+          var hashIndex = href.indexOf("#");
+          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
+          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+          anchor.setAttribute("href", base + "?theme=" + override + hash);
+        });
+      }
+
+      var headings = document.querySelectorAll(
+        "#help-content h2[id], #help-content h3[id]"
+      );
+      buildTableOfContents();
+      wrapCodeBlocks();
+      observeActiveSection();
+      preserveHelpThemeQuery();
+    })();
+  </script>
+</body>
+</html>
