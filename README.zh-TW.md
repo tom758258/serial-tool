@@ -88,7 +88,7 @@ Root Cargo Workspace 包含 Core 與 CLI；`apps/desktop/src-tauri` 是另一個
 
 一般開發沿用既有 Linux／Windows Rust 與 Desktop CI；預設不需要實體硬體。聚焦驗證及測試選擇請參閱 [AGENTS.md](AGENTS.md) 與 [Testing Guidelines](docs/testing-guidelines.md)。
 
-**僅在 Windows 正式發布候選版本**，於乾淨且已提交的 HEAD 執行 `.\scripts\release-acceptance.ps1`。腳本重用 `build-all.ps1`，比對版本、驗證雙 EXE 與無硬體 CLI Smoke，並在被 Git 忽略的 `release/`、`reports/` 目錄產生授權聲明、SHA-256 與 PASS／FAIL 報告。這不代表已驗證實體 COM、外部 TCP 設備或 GUI 操作，也不會建立 Tag／GitHub Release。
+**僅在 Windows 正式發布候選版本**，於既有 GitHub 手動 **Build Windows CLI and Desktop** Action 選擇 **release-acceptance**，或於乾淨且已提交的 HEAD 本機執行 `.\scripts\release-acceptance.ps1`。Action 預設 **build**，維持原本單純建置流程。腳本重用 `build-all.ps1`，比對版本、驗證雙 EXE 與無硬體 CLI Smoke，並在被 Git 忽略的 `release/`、`reports/` 目錄產生授權聲明、SHA-256 與 PASS／FAIL 報告。這不代表已驗證實體 COM、外部 TCP 設備或 GUI 操作，也不會建立 Tag／GitHub Release。
 
 ## 文件導覽
 
@@ -98,6 +98,7 @@ Root Cargo Workspace 包含 Core 與 CLI；`apps/desktop/src-tauri` 是另一個
 - [Desktop 說明](docs/desktop/README.zh-TW.md)
 - [Desktop 使用指南](docs/desktop/USER_GUIDE.zh-TW.md)
 - [離線說明維護文件](docs/help/README.md)
+- [版本更新紀錄](CHANGELOG.md)
 
 工程文件：[Repository 架構](docs/architecture/monorepo-layout.md)、[CLI JSON／JSONL 合約](docs/contracts/serial-cli-jsonl-contract.md)、[Worker 合約](docs/contracts/serial-worker-contract.md)、[序列合約](docs/contracts/serial-sequence-contract.md) 及 [Orchestrator 整合合約](docs/contracts/serial-orchestrator-workflows.md)。共用 Common 合約亦放在 [contracts](docs/contracts/)。
 

@@ -121,7 +121,11 @@ try {
             "send", "--port", "COM4", "--baud", "115200",
             "--hex", "AA 55", "--dry-run", "--json"
         )
-        $null = $dryRunText | ConvertFrom-Json
+        $dryRun = $dryRunText | ConvertFrom-Json
+        if ($dryRun.ok -ne $true -or $dryRun.event -cne "dry_run" -or
+            $dryRun.performs_serial_io -ne $false -or $dryRun.tx_hex -cne "aa55") {
+            throw "Unexpected dry-run result or I/O safety declaration."
+        }
     }
     Invoke-Step "stage-release" {
         $shortCommit = $script:Commit.Substring(0, 8)
@@ -181,6 +185,7 @@ try {
         ok = $script:Ok
         source_commit = $script:Commit
         project_version = $script:Version
+        platform = "windows-x64"
         hardware_touched = $false
         release_dir = $script:CandidateDir
         failed_step = $script:FailedStep
@@ -193,6 +198,7 @@ try {
         "Result: $(if ($script:Ok) { 'PASS' } else { 'FAIL' })",
         "Commit: $script:Commit",
         "Version: $script:Version",
+        "Platform: windows-x64",
         "Hardware touched: false", "",
         "| Step | Result | Error |", "| --- | --- | --- |")
     foreach ($step in $script:Steps) {

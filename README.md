@@ -88,7 +88,7 @@ The root Cargo workspace contains Core and CLI; `apps/desktop/src-tauri` is a se
 
 Routine development uses the existing Linux/Windows Rust and Desktop CI. Tests run without physical hardware by default; see [AGENTS.md](AGENTS.md) and [Testing Guidelines](docs/testing-guidelines.md) for focused checks.
 
-For a **Windows release candidate only**, run `.\scripts\release-acceptance.ps1` from a clean, committed HEAD. The script reuses `build-all.ps1`, verifies versions and both built EXEs with hardware-free CLI smoke checks, and stages license notices, SHA-256 checksums, and a PASS/FAIL report under ignored `release/` and `reports/` directories. This does not test real COM devices, external TCP equipment, or GUI interaction and does not create a tag or GitHub Release.
+For a **Windows release candidate only**, select **release-acceptance** in the existing manual **Build Windows CLI and Desktop** GitHub Action, or run `.\scripts\release-acceptance.ps1` from a clean, committed HEAD locally. The Action defaults to the original **build** mode. The script reuses `build-all.ps1`, verifies versions and both built EXEs with hardware-free CLI smoke checks, and stages license notices, SHA-256 checksums, and a PASS/FAIL report under ignored `release/` and `reports/` directories. This does not test real COM devices, external TCP equipment, or GUI interaction and does not create a tag or GitHub Release.
 
 ## Documentation
 
@@ -98,6 +98,7 @@ For a **Windows release candidate only**, run `.\scripts\release-acceptance.ps1`
 - [Desktop README](docs/desktop/README.md)
 - [Desktop User Guide](docs/desktop/USER_GUIDE.md)
 - [Offline Help maintenance](docs/help/README.md)
+- [Changelog](CHANGELOG.md)
 
 Engineering references: [Repository architecture](docs/architecture/monorepo-layout.md), [Serial CLI JSON/JSONL contract](docs/contracts/serial-cli-jsonl-contract.md), [Serial Worker contract](docs/contracts/serial-worker-contract.md), [Serial Sequence contract](docs/contracts/serial-sequence-contract.md), and [Orchestrator integration contract](docs/contracts/serial-orchestrator-workflows.md). The [contracts directory](docs/contracts/) also holds the shared Common contracts.
 
