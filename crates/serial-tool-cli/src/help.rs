@@ -133,6 +133,15 @@ fn file_url(path: &Path) -> io::Result<String> {
         .to_str()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Help path is not UTF-8"))?
         .replace('\\', "/");
+    // Windows canonicalize() uses verbatim paths such as //?/C:/... or
+    // //?/UNC/server/share. Browsers require ordinary file URLs instead.
+    let normalized = if let Some(unc) = normalized.strip_prefix("//?/UNC/") {
+        format!("//{unc}")
+    } else if let Some(local) = normalized.strip_prefix("//?/") {
+        local.to_string()
+    } else {
+        normalized
+    };
     let mut url = if normalized.starts_with("//") {
         String::from("file:")
     } else if normalized.starts_with('/') {
