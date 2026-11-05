@@ -83,7 +83,13 @@ fn user_cache_base() -> io::Result<PathBuf> {
 fn fingerprint() -> u64 {
     let mut hash = 0xcbf29ce484222325_u64;
     for (name, bytes) in ASSETS {
-        for byte in name.as_bytes().iter().copied().chain([0]).chain(bytes.iter().copied()) {
+        for byte in name
+            .as_bytes()
+            .iter()
+            .copied()
+            .chain([0])
+            .chain(bytes.iter().copied())
+        {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(0x100000001b3);
         }
@@ -175,10 +181,12 @@ mod tests {
         })
         .unwrap();
         assert_eq!(fs::read(dir.join("cli.zh-TW.html")).unwrap(), ZH_HTML);
-        assert!(open_with(&root, Language::En, |_| {
-            Err(io::Error::other("browser is unavailable"))
-        })
-        .is_err());
+        assert!(
+            open_with(&root, Language::En, |_| {
+                Err(io::Error::other("browser is unavailable"))
+            })
+            .is_err()
+        );
 
         fs::remove_dir_all(root).unwrap();
     }

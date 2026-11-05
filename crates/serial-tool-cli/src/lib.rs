@@ -602,7 +602,10 @@ impl Cli {
             Command::Receive(args) => ("receive", &args.output),
             Command::Query(args) => ("query", &args.output),
             Command::Sequence(args) => (args.command_name(), args.output()),
-            Command::UserGuide(_) | Command::Worker(_) | Command::Terminal(_) | Command::AutoTx(_) => unreachable!(),
+            Command::UserGuide(_)
+            | Command::Worker(_)
+            | Command::Terminal(_)
+            | Command::AutoTx(_) => unreachable!(),
         };
         let machine = output.machine();
         match self_.execute() {
@@ -828,7 +831,10 @@ impl Cli {
                 Ok((value, text))
             }
             Command::Sequence(args) => args.execute(),
-            Command::UserGuide(_) | Command::Worker(_) | Command::Terminal(_) | Command::AutoTx(_) => unreachable!(),
+            Command::UserGuide(_)
+            | Command::Worker(_)
+            | Command::Terminal(_)
+            | Command::AutoTx(_) => unreachable!(),
         }
     }
 }

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<!-- Generated file. Do not edit directly. -->
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serial Tool CLI 使用指南</title>
+  <script>
+    (() => {
+      const query = new URLSearchParams(location.search).get("theme");
+      const preference = ["system", "light", "dark"].includes(query) ? query : "system";
+      const media = matchMedia("(prefers-color-scheme: dark)");
+      const update = () => {
+        document.documentElement.dataset.theme = preference === "system"
+          ? (media.matches ? "dark" : "light") : preference;
+      };
+      update();
+      if (preference === "system") media.addEventListener("change", update);
+    })();
+  </script>
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <aside class="help-sidebar">
+    <div class="help-sidebar-title">Serial Tool Help</div>
+    <nav class="help-languages" aria-label="Language">
+      <a href="cli.html" hreflang="en" lang="en">English</a>
+      <span aria-hidden="true"> | </span>
+      <a href="cli.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
+    </nav>
+    <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
+    <nav id="toc" aria-labelledby="toc-title"></nav>
+  </aside>
+
+  <main class="help-content" id="help-content">
+<h1 id="serial-tool-cli-使用指南">Serial Tool CLI 使用指南</h1>
+<p>本指南提供已安裝 <code>serial-tool</code> CLI 的日常操作方式。進階選項請見 CLI README，各指令接受的參數以 <code>serial-tool &lt;command&gt; --help</code> 為準。可使用 <code>serial-tool user-guide</code> 開啟英文離線指南，或使用 <code>serial-tool user-guide --lang zh-TW</code> 開啟繁體中文指南。</p>
+<h2 id="1-啟動與確認-cli">1. 啟動與確認 CLI</h2>
+<p>在已建置執行檔的目錄中操作；開發時也可從 Repository 根目錄使用 <code>cargo run -p serial-tool-cli -- &lt;command&gt;</code>：</p>
+<pre><code class="language-sh">serial-tool --help
+serial-tool --version
+serial-tool list-ports
+serial-tool manifest --json
+</code></pre>
+<p><code>list-ports</code> 只列舉本機 COM 埠，不開啟設備。<code>manifest --json</code> 用於機器整合，不是實體設備探測。</p>
+<h2 id="2-選擇-com-或-tcp">2. 選擇 COM 或 TCP</h2>
+<p>UART 是預設傳輸；實機操作必須選擇正確 COM 埠與鮑率：</p>
+<pre><code class="language-sh">serial-tool send --port COM4 --baud 115200 --text &quot;STATUS?&quot;
+</code></pre>
+<p>TCP 僅是原始位元組串流 <strong>Client</strong>；指定 Host／IP 與設備 Port，不要輸入 HTTP URL：</p>
+<pre><code class="language-sh">serial-tool send --transport tcp --host 127.0.0.1 --tcp-port 5025 --hex &quot;AA 55&quot;
+</code></pre>
+<p>UART 預設 8 資料位元、無同位檢查、1 停止位元、無流量控制及 1000 ms 逾時；TCP 預設 3000 ms 連線逾時、1000 ms 共用 I/O 逾時。不可混用 UART／TCP 專用參數。TCP 不負責封包切分或自動重連。</p>
+<h2 id="3-傳送接收查詢與-dry-run">3. 傳送、接收、查詢與 Dry-run</h2>
+<pre><code class="language-sh">serial-tool send --port COM4 --baud 115200 --hex &quot;00 55 AA FF 0D 0A&quot;
+serial-tool send --port COM4 --baud 115200 --file payload.bin
+serial-tool receive --port COM4 --baud 115200 --max-bytes 256
+serial-tool query --port COM4 --baud 115200 --text &quot;STATUS?&quot; --until-text &quot;OK&quot; --max-bytes 1024
+serial-tool send --port COM4 --baud 115200 --hex &quot;AA 55&quot; --dry-run --json
+</code></pre>
+<p><code>send</code> 的 <code>--text</code>、<code>--hex</code>、<code>--file</code> 必須擇一；<code>query</code> 需指定一種 Text／Hex Payload 與一種 Text／Hex Delimiter，不支援檔案。<code>--text</code> 原樣傳送 UTF-8，<strong>不自動加 CR／LF</strong>；使用 Hex 可指定非文字位元組。Raw File 不改變檔案內容。Dry-run 僅驗證，不開啟 COM 或 TCP。</p>
+<p><code>receive</code>、<code>query</code>、<code>sequence run</code> 的 <code>--rx-display hex|text|both</code> 只影響人類可閱讀的呈現；JSON／JSONL 仍保持原始位元組機器欄位。輸出與 Exit Code 詳 CLI Machine Contract。</p>
+<h2 id="4-互動式終端機">4. 互動式終端機</h2>
+<pre><code class="language-sh">serial-tool terminal --mode live --port COM4 --baud 115200
+serial-tool terminal --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
+serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopback-v1
+</code></pre>
+<p>Terminal 保留單一連線、持續接收 RX，也可由鍵盤輸入 TX。按 Enter 送出一行；透過 <code>--tx-format text|hex</code>、<code>--line-ending none|lf|crlf</code>、<code>--rx-display</code> 和 <code>--tx-display</code> 控制資料與畫面。Ctrl+C 或 EOF 可離開。</p>
+<p>若只希望把 RX 文字／Hex 呈現重新導向至檔案：</p>
+<pre><code class="language-sh">serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display stream --tx-display off &gt; rx.txt
+serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display hex-stream --tx-display off &gt; rx.hex
+</code></pre>
+<p><code>stream</code> 輸出連續 RX 文字，<code>hex-stream</code> 輸出以空白分隔的大寫 Hex；生命週期與錯誤輸出到 stderr。這些是<strong>顯示用串流</strong>，不是 Raw Binary Capture 或機器 JSONL 協定。</p>
+<h2 id="5-週期性自動傳送">5. 週期性自動傳送</h2>
+<pre><code class="language-sh">serial-tool auto-tx --mode live --port COM4 --baud 115200 --hex &quot;AA 55&quot; --interval-ms 500
+serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --file payload.bin --interval-ms 1000
+</code></pre>
+<p>指定一種非空的 Text／Hex／File Payload 與正整數毫秒間隔。第一筆立即送出，下一次間隔從前一筆傳送結束後起算。檔案在連線前讀取一次，過程中持續接收 RX，按 Ctrl+C 結束。<code>auto-tx</code> 不提供 Dry-run 或 JSON／JSONL 模式。</p>
+<h2 id="6-sequence-檔案">6. Sequence 檔案</h2>
+<p>Sequence 是包含 <code>sequence_version: 1</code>、<code>transport.type/settings</code> 與有序步驟的 JSON；步驟為 <code>send_text</code>、<code>send_bytes</code>、<code>wait</code>、<code>read</code>、<code>read_until</code>、<code>repeat</code>。例如建立 <code>sequence.json</code>：</p>
+<pre><code class="language-json">{
+  &quot;sequence_version&quot;: 1,
+  &quot;transport&quot;: {
+    &quot;type&quot;: &quot;serial&quot;,
+    &quot;settings&quot;: { &quot;baud_rate&quot;: 115200, &quot;data_bits&quot;: 8, &quot;parity&quot;: &quot;none&quot;, &quot;stop_bits&quot;: 1, &quot;flow_control&quot;: &quot;none&quot;, &quot;timeout_ms&quot;: 1000 }
+  },
+  &quot;steps&quot;: [
+    { &quot;id&quot;: &quot;send-1&quot;, &quot;type&quot;: &quot;send_bytes&quot;, &quot;hex&quot;: &quot;aa550d0a&quot; },
+    { &quot;id&quot;: &quot;read-1&quot;, &quot;type&quot;: &quot;read_until&quot;, &quot;delimiter_hex&quot;: &quot;0d0a&quot;, &quot;max_bytes&quot;: 64 }
+  ]
+}
+</code></pre>
+<pre><code class="language-sh">serial-tool sequence validate --file sequence.json
+serial-tool sequence run --file sequence.json --mode live --port COM4
+serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
+</code></pre>
+<p>TCP Sequence 改用 <code>"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}</code>，執行時指定 <code>--transport tcp --host HOST --tcp-port PORT</code>。Sequence 不儲存設備資源或執行模式；Validate 不會開啟連線。正式格式詳 Sequence Contract。</p>
+<h2 id="7-worker-與-streaming">7. Worker 與 Streaming</h2>
+<p>若要讓其他程式透過持續運作的程序操作：</p>
+<pre><code class="language-sh">serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopback-v1 --control-port 0
+</code></pre>
+<p>Worker 提供僅本機可用的 HTTP 控制面及 JSONL Event。普通 Worker 支援 <code>send</code>、<code>send-file</code>、<code>receive</code>、<code>query</code>、<code>run-sequence</code>，同時只有一個 Active Job。若要讓模擬設備主動產生 RX，需明確開啟 Streaming：</p>
+<pre><code class="language-sh">serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
+</code></pre>
+<p><code>periodic-rx-v1</code> <strong>只供 Streaming Simulation Worker</strong> 使用，不迴送 TX。Streaming Worker 只接受 <code>send</code>、<code>send-file</code>；RX Event 是原始位元組區段，不保證對應封包。HTTP 接受不代表 Job 完成；Worker Stop 接受也不代表程序已結束。詳 Worker Contract。</p>
+<h2 id="8-常見問題及限制">8. 常見問題及限制</h2>
+<ul>
+<li><strong>收不到資料：</strong> 確認 COM 埠／TCP 目標、鮑率與線路設定，以及設備實際回應格式；單次讀取逾時不必然表示斷線。</li>
+<li><strong>文字顯示異常：</strong> 切換 Hex；原始設備位元組才是依據，無效 UTF-8 在顯示時可能被替代。</li>
+<li><strong>行尾錯誤：</strong> <code>send --text</code> 不會自動加入 CR／LF；可用明確 Hex 或互動式 Terminal 的 Line Ending。</li>
+<li><strong>傳輸參數不符：</strong> TCP 不接受 UART 的 <code>--port</code>／<code>--baud</code>，UART 不接受 TCP 的 <code>--host</code>／<code>--tcp-port</code>。</li>
+<li><strong>沒有硬體：</strong> Terminal、Auto TX、Sequence Run、Worker 可使用適用的 <code>loopback-v1</code>；單次操作則利用 Dry-run 驗證，並非模擬收發。</li>
+<li><strong>Sequence 無法執行：</strong> 確認 JSON 的 Transport／Settings 與執行環境一致，且不使用舊的根欄位 <code>serial</code>。</li>
+<li><strong>Streaming 命令遭拒：</strong> <code>receive</code>、<code>query</code>、<code>run-sequence</code> 只供非 Streaming Worker。</li>
+</ul>
+<p>Serial Tool 不會自動重送失敗資料、解碼設備協定或建立 Capture 資料庫。詳細指令與限制見 CLI README。</p>
+  </main>
+
+  <script>
+    (function () {
+      var isTraditionalChinese =
+        document.documentElement.lang.toLowerCase() === "zh-tw";
+
+      var strings = isTraditionalChinese
+        ? {
+            contents: "\u7ae0\u7bc0\u5c0e\u89bd",
+            copy: "\u8907\u88fd",
+            copied: "\u5df2\u8907\u88fd",
+            copyFailed: "\u8907\u88fd\u5931\u6548"
+          }
+        : {
+            contents: "Contents",
+            copy: "Copy",
+            copied: "Copied",
+            copyFailed: "Copy failed"
+          };
+
+      document.getElementById("toc-title").textContent = strings.contents;
+      document.querySelectorAll(".help-languages a").forEach(function (link) {
+        if (link.hreflang === document.documentElement.lang) {
+          link.setAttribute("aria-current", "page");
+        }
+      });
+
+      function buildTableOfContents() {
+        var toc = document.getElementById("toc");
+        if (!toc) return;
+
+        var headings = document.querySelectorAll(
+          "#help-content h2[id], #help-content h3[id]"
+        );
+        var fragment = document.createDocumentFragment();
+
+        headings.forEach(function (heading) {
+          var link = document.createElement("a");
+          link.href = "#" + heading.id;
+          link.textContent = heading.textContent;
+          if (heading.tagName === "H3") {
+            link.className = "level-3";
+          }
+          fragment.appendChild(link);
+        });
+
+        toc.appendChild(fragment);
+      }
+
+      function wrapCodeBlocks() {
+        document.querySelectorAll("#help-content pre").forEach(
+          function (pre) {
+            if (pre.closest(".code-wrapper")) return;
+
+            var wrapper = document.createElement("div");
+            wrapper.className = "code-wrapper";
+            pre.parentNode.insertBefore(wrapper, pre);
+            wrapper.appendChild(pre);
+
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "copy-btn";
+            button.textContent = strings.copy;
+            button.addEventListener("click", function () {
+              if (
+                !navigator.clipboard ||
+                typeof navigator.clipboard.writeText !== "function"
+              ) {
+                button.textContent = strings.copyFailed;
+                setTimeout(function () {
+                  button.textContent = strings.copy;
+                }, 1600);
+                return;
+              }
+
+              navigator.clipboard.writeText(pre.innerText).then(
+                function () {
+                  button.textContent = strings.copied;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                },
+                function () {
+                  button.textContent = strings.copyFailed;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                }
+              );
+            });
+            wrapper.appendChild(button);
+          }
+        );
+      }
+
+      function observeActiveSection() {
+        var tocLinks = document.querySelectorAll("#toc a");
+        if (!tocLinks.length) return;
+
+        var observer = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (entry) {
+              if (!entry.isIntersecting) return;
+
+              tocLinks.forEach(function (link) {
+                link.classList.toggle(
+                  "active",
+                  link.getAttribute("href") === "#" + entry.target.id
+                );
+              });
+            });
+          },
+          { rootMargin: "-10% 0px -70% 0px" }
+        );
+
+        headings.forEach(function (heading) {
+          observer.observe(heading);
+        });
+      }
+
+      function preserveHelpThemeQuery() {
+        var override = null;
+        try {
+          var q = new URLSearchParams(location.search).get("theme");
+          if (q === "system" || q === "light" || q === "dark") override = q;
+        } catch (_error) {}
+        if (!override) return;
+        document.querySelectorAll('a[href]').forEach(function (anchor) {
+          var href = anchor.getAttribute("href");
+          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
+          if (href.indexOf(".html") === -1) return;
+          if (href.indexOf("?theme=") !== -1) return;
+          var hashIndex = href.indexOf("#");
+          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
+          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+          anchor.setAttribute("href", base + "?theme=" + override + hash);
+        });
+      }
+
+      var headings = document.querySelectorAll(
+        "#help-content h2[id], #help-content h3[id]"
+      );
+      buildTableOfContents();
+      wrapCodeBlocks();
+      observeActiveSection();
+      preserveHelpThemeQuery();
+    })();
+  </script>
+</body>
+</html>

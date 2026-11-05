@@ -455,7 +455,6 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
     assert_eq!(object(&queried)["rx_hex"], "4f4b0d0a");
 }
 
-
 #[test]
 fn user_guide_arguments_are_isolated_from_machine_commands() {
     for args in [

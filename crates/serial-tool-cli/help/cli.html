@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<!-- Generated file. Do not edit directly. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Serial Tool CLI User Guide</title>
+  <script>
+    (() => {
+      const query = new URLSearchParams(location.search).get("theme");
+      const preference = ["system", "light", "dark"].includes(query) ? query : "system";
+      const media = matchMedia("(prefers-color-scheme: dark)");
+      const update = () => {
+        document.documentElement.dataset.theme = preference === "system"
+          ? (media.matches ? "dark" : "light") : preference;
+      };
+      update();
+      if (preference === "system") media.addEventListener("change", update);
+    })();
+  </script>
+  <link rel="stylesheet" href="help.css">
+</head>
+<body>
+  <aside class="help-sidebar">
+    <div class="help-sidebar-title">Serial Tool Help</div>
+    <nav class="help-languages" aria-label="Language">
+      <a href="cli.html" hreflang="en" lang="en">English</a>
+      <span aria-hidden="true"> | </span>
+      <a href="cli.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
+    </nav>
+    <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
+    <nav id="toc" aria-labelledby="toc-title"></nav>
+  </aside>
+
+  <main class="help-content" id="help-content">
+<h1 id="serial-tool-cli-user-guide">Serial Tool CLI User Guide</h1>
+<p>This guide explains everyday use of the installed <code>serial-tool</code> CLI. The CLI README includes detailed options; <code>serial-tool &lt;command&gt; --help</code> lists currently accepted flags. Open the bundled offline guide with <code>serial-tool user-guide</code> (English) or <code>serial-tool user-guide --lang zh-TW</code> (Traditional Chinese).</p>
+<h2 id="1-start-and-inspect-the-cli">1. Start and inspect the CLI</h2>
+<p>From a directory containing the built binary (or run <code>cargo run -p serial-tool-cli -- &lt;command&gt;</code> from the repository):</p>
+<pre><code class="language-sh">serial-tool --help
+serial-tool --version
+serial-tool list-ports
+serial-tool manifest --json
+</code></pre>
+<p><code>list-ports</code> enumerates local COM ports without opening them. <code>manifest --json</code> describes machine integration; it is not a device probe.</p>
+<h2 id="2-choose-com-or-tcp">2. Choose COM or TCP</h2>
+<p>UART is the default transport. Select a real port and baud rate for Live operations:</p>
+<pre><code class="language-sh">serial-tool send --port COM4 --baud 115200 --text &quot;STATUS?&quot;
+</code></pre>
+<p>TCP is a raw <strong>client</strong> transport. Use host/IP and a device port, not an HTTP URL:</p>
+<pre><code class="language-sh">serial-tool send --transport tcp --host 127.0.0.1 --tcp-port 5025 --hex &quot;AA 55&quot;
+</code></pre>
+<p>UART defaults to 8 data bits, no parity, 1 stop bit, no flow control, and 1000 ms timeout. TCP defaults to 3000 ms connect timeout and 1000 ms shared I/O timeout. Do not mix UART-only and TCP-only options. TCP does not frame messages or reconnect automatically.</p>
+<h2 id="3-send-receive-query-and-dry-run">3. Send, receive, query and dry-run</h2>
+<pre><code class="language-sh">serial-tool send --port COM4 --baud 115200 --hex &quot;00 55 AA FF 0D 0A&quot;
+serial-tool send --port COM4 --baud 115200 --file payload.bin
+serial-tool receive --port COM4 --baud 115200 --max-bytes 256
+serial-tool query --port COM4 --baud 115200 --text &quot;STATUS?&quot; --until-text &quot;OK&quot; --max-bytes 1024
+serial-tool send --port COM4 --baud 115200 --hex &quot;AA 55&quot; --dry-run --json
+</code></pre>
+<p><code>send</code> accepts exactly one of <code>--text</code>, <code>--hex</code>, <code>--file</code>; <code>query</code> accepts one Text/Hex payload and one Text/Hex delimiter, but not a file. Text sends exact UTF-8 without an automatic CR/LF. Hex supports explicit non-text bytes. Raw file transmission does not transform its contents. Dry-run validates without opening physical or TCP resources.</p>
+<p>For <code>receive</code>, <code>query</code>, and <code>sequence run</code>, <code>--rx-display hex|text|both</code> affects only human-readable presentation; JSON/JSONL retains canonical raw-byte fields. See the CLI machine contract for format and exit-code details.</p>
+<h2 id="4-interactive-terminal">4. Interactive Terminal</h2>
+<pre><code class="language-sh">serial-tool terminal --mode live --port COM4 --baud 115200
+serial-tool terminal --transport tcp --mode live --host 127.0.0.1 --tcp-port 5025
+serial-tool terminal --mode simulate --baud 115200 --simulation-profile-id loopback-v1
+</code></pre>
+<p>Terminal keeps one connection and continuously receives while accepting typed TX. Enter submits an input line; <code>--tx-format text|hex</code>, <code>--line-ending none|lf|crlf</code>, <code>--rx-display</code> and <code>--tx-display</code> control interaction and display. Exit with Ctrl+C or EOF.</p>
+<p>For an RX-only display redirected to a file:</p>
+<pre><code class="language-sh">serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display stream --tx-display off &gt; rx.txt
+serial-tool terminal --mode live --port COM4 --baud 115200 --rx-display hex-stream --tx-display off &gt; rx.hex
+</code></pre>
+<p><code>stream</code> writes RX text; <code>hex-stream</code> joins RX as spaced uppercase hex. Lifecycle/errors use stderr. These are presentation streams, <strong>not</strong> a raw-binary capture protocol or machine JSONL interface.</p>
+<h2 id="5-periodic-auto-tx">5. Periodic Auto TX</h2>
+<pre><code class="language-sh">serial-tool auto-tx --mode live --port COM4 --baud 115200 --hex &quot;AA 55&quot; --interval-ms 500
+serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --file payload.bin --interval-ms 1000
+</code></pre>
+<p>Specify one nonempty Text/Hex/File payload and a positive interval in milliseconds. The first send is immediate; the next interval starts after the previous send completes. File content is read once before connection. Continuous RX runs until Ctrl+C. <code>auto-tx</code> has no dry-run or JSON/JSONL mode.</p>
+<h2 id="6-sequence-files">6. Sequence files</h2>
+<p>A Sequence is a JSON file with <code>sequence_version: 1</code>, <code>transport.type/settings</code>, and ordered steps (<code>send_text</code>, <code>send_bytes</code>, <code>wait</code>, <code>read</code>, <code>read_until</code>, <code>repeat</code>). For example, create <code>sequence.json</code>:</p>
+<pre><code class="language-json">{
+  &quot;sequence_version&quot;: 1,
+  &quot;transport&quot;: {
+    &quot;type&quot;: &quot;serial&quot;,
+    &quot;settings&quot;: { &quot;baud_rate&quot;: 115200, &quot;data_bits&quot;: 8, &quot;parity&quot;: &quot;none&quot;, &quot;stop_bits&quot;: 1, &quot;flow_control&quot;: &quot;none&quot;, &quot;timeout_ms&quot;: 1000 }
+  },
+  &quot;steps&quot;: [
+    { &quot;id&quot;: &quot;send-1&quot;, &quot;type&quot;: &quot;send_bytes&quot;, &quot;hex&quot;: &quot;aa550d0a&quot; },
+    { &quot;id&quot;: &quot;read-1&quot;, &quot;type&quot;: &quot;read_until&quot;, &quot;delimiter_hex&quot;: &quot;0d0a&quot;, &quot;max_bytes&quot;: 64 }
+  ]
+}
+</code></pre>
+<pre><code class="language-sh">serial-tool sequence validate --file sequence.json
+serial-tool sequence run --file sequence.json --mode live --port COM4
+serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
+</code></pre>
+<p>A TCP Sequence uses <code>"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}</code> and is run with <code>--transport tcp --host HOST --tcp-port PORT</code>. Neither format stores the device resource or execution mode. Validation does not open a connection. See the Sequence Contract.</p>
+<h2 id="7-worker-and-streaming">7. Worker and streaming</h2>
+<p>For a persistent machine-controlled process:</p>
+<pre><code class="language-sh">serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0
+serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopback-v1 --control-port 0
+</code></pre>
+<p>The Worker exposes localhost-only HTTP control and JSONL events. Ordinary Workers accept <code>send</code>, <code>send-file</code>, <code>receive</code>, <code>query</code>, and <code>run-sequence</code> (one active job). To receive autonomous simulation bytes, explicitly enable streaming:</p>
+<pre><code class="language-sh">serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
+</code></pre>
+<p><code>periodic-rx-v1</code> is <strong>only for Streaming Simulation Workers</strong> and does not echo TX. Streaming Workers accept only <code>send</code> and <code>send-file</code>; RX events carry raw bytes, not guaranteed packet boundaries. HTTP acceptance is not job completion; Worker Stop acceptance is not process exit. See the Worker Contract.</p>
+<h2 id="8-common-problems-and-limits">8. Common problems and limits</h2>
+<ul>
+<li><strong>Nothing receives:</strong> verify COM port or TCP destination, baud/line settings, and the device's actual response format. An empty read timeout does not always mean disconnection.</li>
+<li><strong>Unexpected text:</strong> use Hex; raw device bytes are authoritative, and display may replace invalid UTF-8.</li>
+<li><strong>Incorrect line ending:</strong> <code>send --text</code> does not append CR/LF; use explicit Hex or interactive Terminal's line-ending option.</li>
+<li><strong>Transport argument error:</strong> do not pass <code>--port</code>/<code>--baud</code> to TCP, or <code>--host</code>/<code>--tcp-port</code> to UART.</li>
+<li><strong>No hardware available:</strong> use supported <code>loopback-v1</code> simulation in Terminal, Auto TX, Sequence Run, or Worker; one-shot dry-run validates instead of simulating I/O.</li>
+<li><strong>Cannot run a Sequence:</strong> confirm its transport/settings match the runtime selection. The legacy root <code>serial</code> JSON layout is not accepted.</li>
+<li><strong>Worker streaming command rejected:</strong> <code>receive</code>, <code>query</code>, and <code>run-sequence</code> are only available without <code>--streaming</code>.</li>
+</ul>
+<p>Serial Tool does not automatically retry failed sends, decode device protocols, or provide a capture database. For technical settings and complete command cases, see the CLI README.</p>
+  </main>
+
+  <script>
+    (function () {
+      var isTraditionalChinese =
+        document.documentElement.lang.toLowerCase() === "zh-tw";
+
+      var strings = isTraditionalChinese
+        ? {
+            contents: "\u7ae0\u7bc0\u5c0e\u89bd",
+            copy: "\u8907\u88fd",
+            copied: "\u5df2\u8907\u88fd",
+            copyFailed: "\u8907\u88fd\u5931\u6548"
+          }
+        : {
+            contents: "Contents",
+            copy: "Copy",
+            copied: "Copied",
+            copyFailed: "Copy failed"
+          };
+
+      document.getElementById("toc-title").textContent = strings.contents;
+      document.querySelectorAll(".help-languages a").forEach(function (link) {
+        if (link.hreflang === document.documentElement.lang) {
+          link.setAttribute("aria-current", "page");
+        }
+      });
+
+      function buildTableOfContents() {
+        var toc = document.getElementById("toc");
+        if (!toc) return;
+
+        var headings = document.querySelectorAll(
+          "#help-content h2[id], #help-content h3[id]"
+        );
+        var fragment = document.createDocumentFragment();
+
+        headings.forEach(function (heading) {
+          var link = document.createElement("a");
+          link.href = "#" + heading.id;
+          link.textContent = heading.textContent;
+          if (heading.tagName === "H3") {
+            link.className = "level-3";
+          }
+          fragment.appendChild(link);
+        });
+
+        toc.appendChild(fragment);
+      }
+
+      function wrapCodeBlocks() {
+        document.querySelectorAll("#help-content pre").forEach(
+          function (pre) {
+            if (pre.closest(".code-wrapper")) return;
+
+            var wrapper = document.createElement("div");
+            wrapper.className = "code-wrapper";
+            pre.parentNode.insertBefore(wrapper, pre);
+            wrapper.appendChild(pre);
+
+            var button = document.createElement("button");
+            button.type = "button";
+            button.className = "copy-btn";
+            button.textContent = strings.copy;
+            button.addEventListener("click", function () {
+              if (
+                !navigator.clipboard ||
+                typeof navigator.clipboard.writeText !== "function"
+              ) {
+                button.textContent = strings.copyFailed;
+                setTimeout(function () {
+                  button.textContent = strings.copy;
+                }, 1600);
+                return;
+              }
+
+              navigator.clipboard.writeText(pre.innerText).then(
+                function () {
+                  button.textContent = strings.copied;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                },
+                function () {
+                  button.textContent = strings.copyFailed;
+                  setTimeout(function () {
+                    button.textContent = strings.copy;
+                  }, 1600);
+                }
+              );
+            });
+            wrapper.appendChild(button);
+          }
+        );
+      }
+
+      function observeActiveSection() {
+        var tocLinks = document.querySelectorAll("#toc a");
+        if (!tocLinks.length) return;
+
+        var observer = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (entry) {
+              if (!entry.isIntersecting) return;
+
+              tocLinks.forEach(function (link) {
+                link.classList.toggle(
+                  "active",
+                  link.getAttribute("href") === "#" + entry.target.id
+                );
+              });
+            });
+          },
+          { rootMargin: "-10% 0px -70% 0px" }
+        );
+
+        headings.forEach(function (heading) {
+          observer.observe(heading);
+        });
+      }
+
+      function preserveHelpThemeQuery() {
+        var override = null;
+        try {
+          var q = new URLSearchParams(location.search).get("theme");
+          if (q === "system" || q === "light" || q === "dark") override = q;
+        } catch (_error) {}
+        if (!override) return;
+        document.querySelectorAll('a[href]').forEach(function (anchor) {
+          var href = anchor.getAttribute("href");
+          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
+          if (href.indexOf(".html") === -1) return;
+          if (href.indexOf("?theme=") !== -1) return;
+          var hashIndex = href.indexOf("#");
+          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
+          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
+          anchor.setAttribute("href", base + "?theme=" + override + hash);
+        });
+      }
+
+      var headings = document.querySelectorAll(
+        "#help-content h2[id], #help-content h3[id]"
+      );
+      buildTableOfContents();
+      wrapCodeBlocks();
+      observeActiveSection();
+      preserveHelpThemeQuery();
+    })();
+  </script>
+</body>
+</html>
