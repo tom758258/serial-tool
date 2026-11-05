@@ -112,4 +112,6 @@ Keep changes focused and review [AGENTS.md](AGENTS.md), [Testing Guidelines](doc
 
 Copyright (c) 2026 tom758258. Serial Tool is licensed under the [MIT License](LICENSE). Third-party notices and the separately licensed `serialport` library are described in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt); its MPL-2.0 license text is included at [licenses/MPL-2.0.txt](licenses/MPL-2.0.txt).
 
+The Serial Tool application icon was generated with OpenAI image generation in ChatGPT, then reviewed and selected by the project maintainer.
+
 Serial Tool is an independent, unofficial project. It is not affiliated with, endorsed by, or sponsored by hardware, operating system, or framework vendors. Third-party names, products, and trademarks belong to their respective owners. Users must comply with applicable third-party software, driver, hardware, and documentation licenses. No warranty is provided under the MIT License.
