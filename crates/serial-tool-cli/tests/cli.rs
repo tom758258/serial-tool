@@ -5,6 +5,7 @@ use std::{
     thread,
 };
 
+use clap::Parser;
 use serde_json::Value;
 
 fn run(args: &[&str]) -> Output {
@@ -457,6 +458,13 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
 
 #[test]
 fn user_guide_arguments_are_isolated_from_machine_commands() {
+    for args in [
+        vec!["serial-tool", "user-guide"],
+        vec!["serial-tool", "user-guide", "--lang", "en"],
+        vec!["serial-tool", "user-guide", "--lang", "zh-TW"],
+    ] {
+        assert!(serial_tool_cli::Cli::try_parse_from(args).is_ok());
+    }
     for args in [
         vec!["user-guide", "--help"],
         vec!["user-guide", "--lang", "invalid"],

@@ -107,11 +107,11 @@ fn ensure_bundle(base: &Path) -> io::Result<PathBuf> {
         // Publish a complete file instead of exposing a partially written HTML/CSS file.
         let temporary = dir.join(format!("{name}.{}.tmp", std::process::id()));
         fs::write(&temporary, bytes)?;
-        if let Err(error) = fs::remove_file(&target) {
-            if error.kind() != io::ErrorKind::NotFound {
-                let _ = fs::remove_file(&temporary);
-                return Err(error);
-            }
+        if let Err(error) = fs::remove_file(&target)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
         }
         if let Err(error) = fs::rename(&temporary, &target) {
             let _ = fs::remove_file(&temporary);
