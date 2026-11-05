@@ -14,7 +14,7 @@ cargo test -p serial-tool-cli --locked
 cargo run -p serial-tool-cli -- --help
 ```
 
-Use `serial-tool <command> --help` for exact flags and parameter defaults. The bundled offline `user-guide` command is not implemented in this version.
+Use `serial-tool <command> --help` for exact flags and parameter defaults. Run `serial-tool user-guide` for the bundled offline English guide, or `serial-tool user-guide --lang zh-TW` for Traditional Chinese. The guide opens in the default browser without an internet connection.
 
 ## Documentation and integration
 

@@ -1,6 +1,6 @@
 # Serial Tool CLI User Guide
 
-This guide explains everyday use of the installed `serial-tool` CLI. The [CLI README](README.md) includes detailed options; `serial-tool <command> --help` lists currently accepted flags. A bundled `serial-tool user-guide` command is **not yet implemented**.
+This guide explains everyday use of the installed `serial-tool` CLI. The CLI README includes detailed options; `serial-tool <command> --help` lists currently accepted flags. Open the bundled offline guide with `serial-tool user-guide` (English) or `serial-tool user-guide --lang zh-TW` (Traditional Chinese).
 
 ## 1. Start and inspect the CLI
 
@@ -43,7 +43,7 @@ serial-tool send --port COM4 --baud 115200 --hex "AA 55" --dry-run --json
 
 `send` accepts exactly one of `--text`, `--hex`, `--file`; `query` accepts one Text/Hex payload and one Text/Hex delimiter, but not a file. Text sends exact UTF-8 without an automatic CR/LF. Hex supports explicit non-text bytes. Raw file transmission does not transform its contents. Dry-run validates without opening physical or TCP resources.
 
-For `receive`, `query`, and `sequence run`, `--rx-display hex|text|both` affects only human-readable presentation; JSON/JSONL retains canonical raw-byte fields. See the [CLI machine contract](../contracts/serial-cli-jsonl-contract.md) for format and exit-code details.
+For `receive`, `query`, and `sequence run`, `--rx-display hex|text|both` affects only human-readable presentation; JSON/JSONL retains canonical raw-byte fields. See the CLI machine contract for format and exit-code details.
 
 ## 4. Interactive Terminal
 
@@ -97,7 +97,7 @@ serial-tool sequence run --file sequence.json --mode live --port COM4
 serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
 ```
 
-A TCP Sequence uses `"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}` and is run with `--transport tcp --host HOST --tcp-port PORT`. Neither format stores the device resource or execution mode. Validation does not open a connection. See the [Sequence Contract](../contracts/serial-sequence-contract.md).
+A TCP Sequence uses `"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}` and is run with `--transport tcp --host HOST --tcp-port PORT`. Neither format stores the device resource or execution mode. Validation does not open a connection. See the Sequence Contract.
 
 ## 7. Worker and streaming
 
@@ -114,7 +114,7 @@ The Worker exposes localhost-only HTTP control and JSONL events. Ordinary Worker
 serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodic-rx-v1 --streaming --control-port 0
 ```
 
-`periodic-rx-v1` is **only for Streaming Simulation Workers** and does not echo TX. Streaming Workers accept only `send` and `send-file`; RX events carry raw bytes, not guaranteed packet boundaries. HTTP acceptance is not job completion; Worker Stop acceptance is not process exit. See the [Worker Contract](../contracts/serial-worker-contract.md).
+`periodic-rx-v1` is **only for Streaming Simulation Workers** and does not echo TX. Streaming Workers accept only `send` and `send-file`; RX events carry raw bytes, not guaranteed packet boundaries. HTTP acceptance is not job completion; Worker Stop acceptance is not process exit. See the Worker Contract.
 
 ## 8. Common problems and limits
 
@@ -126,4 +126,4 @@ serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodi
 - **Cannot run a Sequence:** confirm its transport/settings match the runtime selection. The legacy root `serial` JSON layout is not accepted.
 - **Worker streaming command rejected:** `receive`, `query`, and `run-sequence` are only available without `--streaming`.
 
-Serial Tool does not automatically retry failed sends, decode device protocols, or provide a capture database. For technical settings and complete command cases, see the [CLI README](README.md).
+Serial Tool does not automatically retry failed sends, decode device protocols, or provide a capture database. For technical settings and complete command cases, see the CLI README.

@@ -14,7 +14,7 @@ cargo test -p serial-tool-cli --locked
 cargo run -p serial-tool-cli -- --help
 ```
 
-指令完整 Flags／預設值請使用 `serial-tool <command> --help`。本版本**尚未**提供內建離線 `user-guide` 指令。
+指令完整 Flags／預設值請使用 `serial-tool <command> --help`。使用 `serial-tool user-guide` 可在預設瀏覽器開啟英文離線指南，或以 `serial-tool user-guide --lang zh-TW` 開啟繁體中文；不需要網路連線。
 
 ## 文件與整合
 

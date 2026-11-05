@@ -453,3 +453,28 @@ fn tcp_transport_arguments_dry_run_and_live_socket_operations() {
     assert_eq!(server.join().unwrap(), [0xaa, 0x55]);
     assert_eq!(object(&queried)["rx_hex"], "4f4b0d0a");
 }
+
+
+#[test]
+fn user_guide_arguments_are_isolated_from_machine_commands() {
+    for args in [
+        vec!["user-guide", "--help"],
+        vec!["user-guide", "--lang", "invalid"],
+        vec!["user-guide", "--lang", "zh-tw"],
+    ] {
+        let output = run(&args);
+        assert_eq!(
+            output.status.code(),
+            Some(if args.contains(&"--help") { 0 } else { 2 }),
+            "{output:?}"
+        );
+    }
+    let help = run(&["--help"]);
+    assert_eq!(help.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&help.stdout).contains("user-guide"));
+    let manifest = run(&["manifest", "--json"]);
+    assert_eq!(manifest.status.code(), Some(0));
+    assert_eq!(object(&manifest)["schema_version"], 2);
+    let guide_help = run(&["user-guide", "--help"]);
+    assert!(String::from_utf8_lossy(&guide_help.stdout).contains("--lang"));
+}

@@ -1,0 +1,54 @@
+name: CLI offline Help pre-PR verification
+
+on:
+  push:
+    branches:
+      - feature/cli-offline-help
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Linux serial dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Generate and verify both Help bundles
+        run: |
+          python -m pip install -r scripts/requirements-help.txt
+          python scripts/generate_help.py
+          python -B scripts/test_generate_help.py
+          python scripts/generate_help.py --check
+          git diff --exit-code -- apps/desktop/public/help/
+          git diff --check
+      - name: Update dependency lock and format CLI code
+        run: |
+          cargo check -p serial-tool-cli
+          cargo fmt --all
+      - name: CLI Help targeted tests
+        run: |
+          cargo test -p serial-tool-cli --lib cached_bundle_reuses_and_repairs_assets_and_reports_browser_failures
+          cargo test -p serial-tool-cli --test cli user_guide
+      - name: Required Rust baseline
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --locked
+          cargo build --workspace --locked
+      - name: Track verified outputs and retire one-off workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/serial-tool-cli/help/ crates/serial-tool-cli/src/lib.rs crates/serial-tool-cli/src/help.rs crates/serial-tool-cli/tests/cli.rs
+          git rm .github/workflows/cli-help-preflight.yml
+          git diff --cached --check
+          git commit -m "Track verified CLI Help bundle and locked dependencies"
+          git push origin HEAD:feature/cli-offline-help
