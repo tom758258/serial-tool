@@ -2,6 +2,17 @@
 
 本指南說明目前已實作的 Windows Desktop 操作，適用於需要透過 COM 埠或原始 TCP 收發設備資料的使用者。
 
+## 選擇操作介面
+
+Windows 發行版提供兩個使用者操作入口，請依操作需求選擇。
+
+| 程式 | 用途 |
+| --- | --- |
+| `serial-tool.exe` | CLI 指令、腳本與自動化。 |
+| `Serial Tool.exe` | 以桌面介面操作 COM／TCP 通訊。 |
+
+本指南說明 Desktop。若要查閱 CLI 操作說明，請在發行版資料夾中開啟 PowerShell 並執行 `.\serial-tool.exe user-guide --lang zh-TW`，即可開啟隨附的離線 CLI 使用指南。
+
 ## 啟動與畫面
 
 Windows 必須安裝系統 Microsoft Edge WebView2 Runtime；如果未偵測到，Serial Tool 會提供開啟 Microsoft 官方頁面的原生警告，**不會**自行安裝，且不建立應用視窗。使用已建置的 `Serial Tool.exe`，或在 `apps/desktop` 使用 `npm run tauri -- dev` 啟動開發版。

@@ -2,6 +2,17 @@
 
 This guide describes the existing Windows-first Desktop controls for operators of COM or raw TCP devices.
 
+## Choose Your Interface
+
+The Windows release includes two operator-facing executables. Choose the interface for your workflow.
+
+| Program | Use |
+| --- | --- |
+| `serial-tool.exe` | CLI commands, scripts, and automation. |
+| `Serial Tool.exe` | Desktop application for interactive COM/TCP communication. |
+
+This guide covers Desktop. For command-line instructions, open PowerShell in the release folder and run `.\serial-tool.exe user-guide --lang en` to open the bundled offline CLI guide.
+
 ## Getting started
 
 On Windows, install the system Microsoft Edge WebView2 Runtime. If it is missing, the application offers to open the official download page and exits without creating a Tauri window; it does not install WebView2. Start the built `Serial Tool.exe` or use `npm run tauri -- dev` from `apps/desktop` for development.

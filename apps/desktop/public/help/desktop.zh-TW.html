@@ -35,6 +35,27 @@
   <main class="help-content" id="help-content">
 <h1 id="serial-tool-desktop-使用指南">Serial Tool Desktop 使用指南</h1>
 <p>本指南說明目前已實作的 Windows Desktop 操作，適用於需要透過 COM 埠或原始 TCP 收發設備資料的使用者。</p>
+<h2 id="選擇操作介面">選擇操作介面</h2>
+<p>Windows 發行版提供兩個使用者操作入口，請依操作需求選擇。</p>
+<table>
+<thead>
+<tr>
+<th>程式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serial-tool.exe</code></td>
+<td>CLI 指令、腳本與自動化。</td>
+</tr>
+<tr>
+<td><code>Serial Tool.exe</code></td>
+<td>以桌面介面操作 COM／TCP 通訊。</td>
+</tr>
+</tbody>
+</table>
+<p>本指南說明 Desktop。若要查閱 CLI 操作說明，請在發行版資料夾中開啟 PowerShell 並執行 <code>.\serial-tool.exe user-guide --lang zh-TW</code>，即可開啟隨附的離線 CLI 使用指南。</p>
 <h2 id="啟動與畫面">啟動與畫面</h2>
 <p>Windows 必須安裝系統 Microsoft Edge WebView2 Runtime；如果未偵測到，Serial Tool 會提供開啟 Microsoft 官方頁面的原生警告，<strong>不會</strong>自行安裝，且不建立應用視窗。使用已建置的 <code>Serial Tool.exe</code>，或在 <code>apps/desktop</code> 使用 <code>npm run tauri -- dev</code> 啟動開發版。</p>
 <p>主要功能區域是<strong>連線設定（Connection Setup）</strong>、<strong>終端機（Terminal）</strong>及<strong>序列（Sequence）</strong>。先選傳輸類型、實機／模擬，再連線。Desktop 模擬僅使用固定 <code>loopback-v1</code>；<code>periodic-rx-v1</code> <strong>只供 Streaming Simulation Worker</strong>，不是 Desktop 選項。</p>

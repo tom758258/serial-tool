@@ -2,16 +2,29 @@
 
 This guide explains everyday use of the installed `serial-tool` CLI. The CLI README includes detailed options; `serial-tool <command> --help` lists currently accepted flags. Open the bundled offline guide with `serial-tool user-guide` (English) or `serial-tool user-guide --lang zh-TW` (Traditional Chinese).
 
+## Choose Your Interface
+
+The Windows release includes two operator-facing executables. Choose the interface for your workflow.
+
+| Program | Use |
+| --- | --- |
+| `serial-tool.exe` | CLI commands, scripts, and automation. |
+| `Serial Tool.exe` | Desktop application for interactive COM/TCP communication. |
+
+This guide covers the CLI. For the graphical interface, open `Serial Tool.exe` from the same release folder, then select `Help` in the upper-right corner to open the bundled offline Desktop guide.
+
 ## 1. Start and inspect the CLI
 
-From a directory containing the built binary (or run `cargo run -p serial-tool-cli -- <command>` from the repository):
+For the Windows release, open PowerShell in the folder containing `serial-tool.exe` and run:
 
-```sh
-serial-tool --help
-serial-tool --version
-serial-tool list-ports
-serial-tool manifest --json
+```powershell
+.\serial-tool.exe --help
+.\serial-tool.exe --version
+.\serial-tool.exe list-ports
+.\serial-tool.exe manifest --json
 ```
+
+If `serial-tool` is already on `PATH`, use the unprefixed `serial-tool` commands shown below. For development, run `cargo run -p serial-tool-cli -- <command>` from the repository root.
 
 `list-ports` enumerates local COM ports without opening them. `manifest --json` describes machine integration; it is not a device probe.
 
