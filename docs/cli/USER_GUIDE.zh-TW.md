@@ -2,16 +2,29 @@
 
 本指南提供已安裝 `serial-tool` CLI 的日常操作方式。進階選項請見 CLI README，各指令接受的參數以 `serial-tool <command> --help` 為準。可使用 `serial-tool user-guide` 開啟英文離線指南，或使用 `serial-tool user-guide --lang zh-TW` 開啟繁體中文指南。
 
+## 選擇操作介面
+
+Windows 發行版提供兩個使用者操作入口，請依操作需求選擇。
+
+| 程式 | 用途 |
+| --- | --- |
+| `serial-tool.exe` | CLI 指令、腳本與自動化。 |
+| `Serial Tool.exe` | 以桌面介面操作 COM／TCP 通訊。 |
+
+本指南說明 CLI。若要使用圖形介面，請在同一個發行版資料夾中啟動 `Serial Tool.exe`，再點選右上角的「說明」（`Help`），即可開啟隨附的離線 Desktop 使用指南。
+
 ## 1. 啟動與確認 CLI
 
-在已建置執行檔的目錄中操作；開發時也可從 Repository 根目錄使用 `cargo run -p serial-tool-cli -- <command>`：
+使用 Windows 發行版時，請在 `serial-tool.exe` 所在資料夾開啟 PowerShell，執行：
 
-```sh
-serial-tool --help
-serial-tool --version
-serial-tool list-ports
-serial-tool manifest --json
+```powershell
+.\serial-tool.exe --help
+.\serial-tool.exe --version
+.\serial-tool.exe list-ports
+.\serial-tool.exe manifest --json
 ```
+
+若 `serial-tool` 已加入 `PATH`，可使用下文不含路徑前綴的 `serial-tool` 指令；開發時則可從 Repository 根目錄使用 `cargo run -p serial-tool-cli -- <command>`。
 
 `list-ports` 只列舉本機 COM 埠，不開啟設備。`manifest --json` 用於機器整合，不是實體設備探測。
 

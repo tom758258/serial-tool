@@ -35,13 +35,35 @@
   <main class="help-content" id="help-content">
 <h1 id="serial-tool-cli-使用指南">Serial Tool CLI 使用指南</h1>
 <p>本指南提供已安裝 <code>serial-tool</code> CLI 的日常操作方式。進階選項請見 CLI README，各指令接受的參數以 <code>serial-tool &lt;command&gt; --help</code> 為準。可使用 <code>serial-tool user-guide</code> 開啟英文離線指南，或使用 <code>serial-tool user-guide --lang zh-TW</code> 開啟繁體中文指南。</p>
+<h2 id="選擇操作介面">選擇操作介面</h2>
+<p>Windows 發行版提供兩個使用者操作入口，請依操作需求選擇。</p>
+<table>
+<thead>
+<tr>
+<th>程式</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serial-tool.exe</code></td>
+<td>CLI 指令、腳本與自動化。</td>
+</tr>
+<tr>
+<td><code>Serial Tool.exe</code></td>
+<td>以桌面介面操作 COM／TCP 通訊。</td>
+</tr>
+</tbody>
+</table>
+<p>本指南說明 CLI。若要使用圖形介面，請在同一個發行版資料夾中啟動 <code>Serial Tool.exe</code>，再點選右上角的「說明」（<code>Help</code>），即可開啟隨附的離線 Desktop 使用指南。</p>
 <h2 id="1-啟動與確認-cli">1. 啟動與確認 CLI</h2>
-<p>在已建置執行檔的目錄中操作；開發時也可從 Repository 根目錄使用 <code>cargo run -p serial-tool-cli -- &lt;command&gt;</code>：</p>
-<pre><code class="language-sh">serial-tool --help
-serial-tool --version
-serial-tool list-ports
-serial-tool manifest --json
+<p>使用 Windows 發行版時，請在 <code>serial-tool.exe</code> 所在資料夾開啟 PowerShell，執行：</p>
+<pre><code class="language-powershell">.\serial-tool.exe --help
+.\serial-tool.exe --version
+.\serial-tool.exe list-ports
+.\serial-tool.exe manifest --json
 </code></pre>
+<p>若 <code>serial-tool</code> 已加入 <code>PATH</code>，可使用下文不含路徑前綴的 <code>serial-tool</code> 指令；開發時則可從 Repository 根目錄使用 <code>cargo run -p serial-tool-cli -- &lt;command&gt;</code>。</p>
 <p><code>list-ports</code> 只列舉本機 COM 埠，不開啟設備。<code>manifest --json</code> 用於機器整合，不是實體設備探測。</p>
 <h2 id="2-選擇-com-或-tcp">2. 選擇 COM 或 TCP</h2>
 <p>UART 是預設傳輸；實機操作必須選擇正確 COM 埠與鮑率：</p>

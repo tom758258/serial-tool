@@ -35,13 +35,35 @@
   <main class="help-content" id="help-content">
 <h1 id="serial-tool-cli-user-guide">Serial Tool CLI User Guide</h1>
 <p>This guide explains everyday use of the installed <code>serial-tool</code> CLI. The CLI README includes detailed options; <code>serial-tool &lt;command&gt; --help</code> lists currently accepted flags. Open the bundled offline guide with <code>serial-tool user-guide</code> (English) or <code>serial-tool user-guide --lang zh-TW</code> (Traditional Chinese).</p>
+<h2 id="choose-your-interface">Choose Your Interface</h2>
+<p>The Windows release includes two operator-facing executables. Choose the interface for your workflow.</p>
+<table>
+<thead>
+<tr>
+<th>Program</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serial-tool.exe</code></td>
+<td>CLI commands, scripts, and automation.</td>
+</tr>
+<tr>
+<td><code>Serial Tool.exe</code></td>
+<td>Desktop application for interactive COM/TCP communication.</td>
+</tr>
+</tbody>
+</table>
+<p>This guide covers the CLI. For the graphical interface, open <code>Serial Tool.exe</code> from the same release folder, then select <code>Help</code> in the upper-right corner to open the bundled offline Desktop guide.</p>
 <h2 id="1-start-and-inspect-the-cli">1. Start and inspect the CLI</h2>
-<p>From a directory containing the built binary (or run <code>cargo run -p serial-tool-cli -- &lt;command&gt;</code> from the repository):</p>
-<pre><code class="language-sh">serial-tool --help
-serial-tool --version
-serial-tool list-ports
-serial-tool manifest --json
+<p>For the Windows release, open PowerShell in the folder containing <code>serial-tool.exe</code> and run:</p>
+<pre><code class="language-powershell">.\serial-tool.exe --help
+.\serial-tool.exe --version
+.\serial-tool.exe list-ports
+.\serial-tool.exe manifest --json
 </code></pre>
+<p>If <code>serial-tool</code> is already on <code>PATH</code>, use the unprefixed <code>serial-tool</code> commands shown below. For development, run <code>cargo run -p serial-tool-cli -- &lt;command&gt;</code> from the repository root.</p>
 <p><code>list-ports</code> enumerates local COM ports without opening them. <code>manifest --json</code> describes machine integration; it is not a device probe.</p>
 <h2 id="2-choose-com-or-tcp">2. Choose COM or TCP</h2>
 <p>UART is the default transport. Select a real port and baud rate for Live operations:</p>

@@ -35,6 +35,27 @@
   <main class="help-content" id="help-content">
 <h1 id="serial-tool-desktop-user-guide">Serial Tool Desktop User Guide</h1>
 <p>This guide describes the existing Windows-first Desktop controls for operators of COM or raw TCP devices.</p>
+<h2 id="choose-your-interface">Choose Your Interface</h2>
+<p>The Windows release includes two operator-facing executables. Choose the interface for your workflow.</p>
+<table>
+<thead>
+<tr>
+<th>Program</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>serial-tool.exe</code></td>
+<td>CLI commands, scripts, and automation.</td>
+</tr>
+<tr>
+<td><code>Serial Tool.exe</code></td>
+<td>Desktop application for interactive COM/TCP communication.</td>
+</tr>
+</tbody>
+</table>
+<p>This guide covers Desktop. For command-line instructions, open PowerShell in the release folder and run <code>.\serial-tool.exe user-guide --lang en</code> to open the bundled offline CLI guide.</p>
 <h2 id="getting-started">Getting started</h2>
 <p>On Windows, install the system Microsoft Edge WebView2 Runtime. If it is missing, the application offers to open the official download page and exits without creating a Tauri window; it does not install WebView2. Start the built <code>Serial Tool.exe</code> or use <code>npm run tauri -- dev</code> from <code>apps/desktop</code> for development.</p>
 <p>The main areas are <strong>Connection Setup</strong>, <strong>Terminal</strong>, and <strong>Sequence</strong>. Choose COM or TCP and Live or Simulation before connecting. Desktop Simulation uses only <code>loopback-v1</code>; <code>periodic-rx-v1</code> is for Streaming Simulation Workers and is not a Desktop mode.</p>
