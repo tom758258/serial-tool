@@ -90,6 +90,12 @@ impl<T: Transport> SerialSession<T> {
         self.rx.len()
     }
 
+    /// Discard bytes already reported for an ordinary Worker Query read timeout.
+    /// Does not touch the transport's pending RX or the normal read_until retry policy.
+    pub fn discard_buffered_rx(&mut self) {
+        self.rx.clear();
+    }
+
     fn map_read_error(error: io::Error, partial: Vec<u8>) -> Error {
         if matches!(
             error.kind(),
