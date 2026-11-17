@@ -23,11 +23,6 @@
 <body>
   <aside class="help-sidebar">
     <div class="help-sidebar-title">Serial Tool Help</div>
-    <nav class="help-languages" aria-label="Language">
-      <a href="desktop.html" hreflang="en" lang="en">English</a>
-      <span aria-hidden="true"> | </span>
-      <a href="desktop.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
-    </nav>
     <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
     <nav id="toc" aria-labelledby="toc-title"></nav>
   </aside>
@@ -68,7 +63,7 @@ Light, and Dark modes. Switching language never changes
 device connectivity, terminal bytes, Sequence data, or exported file formats.
 Core/CLI/Worker diagnostics and machine-readable data are not translated.</p>
 <h2 id="offline-help">Offline Help</h2>
-<p>Select <strong>Help</strong> at the top right to open the built-in offline guide in a separate window. It uses the current language (English or Traditional Chinese) and appearance (System, Light, or Dark). Help can switch language independently of the main window. Close and reopen Help to apply later changes to the main window's preferences. The guide works offline without requiring GitHub or other online resources.</p>
+<p>Select <strong>Help</strong> at the top right to open the built-in offline guide in a separate window. Its language and appearance (System, Light, or Dark) follow the current Desktop settings; Help has no separate language selector. After changing the language or appearance in the main window, select <strong>Help</strong> again to update the existing window. If nothing changed, Help is focused without reloading the current chapter. The guide works offline without requiring GitHub or other online resources.</p>
 <h2 id="connection-setup-com-and-tcp">Connection Setup: COM and TCP</h2>
 <p>In Connection Setup, choose COM Port or TCP/IP using the transport tabs.
 COM Port Live uses an explicit physical port; Refresh ports lists available ports
@@ -229,12 +224,9 @@ result exists. There is no saved run history or automatic result directory.</p>
           };
 
       document.getElementById("toc-title").textContent = strings.contents;
-      document.querySelectorAll(".help-languages a").forEach(function (link) {
-        if (link.hreflang === document.documentElement.lang) {
-          link.setAttribute("aria-current", "page");
-        }
-      });
-
+      if (isTraditionalChinese) {
+        document.querySelector(".help-sidebar-title").textContent = "Serial Tool 使用說明";
+      }
       function buildTableOfContents() {
         var toc = document.getElementById("toc");
         if (!toc) return;
@@ -328,32 +320,12 @@ result exists. There is no saved run history or automatic result directory.</p>
         });
       }
 
-      function preserveHelpThemeQuery() {
-        var override = null;
-        try {
-          var q = new URLSearchParams(location.search).get("theme");
-          if (q === "system" || q === "light" || q === "dark") override = q;
-        } catch (_error) {}
-        if (!override) return;
-        document.querySelectorAll('a[href]').forEach(function (anchor) {
-          var href = anchor.getAttribute("href");
-          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
-          if (href.indexOf(".html") === -1) return;
-          if (href.indexOf("?theme=") !== -1) return;
-          var hashIndex = href.indexOf("#");
-          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
-          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
-          anchor.setAttribute("href", base + "?theme=" + override + hash);
-        });
-      }
-
       var headings = document.querySelectorAll(
         "#help-content h2[id], #help-content h3[id]"
       );
       buildTableOfContents();
       wrapCodeBlocks();
       observeActiveSection();
-      preserveHelpThemeQuery();
     })();
   </script>
 </body>

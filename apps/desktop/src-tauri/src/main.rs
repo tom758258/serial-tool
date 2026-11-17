@@ -377,18 +377,51 @@ fn help_url(locale: &str, theme: &str) -> Result<tauri::WebviewUrl, String> {
     }
 }
 
+fn help_navigation_target(
+    main_url: &tauri::Url,
+    current_url: &tauri::Url,
+    url: &tauri::WebviewUrl,
+) -> Result<Option<tauri::Url>, String> {
+    let tauri::WebviewUrl::App(path) = url else {
+        return Err("Help requires an application asset".to_owned());
+    };
+    let target = main_url
+        .join(&format!("/{}", path.to_string_lossy()))
+        .map_err(|error| error.to_string())?;
+    // Do not reload the current page merely to focus Help: retain its chapter.
+    Ok((current_url.origin() != target.origin()
+        || current_url.path() != target.path()
+        || current_url.query() != target.query())
+    .then_some(target))
+}
+
 #[tauri::command]
 async fn open_help(app: tauri::AppHandle, locale: String, theme: String) -> Result<(), String> {
+    let title = if locale == "zh-TW" {
+        "Serial Tool 使用說明"
+    } else {
+        "Serial Tool Help"
+    };
     let url = help_url(&locale, &theme)?;
     tauri::async_runtime::spawn_blocking(move || {
         static HELP_WINDOW: Mutex<()> = Mutex::new(());
         let _guard = HELP_WINDOW.lock().map_err(|error| error.to_string())?;
         if let Some(window) = app.get_webview_window("help") {
+            let main_url = app
+                .get_webview_window("main")
+                .ok_or("Main window is unavailable")?
+                .url()
+                .map_err(|error| error.to_string())?;
+            let current_url = window.url().map_err(|error| error.to_string())?;
+            if let Some(target) = help_navigation_target(&main_url, &current_url, &url)? {
+                window.navigate(target).map_err(|error| error.to_string())?;
+            }
+            window.set_title(title).map_err(|error| error.to_string())?;
             window.show().map_err(|error| error.to_string())?;
             window.set_focus().map_err(|error| error.to_string())?;
         } else {
             tauri::WebviewWindowBuilder::new(&app, "help", url)
-                .title("Serial Tool Help")
+                .title(title)
                 .inner_size(1200.0, 800.0)
                 .resizable(true)
                 .build()
@@ -438,7 +471,7 @@ fn main() {
 
 #[cfg(test)]
 mod help_tests {
-    use super::help_url;
+    use super::{help_navigation_target, help_url};
 
     #[test]
     fn help_url_accepts_only_bundled_pages_and_supported_themes() {
@@ -456,5 +489,40 @@ mod help_tests {
         for theme in ["", "auto", "Dark", "light&url=https://example.com"] {
             assert!(help_url("en", theme).is_err());
         }
+    }
+
+    #[test]
+    fn help_existing_window_updates_only_when_language_or_theme_changes() {
+        let main = tauri::Url::parse("http://tauri.localhost/index.html").unwrap();
+        let current =
+            tauri::Url::parse("http://tauri.localhost/help/desktop.html?theme=dark#chapter")
+                .unwrap();
+        assert!(
+            help_navigation_target(&main, &current, &help_url("en", "dark").unwrap())
+                .unwrap()
+                .is_none()
+        );
+        for (locale, theme, expected) in [
+            ("zh-TW", "dark", "desktop.zh-TW.html?theme=dark"),
+            ("en", "light", "desktop.html?theme=light"),
+            ("en", "system", "desktop.html?theme=system"),
+        ] {
+            assert_eq!(
+                help_navigation_target(&main, &current, &help_url(locale, theme).unwrap())
+                    .unwrap()
+                    .unwrap()
+                    .as_str(),
+                format!("http://tauri.localhost/help/{expected}")
+            );
+        }
+        let external =
+            tauri::Url::parse("https://example.com/help/desktop.html?theme=dark").unwrap();
+        assert_eq!(
+            help_navigation_target(&main, &external, &help_url("en", "dark").unwrap())
+                .unwrap()
+                .unwrap()
+                .origin(),
+            main.origin()
+        );
     }
 }

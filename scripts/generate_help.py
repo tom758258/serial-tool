@@ -23,18 +23,25 @@ BUNDLES = (
     (ROOT / "docs/desktop", OUTPUT, DESKTOP_NAMES),
     (ROOT / "docs/cli", CLI_OUTPUT, CLI_NAMES),
 )
-TOKENS = ("{{lang}}", "{{title}}", "{{content}}", "{{en_href}}", "{{zh_href}}")
+TOKENS = ("{{lang}}", "{{title}}", "{{content}}")
 HTML_WARNING = "<!-- Generated file. Do not edit directly. -->"
 
 
 class HelpLinks(HTMLParser):
     def __init__(self, names):
         super().__init__()
-        self.languages = {}
+        self.lang = None
+        self.ids = set()
         self.names = set(names.values())
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == "html":
+            self.lang = attrs.get("lang")
+        if "id" in attrs:
+            self.ids.add(attrs["id"])
+        if "hreflang" in attrs or "help-languages" in attrs.get("class", "").split():
+            raise ValueError("Help language is selected by its opener")
         if tag != "a" or "href" not in attrs:
             return
         href = attrs["href"]
@@ -51,8 +58,6 @@ class HelpLinks(HTMLParser):
             raise ValueError(f"Unpackaged or unsafe Help link: {href}")
         if not public and unquote(url.path).lower().endswith(".md"):
             raise ValueError(f"Repository-local Markdown link is not allowed: {href}")
-        if "hreflang" in attrs:
-            self.languages[attrs["hreflang"]] = href
 
 
 def render(source, lang, template, names=DESKTOP_NAMES):
@@ -69,8 +74,6 @@ def render(source, lang, template, names=DESKTOP_NAMES):
         "{{lang}}": html.escape(lang),
         "{{title}}": html.escape(title[1]),
         "{{content}}": content,
-        "{{en_href}}": names["en"],
-        "{{zh_href}}": names["zh-TW"],
     }
     result = re.sub(r"\{\{\w+\}\}", lambda match: values.get(match[0], match[0]), template)
     result = result.replace("<!DOCTYPE html>\n", f"<!DOCTYPE html>\n{HTML_WARNING}\n", 1)
@@ -78,8 +81,8 @@ def render(source, lang, template, names=DESKTOP_NAMES):
         raise ValueError("Unexpanded template placeholder in Help output")
     links = HelpLinks(names)
     links.feed(result)
-    if links.languages != names:
-        raise ValueError(f"Help language links must point to {names}")
+    if links.lang != lang or not {"toc", "toc-title", "help-content"}.issubset(links.ids):
+        raise ValueError("Help language or chapter navigation is invalid")
     return result
 
 

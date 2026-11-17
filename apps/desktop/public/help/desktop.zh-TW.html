@@ -23,11 +23,6 @@
 <body>
   <aside class="help-sidebar">
     <div class="help-sidebar-title">Serial Tool Help</div>
-    <nav class="help-languages" aria-label="Language">
-      <a href="desktop.html" hreflang="en" lang="en">English</a>
-      <span aria-hidden="true"> | </span>
-      <a href="desktop.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
-    </nav>
     <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
     <nav id="toc" aria-labelledby="toc-title"></nav>
   </aside>
@@ -63,7 +58,7 @@
 <p>右上角語言按鈕顯示目前選用的 English／繁體中文，可立即切換，不重載畫面；手動選擇保存在本機 <code>serial-tool.locale</code>。首次開啟時參考 WebView 語言，其餘以英文備援。語言與外觀彼此獨立，外觀可選系統、淺色或深色。</p>
 <p>語言切換不會更動連線、Terminal 位元組、Sequence 資料或任何匯出格式；Core／CLI／Worker 原始診斷及機器可讀輸出不翻譯。</p>
 <h2 id="離線說明">離線說明</h2>
-<p>按右上角「<strong>說明</strong>」可於獨立視窗開啟內建離線使用指南，並沿用當下的介面語言（English／繁體中文）及外觀（系統／淺色／深色）。Help 視窗可以自行切換語言，不影響主視窗。若主視窗的語言或外觀後來變更，關閉再重新開啟 Help 即會套用。指南本身不需要網路，也不依賴 GitHub 或其他線上資源。</p>
+<p>按右上角「<strong>說明</strong>」可在獨立視窗開啟內建離線使用指南，語言與外觀（系統／淺色／深色）由主視窗目前設定決定，Help 不提供獨立語言切換。主視窗變更語言或外觀後，再按一次「<strong>說明</strong>」會更新已開啟的視窗；設定未變時僅聚焦視窗，不重載目前章節。指南不需要網路，也不依賴 GitHub 或其他線上資源。</p>
 <h2 id="連線設定com-埠tcpip">連線設定：COM 埠／TCP/IP</h2>
 <p>在連線設定分頁選擇 COM 埠或 TCP/IP。實機 COM 埠要選實體 Port；「重新整理 COM 埠」會列出 Port 與 USB Metadata，<strong>不會</strong>先開啟它們。依設備設定鮑率、資料位元、同位檢查、停止位元、流量控制與逾時。</p>
 <p>TCP/IP 實機輸入 Hostname／IPv4／IPv6、設備 Port（1～65535）、Connect Timeout（預設 3000 ms）、共用讀寫 I/O Timeout（預設 1000 ms）。Host 和 Port 是不同欄位，不要填完整 HTTP URL。TCP 是 Raw Byte Stream <strong>Client</strong>，沒有 HTTP、封包 Frame、自動重連；Connect Timeout 不保證涵蓋 DNS 與全部候選位址嘗試的總時間。</p>
@@ -151,12 +146,9 @@
           };
 
       document.getElementById("toc-title").textContent = strings.contents;
-      document.querySelectorAll(".help-languages a").forEach(function (link) {
-        if (link.hreflang === document.documentElement.lang) {
-          link.setAttribute("aria-current", "page");
-        }
-      });
-
+      if (isTraditionalChinese) {
+        document.querySelector(".help-sidebar-title").textContent = "Serial Tool 使用說明";
+      }
       function buildTableOfContents() {
         var toc = document.getElementById("toc");
         if (!toc) return;
@@ -250,32 +242,12 @@
         });
       }
 
-      function preserveHelpThemeQuery() {
-        var override = null;
-        try {
-          var q = new URLSearchParams(location.search).get("theme");
-          if (q === "system" || q === "light" || q === "dark") override = q;
-        } catch (_error) {}
-        if (!override) return;
-        document.querySelectorAll('a[href]').forEach(function (anchor) {
-          var href = anchor.getAttribute("href");
-          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
-          if (href.indexOf(".html") === -1) return;
-          if (href.indexOf("?theme=") !== -1) return;
-          var hashIndex = href.indexOf("#");
-          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
-          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
-          anchor.setAttribute("href", base + "?theme=" + override + hash);
-        });
-      }
-
       var headings = document.querySelectorAll(
         "#help-content h2[id], #help-content h3[id]"
       );
       buildTableOfContents();
       wrapCodeBlocks();
       observeActiveSection();
-      preserveHelpThemeQuery();
     })();
   </script>
 </body>
