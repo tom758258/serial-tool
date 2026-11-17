@@ -2,7 +2,8 @@ use serde::Serialize;
 pub use serial_tool_core::runtime::Mode;
 use serial_tool_core::runtime::{Event as CoreEvent, PersistentRuntime, RuntimeError};
 use serial_tool_core::{
-    Direction, Error, RunError, RunReport, Sequence, SerialSettings, StepOutcome, TcpSettings,
+    Direction, Error, FileTransfer, RunError, RunReport, Sequence, SerialSettings, StepOutcome,
+    TcpSettings,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -23,7 +24,9 @@ pub enum Event {
 pub struct StepResultDto {
     pub step_id: String,
     pub kind: &'static str,
-    pub bytes_written: Option<usize>,
+    pub bytes_written: Option<u64>,
+    pub file_name: Option<String>,
+    pub file_bytes: Option<u64>,
     pub requested_duration_ms: Option<u128>,
     pub bytes: Option<Vec<u8>>,
     pub completed_iterations: Option<usize>,
@@ -37,31 +40,51 @@ pub struct TranscriptDto {
 }
 
 #[derive(Debug, Serialize)]
+pub struct FailedFileDto {
+    pub file_name: String,
+    pub file_bytes: Option<u64>,
+    pub bytes_written: u64,
+}
+
+impl From<FileTransfer> for FailedFileDto {
+    fn from(progress: FileTransfer) -> Self {
+        Self {
+            file_name: progress.file_name,
+            file_bytes: progress.file_bytes,
+            bytes_written: progress.bytes_written,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct RunResult {
     pub status: &'static str,
     pub failing_step_id: Option<String>,
     pub error: Option<String>,
     pub partial_bytes: Option<Vec<u8>>,
+    pub failed_file: Option<FailedFileDto>,
     pub step_results: Vec<StepResultDto>,
     pub transcript: Vec<TranscriptDto>,
 }
 
 impl RunResult {
-    fn from_report(report: RunReport, failure: Option<(String, Error)>) -> Self {
-        let (status, failing_step_id, error, partial_bytes) = match failure {
-            Some((id, error)) => (
+    fn from_report(report: RunReport, failure: Option<(String, Error, Option<FileTransfer>)>) -> Self {
+        let (status, failing_step_id, error, partial_bytes, failed_file) = match failure {
+            Some((id, error, progress)) => (
                 "failed",
                 Some(id),
                 Some(error.to_string()),
                 error.partial().map(ToOwned::to_owned),
+                progress.map(FailedFileDto::from),
             ),
-            None => ("success", None, None, None),
+            None => ("success", None, None, None, None),
         };
         Self {
             status,
             failing_step_id,
             error,
             partial_bytes,
+            failed_file,
             step_results: report
                 .step_results
                 .into_iter()
@@ -70,6 +93,8 @@ impl RunResult {
                         step_id: result.step_id.as_str().to_owned(),
                         kind: "",
                         bytes_written: None,
+                        file_name: None,
+                        file_bytes: None,
                         requested_duration_ms: None,
                         bytes: None,
                         completed_iterations: None,
@@ -77,11 +102,17 @@ impl RunResult {
                     match result.outcome {
                         StepOutcome::SendText { bytes_written } => {
                             dto.kind = "send_text";
-                            dto.bytes_written = Some(bytes_written);
+                            dto.bytes_written = Some(bytes_written as u64);
                         }
                         StepOutcome::SendBytes { bytes_written } => {
                             dto.kind = "send_bytes";
+                            dto.bytes_written = Some(bytes_written as u64);
+                        }
+                        StepOutcome::SendFile { file_name, file_bytes, bytes_written } => {
+                            dto.kind = "send_file";
                             dto.bytes_written = Some(bytes_written);
+                            dto.file_name = Some(file_name);
+                            dto.file_bytes = Some(file_bytes);
                         }
                         StepOutcome::Wait { requested_duration } => {
                             dto.kind = "wait";
@@ -191,7 +222,11 @@ impl SessionManager {
             Err(RuntimeError::Sequence(error)) => match *error {
                 RunError::Execution(failure) => Ok(RunResult::from_report(
                     failure.report,
-                    Some((failure.step_id.as_str().to_owned(), failure.error)),
+                    Some((
+                        failure.step_id.as_str().to_owned(),
+                        failure.error,
+                        failure.file_transfer,
+                    )),
                 )),
                 RunError::Validation(error) => Err(error.to_string()),
             },
