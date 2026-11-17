@@ -1498,7 +1498,8 @@ mod tests {
 
     #[test]
     fn ordinary_query_timeout_consumes_only_reported_session_rx() {
-        let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([b"REA".to_vec()]));
+        let mut session =
+            SerialSession::new(SimulationTransport::with_rx_chunks([b"REA".to_vec()]));
         let state = Mutex::new(State::new());
         let result = execute(
             &mut session,
