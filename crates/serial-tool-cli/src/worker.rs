@@ -1008,6 +1008,13 @@ fn run_jobs_with<W: Write>(
                                 sequence_result::step_results_json(&failure.report);
                             terminal["transcript"] =
                                 sequence_result::transcript_json(&failure.report);
+                            if let Some(progress) = &failure.file_transfer {
+                                terminal["file_name"] = json!(progress.file_name);
+                                terminal["bytes_written"] = json!(progress.bytes_written);
+                                if let Some(file_bytes) = progress.file_bytes {
+                                    terminal["file_bytes"] = json!(file_bytes);
+                                }
+                            }
                             if let Some(partial) = failure.error.partial() {
                                 terminal["partial_hex"] = json!(hex(partial));
                                 terminal["partial_bytes"] = json!(partial.len());
