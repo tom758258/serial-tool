@@ -455,7 +455,7 @@ mod tests {
 
     #[test]
     fn sequence_raw_file_reports_summary_and_missing_file_without_payload() {
-        let (manager, _) = connect();
+        let (manager, _events) = connect();
         let path = std::env::temp_dir().join(format!(
             "serial-desktop-sequence-{}.bin",
             std::process::id()
