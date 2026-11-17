@@ -530,6 +530,22 @@ fn sequence_run_file_steps_keep_result_small_and_report_missing_files() {
     );
     assert!(!output.stdout.windows(8).any(|w| w == b"00ff0d0a"));
 
+    let text_output = run(&[
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+    ]);
+    assert!(text_output.status.success());
+    let text = String::from_utf8(text_output.stdout).unwrap();
+    assert!(text.contains(data.file_name().unwrap().to_str().unwrap()));
+    assert!(text.contains("size 4 bytes"));
+    assert!(text.contains("written 4 bytes"));
+
     let missing = folder.join(format!(
         "serial-cli-file-step-missing-{}.bin",
         std::process::id()
@@ -559,6 +575,24 @@ fn sequence_run_file_steps_keep_result_small_and_report_missing_files() {
     assert_eq!(error["bytes_written"], 0);
     assert!(error.get("file_bytes").is_none());
     assert_eq!(error["step_results"], serde_json::json!([]));
+
+    let failed_text = run(&[
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+    ]);
+    assert_eq!(failed_text.status.code(), Some(3));
+    assert!(failed_text.stdout.is_empty());
+    let error_text = String::from_utf8(failed_text.stderr).unwrap();
+    assert!(error_text.contains("step file failed"));
+    assert!(error_text.contains(missing.file_name().unwrap().to_str().unwrap()));
+    assert!(error_text.contains("size unknown"));
+    assert!(error_text.contains("confirmed written 0 bytes"));
 
     fs::remove_file(&data).unwrap();
     fs::remove_file(&sequence_path).unwrap();
