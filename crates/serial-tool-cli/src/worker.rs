@@ -165,7 +165,15 @@ fn execute<T: Transport>(
         Operation::Query(tx, delimiter, limit) => {
             session.write_all(&tx)?;
             session.flush()?;
-            let rx = session.read_until(&delimiter, limit)?;
+            let rx = match session.read_until(&delimiter, limit) {
+                Err(error @ Error::Timeout { .. }) => {
+                    // The timeout's partial bytes are returned to the caller; do
+                    // not let the next ordinary Job read them a second time.
+                    session.discard_buffered_rx();
+                    return Err(error.into());
+                }
+                result => result?,
+            };
             Ok(json!({
                 "tx_hex": hex(&tx), "tx_bytes": tx.len(),
                 "rx_hex": hex(&rx), "rx_bytes": rx.len(),
@@ -954,6 +962,9 @@ fn run_jobs_with<W: Write>(
                             &error.to_string(),
                         );
                         terminal["message"] = json!(error.to_string());
+                        if matches!(&error, Error::Timeout { .. }) {
+                            terminal["error"]["details"]["reason"] = json!("read_timeout");
+                        }
                         if let Some(partial) = error.partial() {
                             terminal["partial_hex"] = json!(hex(partial));
                             terminal["partial_bytes"] = json!(partial.len());
@@ -1484,6 +1495,96 @@ fn write_response(stream: &mut TcpStream, status: u16, value: &Value) -> io::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_query_timeout_consumes_only_reported_session_rx() {
+        let mut session =
+            SerialSession::new(SimulationTransport::with_rx_chunks([b"REA".to_vec()]));
+        let state = Mutex::new(State::new());
+        let result = execute(
+            &mut session,
+            Operation::Query(b"CMD".to_vec(), b"\r\n".to_vec(), 32),
+            &state,
+        );
+        assert!(matches!(
+            result,
+            Err(WorkerOperationError::Serial(Error::Timeout { partial }))
+                if partial == b"REA"
+        ));
+        assert_eq!(session.buffered_len(), 0);
+        // A later Query must also start with no stale bytes from the timed-out Query.
+        assert!(matches!(
+            execute(
+                &mut session,
+                Operation::Query(b"NEXT".to_vec(), b"\r\n".to_vec(), 32),
+                &state,
+            ),
+            Err(WorkerOperationError::Serial(Error::Timeout { partial }))
+                if partial.is_empty()
+        ));
+        assert_eq!(session.buffered_len(), 0);
+        assert!(matches!(
+            execute(&mut session, Operation::Receive(32), &state),
+            Err(WorkerOperationError::Serial(Error::Timeout { partial }))
+                if partial.is_empty()
+        ));
+    }
+
+    #[test]
+    fn ordinary_timeout_job_emits_native_error_reason_and_partial() {
+        for tcp in [false, true] {
+            let state = Arc::new(Mutex::new(State::new()));
+            let output = Arc::new(Mutex::new(Vec::<u8>::new()));
+            let (sender, receiver) = mpsc::channel();
+            let identity = JobIdentity {
+                worker_job_id: "job-1".into(),
+                command: "query".into(),
+                job_id: Some("query-1".into()),
+                state: "accepted",
+                timestamp_utc: timestamp(),
+            };
+            state.lock().unwrap().active = Some(identity.clone());
+            sender
+                .send(Job {
+                    identity,
+                    operation: Operation::Query(b"CMD".to_vec(), b"\r\n".to_vec(), 32),
+                })
+                .unwrap();
+            drop(sender);
+            run_jobs_with(
+                receiver,
+                Arc::clone(&state),
+                Arc::clone(&output),
+                "run".into(),
+                tcp,
+                |_, _| {
+                    Err(WorkerOperationError::Serial(Error::Timeout {
+                        partial: b"REA".to_vec(),
+                    }))
+                },
+            );
+            let data = output.lock().unwrap();
+            let events: Vec<Value> = std::str::from_utf8(&data)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(events.len(), 2);
+            let terminal = &events[1];
+            assert_eq!(terminal["state"], "failed");
+            assert_eq!(terminal["ok"], false);
+            assert_eq!(terminal["error"]["category"], "execution");
+            assert_eq!(
+                terminal["error"]["code"],
+                if tcp { "tcp_error" } else { "serial_error" }
+            );
+            assert_eq!(terminal["error"]["details"]["reason"], "read_timeout");
+            assert_eq!(terminal["partial_hex"], "524541");
+            assert_eq!(terminal["partial_bytes"], 3);
+            assert_eq!(state.lock().unwrap().failed, 1);
+            assert!(state.lock().unwrap().fatal.is_none());
+        }
+    }
 
     #[test]
     fn stream_status_includes_async_job_snapshot_and_shutdown_state() {

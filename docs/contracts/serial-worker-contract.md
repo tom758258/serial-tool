@@ -217,8 +217,17 @@ Ordinary read timeouts and I/O failures emit `job_finished` with
 Serial, `tcp_error` for TCP. A recoverable TCP Read Timeout leaves the
 Session available. TCP EOF, Reset, fatal Read, Write or Flush failure also
 closes the Session and causes Worker fatal cleanup / failed summary / exit 3,
-without implicit retry. Other ordinary job failures keep the Worker available. Partial RX supplied by Core appears
-as `partial_hex` and `partial_bytes`.
+without implicit retry. Other ordinary job failures keep the Worker available. A
+confirmed ordinary Receive or Query `Error::Timeout` keeps the existing
+`serial_error` / `tcp_error` code and adds
+`error.details.reason: "read_timeout"`; other errors do not use this reason.
+Partial RX supplied by Core appears as `partial_hex` and `partial_bytes`
+(including an empty value for a zero-byte read timeout). For an ordinary
+Worker Query that times out, the partial bytes have already been reported and
+are removed from the `SerialSession` internal RX buffer. This does not discard
+unread OS/device RX, alter the normal successful Query's trailing bytes, or
+change the Core `read_until` / Sequence retry behavior. An ordinary Receive
+timeout has no partial bytes.
 For `run-sequence`, the same runner thread executes the existing Core
 `StepRunner` on the persistent session. Its success result uses the same
 `step_results` and logical `transcript` machine representation as one-shot
