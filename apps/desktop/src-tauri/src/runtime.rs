@@ -451,7 +451,7 @@ mod tests {
         let (manager, _) = connect();
         let path = std::env::temp_dir().join(format!("serial-desktop-sequence-{}.bin", std::process::id()));
         std::fs::write(&path, [0x00, 0xff, 0x0d, 0x0a]).unwrap();
-        let mut value = serde_json::json!({
+        let value = serde_json::json!({
             "sequence_version": 1,
             "transport": {"type": "serial", "settings": {
                 "baud_rate": 115200, "data_bits": 8, "parity": "none",
