@@ -88,7 +88,7 @@ Specify one nonempty Text/Hex/File payload and a positive interval in millisecon
 
 ## 6. Sequence files
 
-A Sequence is a JSON file with `sequence_version: 1`, `transport.type/settings`, and ordered steps (`send_text`, `send_bytes`, `wait`, `read`, `read_until`, `repeat`). For example, create `sequence.json`:
+A Sequence is a JSON file with `sequence_version: 1`, `transport.type/settings`, and ordered steps (`send_text`, `send_bytes`, `send_file`, `wait`, `read`, `read_until`, `repeat`). For example, create `sequence.json`:
 
 ```json
 {
@@ -111,6 +111,8 @@ serial-tool sequence run --file sequence.json --mode simulate --simulation-profi
 ```
 
 A TCP Sequence uses `"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}` and is run with `--transport tcp --host HOST --tcp-port PORT`. Neither format stores the device resource or execution mode. Validation does not open a connection. See the Sequence Contract.
+
+A send_file step references an absolute local path on the executing machine. Multiple file steps may be interleaved with Wait, Read and Repeat. At execution time each file is read and transmitted as unmodified raw bytes in 4096-byte chunks; validation checks path syntax but does not open the file. Results contain the file name, initial file size and confirmed written byte count, not the full file bytes or a TX Transcript entry. Ordinary Worker run-sequence resolves the path on the Worker host, without uploading the file.
 
 ## 7. Worker and streaming
 
