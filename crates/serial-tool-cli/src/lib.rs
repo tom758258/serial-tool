@@ -630,17 +630,17 @@ impl Cli {
                     println!("{}", error_json(name, &error));
                 } else {
                     eprintln!("{error}");
-                    if let CliError::SequenceExecution(failure) = &error {
-                        if let Some(progress) = &failure.file_transfer {
-                            let size = progress
-                                .file_bytes
-                                .map(|bytes| bytes.to_string())
-                                .unwrap_or_else(|| "unknown".to_owned());
-                            eprintln!(
-                                "File {} (step {}): size {} bytes; confirmed written {} bytes",
-                                progress.file_name, failure.step_id, size, progress.bytes_written
-                            );
-                        }
+                    if let CliError::SequenceExecution(failure) = &error
+                        && let Some(progress) = &failure.file_transfer
+                    {
+                        let size = progress
+                            .file_bytes
+                            .map(|bytes| bytes.to_string())
+                            .unwrap_or_else(|| "unknown".to_owned());
+                        eprintln!(
+                            "File {} (step {}): size {} bytes; confirmed written {} bytes",
+                            progress.file_name, failure.step_id, size, progress.bytes_written
+                        );
                     }
                 }
                 code
