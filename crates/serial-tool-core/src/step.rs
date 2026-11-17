@@ -173,8 +173,8 @@ pub struct FileTransfer {
 pub struct ExecutionFailure {
     pub step_id: StepId,
     pub error: Error,
-    pub report: RunReport,
-    pub file_transfer: Option<FileTransfer>,
+    pub report: Box<RunReport>,
+    pub file_transfer: Option<Box<FileTransfer>>,
 }
 
 impl fmt::Display for ExecutionFailure {
@@ -229,8 +229,8 @@ impl<'a, T: Transport> StepRunner<'a, T> {
             return Err(RunError::Execution(ExecutionFailure {
                 step_id,
                 error,
-                report,
-                file_transfer,
+                report: Box::new(report),
+                file_transfer: file_transfer.map(Box::new),
             }));
         }
         Ok(report)
