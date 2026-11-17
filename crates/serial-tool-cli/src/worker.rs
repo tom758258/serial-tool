@@ -1512,6 +1512,17 @@ mod tests {
                 if partial == b"REA"
         ));
         assert_eq!(session.buffered_len(), 0);
+        // A later Query must also start with no stale bytes from the timed-out Query.
+        assert!(matches!(
+            execute(
+                &mut session,
+                Operation::Query(b"NEXT".to_vec(), b"\r\n".to_vec(), 32),
+                &state,
+            ),
+            Err(WorkerOperationError::Serial(Error::Timeout { partial }))
+                if partial.is_empty()
+        ));
+        assert_eq!(session.buffered_len(), 0);
         assert!(matches!(
             execute(&mut session, Operation::Receive(32), &state),
             Err(WorkerOperationError::Serial(Error::Timeout { partial }))
