@@ -111,13 +111,29 @@ pub struct StepResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StepOutcome {
-    SendText { bytes_written: usize },
-    SendBytes { bytes_written: usize },
-    SendFile { file_name: String, file_bytes: u64, bytes_written: u64 },
-    Wait { requested_duration: Duration },
-    Read { bytes: Vec<u8> },
-    ReadUntil { bytes: Vec<u8> },
-    Repeat { completed_iterations: usize },
+    SendText {
+        bytes_written: usize,
+    },
+    SendBytes {
+        bytes_written: usize,
+    },
+    SendFile {
+        file_name: String,
+        file_bytes: u64,
+        bytes_written: u64,
+    },
+    Wait {
+        requested_duration: Duration,
+    },
+    Read {
+        bytes: Vec<u8>,
+    },
+    ReadUntil {
+        bytes: Vec<u8>,
+    },
+    Repeat {
+        completed_iterations: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +236,11 @@ impl<'a, T: Transport> StepRunner<'a, T> {
         Ok(report)
     }
 
-    fn execute(&mut self, steps: &[Step], report: &mut RunReport) -> Result<(), (StepId, Error, Option<FileTransfer>)> {
+    fn execute(
+        &mut self,
+        steps: &[Step],
+        report: &mut RunReport,
+    ) -> Result<(), (StepId, Error, Option<FileTransfer>)> {
         for step in steps {
             let outcome = match &step.kind {
                 StepKind::SendText(text) => {
@@ -317,15 +337,32 @@ impl<'a, T: Transport> StepRunner<'a, T> {
             file_bytes: None,
             bytes_written: 0,
         };
-        let file_error = |source| Error::FileFailed { path: path.into(), source };
+        let file_error = |source| Error::FileFailed {
+            path: path.into(),
+            source,
+        };
         let mut file = File::open(path).map_err(|source| (file_error(source), progress.clone()))?;
-        let metadata = file.metadata().map_err(|source| (file_error(source), progress.clone()))?;
+        let metadata = file
+            .metadata()
+            .map_err(|source| (file_error(source), progress.clone()))?;
         if !metadata.is_file() {
-            return Err((file_error(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file")), progress));
+            return Err((
+                file_error(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "not a regular file",
+                )),
+                progress,
+            ));
         }
         progress.file_bytes = Some(metadata.len());
         if metadata.len() == 0 {
-            return Err((file_error(io::Error::new(io::ErrorKind::InvalidData, "file must not be empty")), progress));
+            return Err((
+                file_error(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "file must not be empty",
+                )),
+                progress,
+            ));
         }
         let mut buffer = [0u8; 4096];
         loop {
