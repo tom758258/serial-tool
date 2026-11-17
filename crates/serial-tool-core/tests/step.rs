@@ -436,7 +436,7 @@ fn raw_file_missing_or_empty_fails_without_sending_later_steps() {
     let path = std::env::temp_dir().join(format!("serial-sequence-empty-{}.bin", std::process::id()));
     for exists in [false, true] {
         if exists {
-            fs::write(&path, []).unwrap();
+            fs::write(&path, b"").unwrap();
         }
         let mut session = SerialSession::new(SimulationTransport::loopback());
         let steps = [
