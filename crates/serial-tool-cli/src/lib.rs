@@ -523,6 +523,13 @@ fn error_json(command: &str, error: &CliError) -> Value {
         value["step_id"] = json!(failure.step_id.as_str());
         value["step_results"] = sequence_result::step_results_json(&failure.report);
         value["transcript"] = sequence_result::transcript_json(&failure.report);
+        if let Some(progress) = &failure.file_transfer {
+            value["file_name"] = json!(progress.file_name);
+            value["bytes_written"] = json!(progress.bytes_written);
+            if let Some(file_bytes) = progress.file_bytes {
+                value["file_bytes"] = json!(file_bytes);
+            }
+        }
     }
     value
 }
