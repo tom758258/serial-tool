@@ -391,16 +391,22 @@ pub fn valid_local_file_path(path: &str) -> bool {
         return false;
     }
     let candidate = Path::new(path);
-    if !candidate.is_absolute() {
-        return false;
+    #[cfg(not(windows))]
+    {
+        candidate.is_absolute()
     }
     #[cfg(windows)]
-    if !matches!(candidate.components().next(), Some(std::path::Component::Prefix(prefix))
-        if matches!(prefix.kind(), std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)))
     {
-        return false;
+        candidate.is_absolute()
+            && matches!(
+                candidate.components().next(),
+                Some(std::path::Component::Prefix(prefix))
+                    if matches!(
+                        prefix.kind(),
+                        std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)
+                    )
+            )
     }
-    true
 }
 
 pub fn validate_steps(steps: &[Step]) -> Result<(), ValidationError> {
