@@ -15,7 +15,7 @@ pub use sequence::{
 };
 pub use session::SerialSession;
 pub use step::{
-    Direction, ExecutionFailure, InvalidStepId, MAX_READ_BYTES, RunError, RunReport, Step, StepId,
+    Direction, ExecutionFailure, FileTransfer, InvalidStepId, MAX_READ_BYTES, RunError, RunReport, Step, StepId,
     StepKind, StepOutcome, StepResult, StepRunner, Transcript, TranscriptEntry, ValidationError,
     ValidationReason, validate_steps,
 };
