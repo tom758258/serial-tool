@@ -509,8 +509,15 @@ fn sequence_run_file_steps_keep_result_small_and_report_missing_files() {
     let valid = run(&["sequence", "validate", "--file", file, "--json"]);
     assert!(valid.status.success());
     let output = run(&[
-        "sequence", "run", "--file", file, "--mode", "simulate",
-        "--simulation-profile-id", "loopback-v1", "--json",
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
     ]);
     assert!(output.status.success());
     let result = object(&output);
@@ -523,19 +530,32 @@ fn sequence_run_file_steps_keep_result_small_and_report_missing_files() {
     );
     assert!(!output.stdout.windows(8).any(|w| w == b"00ff0d0a"));
 
-    let missing = folder.join(format!("serial-cli-file-step-missing-{}.bin", std::process::id()));
+    let missing = folder.join(format!(
+        "serial-cli-file-step-missing-{}.bin",
+        std::process::id()
+    ));
     sequence["steps"][0]["path"] = missing.to_str().unwrap().into();
     fs::write(&sequence_path, sequence.to_string()).unwrap();
     let valid = run(&["sequence", "validate", "--file", file, "--json"]);
     assert!(valid.status.success());
     let failed = run(&[
-        "sequence", "run", "--file", file, "--mode", "simulate",
-        "--simulation-profile-id", "loopback-v1", "--json",
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
     ]);
     assert_eq!(failed.status.code(), Some(3));
     let error = object(&failed);
     assert_eq!(error["step_id"], "file");
-    assert_eq!(error["file_name"], missing.file_name().unwrap().to_str().unwrap());
+    assert_eq!(
+        error["file_name"],
+        missing.file_name().unwrap().to_str().unwrap()
+    );
     assert_eq!(error["bytes_written"], 0);
     assert!(error.get("file_bytes").is_none());
     assert_eq!(error["step_results"], serde_json::json!([]));
