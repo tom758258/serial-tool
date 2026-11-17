@@ -13,7 +13,10 @@ pub enum Error {
         port: u16,
         source: io::Error,
     },
-    FileFailed { path: Box<str>, source: io::Error },
+    FileFailed {
+        path: Box<str>,
+        source: io::Error,
+    },
     ReadFailed(io::Error),
     ReadAvailabilityFailed(serialport::Error),
     WriteFailed(io::Error),
