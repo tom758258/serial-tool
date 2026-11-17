@@ -68,7 +68,10 @@ pub struct RunResult {
 }
 
 impl RunResult {
-    fn from_report(report: RunReport, failure: Option<(String, Error, Option<FileTransfer>)>) -> Self {
+    fn from_report(
+        report: RunReport,
+        failure: Option<(String, Error, Option<FileTransfer>)>,
+    ) -> Self {
         let (status, failing_step_id, error, partial_bytes, failed_file) = match failure {
             Some((id, error, progress)) => (
                 "failed",
@@ -108,7 +111,11 @@ impl RunResult {
                             dto.kind = "send_bytes";
                             dto.bytes_written = Some(bytes_written as u64);
                         }
-                        StepOutcome::SendFile { file_name, file_bytes, bytes_written } => {
+                        StepOutcome::SendFile {
+                            file_name,
+                            file_bytes,
+                            bytes_written,
+                        } => {
                             dto.kind = "send_file";
                             dto.bytes_written = Some(bytes_written);
                             dto.file_name = Some(file_name);
@@ -449,7 +456,10 @@ mod tests {
     #[test]
     fn sequence_raw_file_reports_summary_and_missing_file_without_payload() {
         let (manager, _) = connect();
-        let path = std::env::temp_dir().join(format!("serial-desktop-sequence-{}.bin", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "serial-desktop-sequence-{}.bin",
+            std::process::id()
+        ));
         std::fs::write(&path, [0x00, 0xff, 0x0d, 0x0a]).unwrap();
         let value = serde_json::json!({
             "sequence_version": 1,
@@ -459,7 +469,9 @@ mod tests {
             }},
             "steps": [{"id":"file","type":"send_file","path":path}]
         });
-        let result = manager.run(Sequence::from_json_str(&value.to_string()).unwrap()).unwrap();
+        let result = manager
+            .run(Sequence::from_json_str(&value.to_string()).unwrap())
+            .unwrap();
         let serialized = serde_json::to_value(&result).unwrap();
         assert_eq!(result.status, "success");
         assert_eq!(serialized["step_results"][0]["kind"], "send_file");
@@ -468,7 +480,9 @@ mod tests {
         assert_eq!(serialized["transcript"], serde_json::json!([]));
         std::fs::remove_file(&path).unwrap();
 
-        let failed = manager.run(Sequence::from_json_str(&value.to_string()).unwrap()).unwrap();
+        let failed = manager
+            .run(Sequence::from_json_str(&value.to_string()).unwrap())
+            .unwrap();
         let serialized = serde_json::to_value(&failed).unwrap();
         assert_eq!(failed.status, "failed");
         assert_eq!(serialized["failing_step_id"], "file");
