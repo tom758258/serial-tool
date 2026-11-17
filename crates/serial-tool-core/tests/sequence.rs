@@ -235,3 +235,37 @@ fn save_then_load_file_and_clean_up() {
     assert_eq!(loaded.unwrap(), sequence);
     assert_eq!(saved.unwrap(), sequence.to_json_pretty().unwrap());
 }
+
+#[test]
+fn raw_file_step_round_trips_and_validates_only_path_syntax() {
+    let path = std::env::temp_dir().join(format!("serial-sequence-not-created-{}.bin", std::process::id()));
+    let mut sequence = sample();
+    sequence.steps = vec![step(
+        "file",
+        StepKind::SendFile(path.to_str().unwrap().into()),
+    )];
+    assert!(!path.exists());
+    let json = sequence.to_json_pretty().unwrap();
+    assert_eq!(Sequence::from_json_str(&json).unwrap(), sequence);
+
+    let saved = std::env::temp_dir().join(format!("serial-sequence-file-test-{}.json", std::process::id()));
+    sequence.save(&saved).unwrap();
+    assert_eq!(Sequence::load(&saved).unwrap(), sequence);
+    fs::remove_file(saved).unwrap();
+
+    let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    for invalid in ["", "payload.bin", "./payload.bin", "bad\0path"] {
+        value["steps"][0]["path"] = invalid.into();
+        let result = Sequence::from_json_str(&value.to_string());
+        assert!(matches!(
+            result,
+            Err(SequenceError::StepValidation(error))
+                if error.reason == ValidationReason::InvalidFilePath
+        ));
+    }
+    #[cfg(windows)]
+    for invalid in [r"\\server\share\payload.bin", r"\\.\COM1"] {
+        value["steps"][0]["path"] = invalid.into();
+        assert!(Sequence::from_json_str(&value.to_string()).is_err());
+    }
+}
