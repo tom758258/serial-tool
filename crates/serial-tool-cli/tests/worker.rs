@@ -450,6 +450,8 @@ fn simulation_session_lifecycle() {
     let failed = wait_terminal(&receiver, run_id);
     assert_eq!(failed["partial_hex"], "aa");
     assert_eq!(failed["partial_bytes"], 1);
+    assert_eq!(failed["error"]["code"], "serial_error");
+    assert_eq!(failed["error"]["details"]["reason"], "read_timeout");
     assert!(child.try_wait().unwrap().is_none());
     let (_, status) = request(status_url, "GET", "");
     assert_eq!(status["status"], "ready");
@@ -457,6 +459,20 @@ fn simulation_session_lifecycle() {
     assert_eq!(status["last_job"], failed);
     let (_, status_again) = request(status_url, "GET", "");
     assert_eq!(status_again["last_job"], failed);
+
+    // Query partial bytes were already reported: a later Receive must not
+    // receive the same bytes again from the ordinary Worker session buffer.
+    let (code, _) = request(
+        command_url,
+        "POST",
+        &json!({"schema_version":3,"command":"receive"}).to_string(),
+    );
+    assert_eq!(code, 202);
+    let next_read = wait_terminal(&receiver, run_id);
+    assert_eq!(next_read["state"], "failed");
+    assert_eq!(next_read["partial_hex"], "");
+    assert_eq!(next_read["partial_bytes"], 0);
+    assert_eq!(next_read["error"]["details"]["reason"], "read_timeout");
 
     let file = SendFileFixture::new(&[0x55]);
     let (code, accepted) = request(command_url, "POST", &send_file_request(&file.0).to_string());
