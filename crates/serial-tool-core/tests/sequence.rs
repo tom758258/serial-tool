@@ -238,7 +238,10 @@ fn save_then_load_file_and_clean_up() {
 
 #[test]
 fn raw_file_step_round_trips_and_validates_only_path_syntax() {
-    let path = std::env::temp_dir().join(format!("serial-sequence-not-created-{}.bin", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "serial-sequence-not-created-{}.bin",
+        std::process::id()
+    ));
     let mut sequence = sample();
     sequence.steps = vec![step(
         "file",
@@ -248,7 +251,10 @@ fn raw_file_step_round_trips_and_validates_only_path_syntax() {
     let json = sequence.to_json_pretty().unwrap();
     assert_eq!(Sequence::from_json_str(&json).unwrap(), sequence);
 
-    let saved = std::env::temp_dir().join(format!("serial-sequence-file-test-{}.json", std::process::id()));
+    let saved = std::env::temp_dir().join(format!(
+        "serial-sequence-file-test-{}.json",
+        std::process::id()
+    ));
     sequence.save(&saved).unwrap();
     assert_eq!(Sequence::load(&saved).unwrap(), sequence);
     fs::remove_file(saved).unwrap();
