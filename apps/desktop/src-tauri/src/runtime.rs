@@ -228,11 +228,11 @@ impl SessionManager {
             Ok(report) => Ok(RunResult::from_report(report, None)),
             Err(RuntimeError::Sequence(error)) => match *error {
                 RunError::Execution(failure) => Ok(RunResult::from_report(
-                    failure.report,
+                    *failure.report,
                     Some((
                         failure.step_id.as_str().to_owned(),
                         failure.error,
-                        failure.file_transfer,
+                        failure.file_transfer.map(|progress| *progress),
                     )),
                 )),
                 RunError::Validation(error) => Err(error.to_string()),
