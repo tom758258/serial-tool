@@ -337,7 +337,10 @@ fn raw_file_steps_preserve_order_and_repeat_without_tx_payload_in_transcript() {
     fs::write(&second_path, second).unwrap();
 
     let steps = [
-        step("first", StepKind::SendFile(first_path.to_str().unwrap().into())),
+        step(
+            "first",
+            StepKind::SendFile(first_path.to_str().unwrap().into()),
+        ),
         step("wait", StepKind::Wait(Duration::ZERO)),
         step(
             "repeat",
@@ -365,7 +368,11 @@ fn raw_file_steps_preserve_order_and_repeat_without_tx_payload_in_transcript() {
     assert_eq!(
         report.step_results[0].outcome,
         StepOutcome::SendFile {
-            file_name: first_path.file_name().unwrap().to_string_lossy().into_owned(),
+            file_name: first_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
             file_bytes: 4101,
             bytes_written: 4101,
         }
@@ -373,7 +380,11 @@ fn raw_file_steps_preserve_order_and_repeat_without_tx_payload_in_transcript() {
     assert_eq!(
         report.step_results[2].outcome,
         StepOutcome::SendFile {
-            file_name: second_path.file_name().unwrap().to_string_lossy().into_owned(),
+            file_name: second_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
             file_bytes: 4,
             bytes_written: 4,
         }
@@ -409,7 +420,8 @@ fn raw_file_flush_failure_reports_only_confirmed_bytes_and_stops_next_step() {
         }
     }
 
-    let path = std::env::temp_dir().join(format!("serial-sequence-flush-{}.bin", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("serial-sequence-flush-{}.bin", std::process::id()));
     fs::write(&path, vec![0x55; 5000]).unwrap();
     let mut session = SerialSession::new(FailSecondFlush::default());
     let steps = [
@@ -433,7 +445,8 @@ fn raw_file_flush_failure_reports_only_confirmed_bytes_and_stops_next_step() {
 
 #[test]
 fn raw_file_missing_or_empty_fails_without_sending_later_steps() {
-    let path = std::env::temp_dir().join(format!("serial-sequence-empty-{}.bin", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("serial-sequence-empty-{}.bin", std::process::id()));
     for exists in [false, true] {
         if exists {
             fs::write(&path, b"").unwrap();
