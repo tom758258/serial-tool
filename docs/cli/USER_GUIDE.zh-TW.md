@@ -88,7 +88,7 @@ serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopba
 
 ## 6. Sequence 檔案
 
-Sequence 是包含 `sequence_version: 1`、`transport.type/settings` 與有序步驟的 JSON；步驟為 `send_text`、`send_bytes`、`wait`、`read`、`read_until`、`repeat`。例如建立 `sequence.json`：
+Sequence 是包含 `sequence_version: 1`、`transport.type/settings` 與有序步驟的 JSON；步驟為 `send_text`、`send_bytes`、`send_file`、`wait`、`read`、`read_until`、`repeat`。例如建立 `sequence.json`：
 
 ```json
 {
@@ -111,6 +111,8 @@ serial-tool sequence run --file sequence.json --mode simulate --simulation-profi
 ```
 
 TCP Sequence 改用 `"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}`，執行時指定 `--transport tcp --host HOST --tcp-port PORT`。Sequence 不儲存設備資源或執行模式；Validate 不會開啟連線。正式格式詳 Sequence Contract。
+
+send_file 步驟使用執行主機上的本機絕對路徑，可與 Wait、Read、Repeat 等步驟交錯安排。執行到該步驟時以 4096 位元組分塊傳送原始檔案資料；Validate 僅檢查路徑格式，不開啟檔案。結果包含檔名、初始檔案大小及已確認寫入位元組數，不保存檔案完整內容或該步驟的 TX Transcript。普通 Worker 的 run-sequence 使用 Worker 主機可存取的路徑，不會上傳檔案。
 
 ## 7. Worker 與 Streaming
 
