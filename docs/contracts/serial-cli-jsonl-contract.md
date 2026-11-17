@@ -114,16 +114,22 @@ CLI argument/validation errors exit 2; runtime connect and I/O errors exit 3.
   or `worker_job_id`.
   `step_results` preserve completion order, including each repeat child
   execution. Each result has `step_id`, `type`, and a type-specific field:
-  `bytes_written` for sends, `requested_duration_ms` for wait, `rx_hex` and
+  `bytes_written` for text/byte sends, `file_name`, `file_bytes`, and
+  `bytes_written` for `send_file`, `requested_duration_ms` for wait, `rx_hex` and
   `rx_bytes` for reads, or `completed_iterations` for repeat. Transcript
   entries have `step_id`, `direction` (`tx` or `rx`), `hex`, and `bytes`. They
   represent logical I/O from completed steps, not a physical-wire capture.
+  A `send_file` has no TX Transcript entry and neither its Step Result nor
+  Sequence JSON/JSONL output carries the full file payload.
 - `error`: after machine handling starts, a validation or runtime failure
   contains `ok: false`, `command`, `message`, and `exit_code`. When Core
   supplies partial RX bytes, it also contains `partial_hex` and
   `partial_bytes`.
   A `sequence run` StepRunner failure also includes the failing `step_id`,
-  completed `step_results`, and completed logical `transcript`. The underlying
+  completed `step_results`, and completed logical `transcript`. A failed
+  `send_file` additionally returns `file_name`, confirmed `bytes_written`,
+  and `file_bytes` only if file metadata was available; an incomplete chunk
+  is never counted. The underlying
   error remains in `message`; Core partial RX appears when available.
 
 ## Worker runtime
