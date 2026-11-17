@@ -15,8 +15,8 @@ pub use sequence::{
 };
 pub use session::SerialSession;
 pub use step::{
-    Direction, ExecutionFailure, FileTransfer, InvalidStepId, MAX_READ_BYTES, RunError, RunReport, Step, StepId,
-    StepKind, StepOutcome, StepResult, StepRunner, Transcript, TranscriptEntry, ValidationError,
-    ValidationReason, validate_steps,
+    Direction, ExecutionFailure, FileTransfer, InvalidStepId, MAX_READ_BYTES, RunError, RunReport,
+    Step, StepId, StepKind, StepOutcome, StepResult, StepRunner, Transcript, TranscriptEntry,
+    ValidationError, ValidationReason, validate_steps,
 };
 pub use transport::{SerialTransport, SimulationTransport, TcpTransport, Transport};
