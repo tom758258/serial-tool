@@ -447,6 +447,38 @@ mod tests {
     }
 
     #[test]
+    fn sequence_raw_file_reports_summary_and_missing_file_without_payload() {
+        let (manager, _) = connect();
+        let path = std::env::temp_dir().join(format!("serial-desktop-sequence-{}.bin", std::process::id()));
+        std::fs::write(&path, [0x00, 0xff, 0x0d, 0x0a]).unwrap();
+        let mut value = serde_json::json!({
+            "sequence_version": 1,
+            "transport": {"type": "serial", "settings": {
+                "baud_rate": 115200, "data_bits": 8, "parity": "none",
+                "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000
+            }},
+            "steps": [{"id":"file","type":"send_file","path":path}]
+        });
+        let result = manager.run(Sequence::from_json_str(&value.to_string()).unwrap()).unwrap();
+        let serialized = serde_json::to_value(&result).unwrap();
+        assert_eq!(result.status, "success");
+        assert_eq!(serialized["step_results"][0]["kind"], "send_file");
+        assert_eq!(serialized["step_results"][0]["file_bytes"], 4);
+        assert_eq!(serialized["step_results"][0]["bytes_written"], 4);
+        assert_eq!(serialized["transcript"], serde_json::json!([]));
+        std::fs::remove_file(&path).unwrap();
+
+        let failed = manager.run(Sequence::from_json_str(&value.to_string()).unwrap()).unwrap();
+        let serialized = serde_json::to_value(&failed).unwrap();
+        assert_eq!(failed.status, "failed");
+        assert_eq!(serialized["failing_step_id"], "file");
+        assert_eq!(serialized["failed_file"]["bytes_written"], 0);
+        assert!(serialized["failed_file"]["file_bytes"].is_null());
+        assert_eq!(serialized["transcript"], serde_json::json!([]));
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
     fn auto_tx_file_repeats_the_snapshot_until_restart() {
         let (manager, events) = connect();
         let path =
