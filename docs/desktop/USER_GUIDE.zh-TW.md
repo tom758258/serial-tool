@@ -85,7 +85,7 @@ Clear View 清除後無法匯出先前紀錄；超過 5000 筆而被移除的舊
 
 ## Sequence Editor 與結果
 
-Editor 支援 **Send Text、Send Bytes、Wait、Read、Read Until、巢狀 Repeat** 六種步驟，Properties 顯示選定步驟說明。提供 New、Load、Save、Validate、Add Step、Add Child、Delete、Move Up、Move Down。編輯中的 Draft 可以暫時不合法，但 Validate／Save／Run 都透過 Core 的 Sequence v1 Parser 和驗證。
+Editor 支援 **Send Text、Send Bytes、Send File (Raw)、Wait、Read、Read Until、巢狀 Repeat** 七種步驟，Properties 顯示選定步驟說明。提供 New、Load、Save、Validate、Add Step、Add Child、Delete、Move Up、Move Down。編輯中的 Draft 可以暫時不合法，但 Validate／Save／Run 都透過 Core 的 Sequence v1 Parser 和驗證。
 
 Sequence JSON 使用 `transport: {type, settings}`，舊的根欄位 `serial` 不再支援。UART 保存原六項線路設定；TCP **只保存 `io_timeout_ms`**，不保存 Host、Port 或 Connect Timeout。實際設備資源與模式另外在 Connection Setup 選擇。
 
@@ -96,6 +96,8 @@ Editor 提示未連線、設定相符或具體 Transport／Settings 不相符。
 最近一筆結果只保存在記憶體，包含完成步驟、Raw-byte Transcript，以及失敗時可取得的 Partial Bytes。狀態與控制位於高度 250px 的 Step Results／Transcript 共用捲動區上方。新的 Run 從頂端顯示；切換 RX 顯示不重設 Scroll Position。
 
 「儲存結果」匯出**完整 JSON**及原始 Byte Arrays，不受 Hex／文字／兩者顯示選擇影響。失敗結果也保留失敗步驟、Error、已完成步驟、Transcript 和可取得的 Partial Bytes；沒有結果則無法儲存。沒有持久 Run History 或自動結果目錄。
+
+若要透過 Sequence 傳送多個檔案，每個檔案新增一個 Send File (Raw) 步驟，可用選檔按鈕或輸入絕對路徑，並穿插 Wait、Read 或 Repeat。執行到該步驟才讀取並原樣傳送檔案位元組；檔案不存在、為空或無法讀取時該步驟失敗。結果顯示檔名、初始大小與已確認寫入位元組數，不將完整檔案內容存入 Sequence Transcript。執行程式的電腦必須能存取該路徑。
 
 ## 常見問題與限制
 
