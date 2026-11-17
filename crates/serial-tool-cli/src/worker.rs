@@ -1498,9 +1498,7 @@ mod tests {
 
     #[test]
     fn ordinary_query_timeout_consumes_only_reported_session_rx() {
-        let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
-            b"REA".to_vec(),
-        ]));
+        let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([b"REA".to_vec()]));
         let state = Mutex::new(State::new());
         let result = execute(
             &mut session,
@@ -1534,26 +1532,40 @@ mod tests {
                 timestamp_utc: timestamp(),
             };
             state.lock().unwrap().active = Some(identity.clone());
-            sender.send(Job {
-                identity,
-                operation: Operation::Query(b"CMD".to_vec(), b"\r\n".to_vec(), 32),
-            }).unwrap();
+            sender
+                .send(Job {
+                    identity,
+                    operation: Operation::Query(b"CMD".to_vec(), b"\r\n".to_vec(), 32),
+                })
+                .unwrap();
             drop(sender);
             run_jobs_with(
-                receiver, Arc::clone(&state), Arc::clone(&output), "run".into(), tcp,
-                |_, _| Err(WorkerOperationError::Serial(Error::Timeout {
-                    partial: b"REA".to_vec(),
-                })),
+                receiver,
+                Arc::clone(&state),
+                Arc::clone(&output),
+                "run".into(),
+                tcp,
+                |_, _| {
+                    Err(WorkerOperationError::Serial(Error::Timeout {
+                        partial: b"REA".to_vec(),
+                    }))
+                },
             );
-            let output = output.lock().unwrap();
-            let events: Vec<Value> = std::str::from_utf8(&output)
-                .unwrap().lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+            let data = output.lock().unwrap();
+            let events: Vec<Value> = std::str::from_utf8(&data)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
             assert_eq!(events.len(), 2);
             let terminal = &events[1];
             assert_eq!(terminal["state"], "failed");
             assert_eq!(terminal["ok"], false);
             assert_eq!(terminal["error"]["category"], "execution");
-            assert_eq!(terminal["error"]["code"], if tcp { "tcp_error" } else { "serial_error" });
+            assert_eq!(
+                terminal["error"]["code"],
+                if tcp { "tcp_error" } else { "serial_error" }
+            );
             assert_eq!(terminal["error"]["details"]["reason"], "read_timeout");
             assert_eq!(terminal["partial_hex"], "524541");
             assert_eq!(terminal["partial_bytes"], 3);
