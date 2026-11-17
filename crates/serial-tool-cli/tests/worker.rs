@@ -1504,3 +1504,48 @@ fn tcp_live_streaming_uses_single_owner_for_unsolicited_rx_and_send() {
     stop_stream(&mut child, &receiver, &ready);
     assert_eq!(server.join().unwrap(), [0xaa, 0x55]);
 }
+
+#[test]
+fn sequence_file_steps_report_summaries_and_missing_file_progress() {
+    let first = SendFileFixture::new(&[0x00, 0xff, 0x0d, 0x0a]);
+    let second = SendFileFixture::new(&[0x55]);
+    let (mut child, receiver, ready) = spawn();
+    let run_id = ready["run_id"].as_str().unwrap();
+    let url = ready["command_url"].as_str().unwrap();
+    let request_body = sequence_request(sequence(json!([
+        {"id":"first","type":"send_file","path":first.0},
+        {"id":"wait","type":"wait","duration_ms":0},
+        {"id":"second","type":"send_file","path":second.0}
+    ])));
+    let (code, accepted) = request(url, "POST", &request_body.to_string());
+    assert_eq!(code, 202);
+    assert_eq!(accepted["command"], "run-sequence");
+    let success = wait_terminal(&receiver, run_id);
+    assert_eq!(success["state"], "succeeded");
+    assert_eq!(success["result"]["step_results"][0]["type"], "send_file");
+    assert_eq!(success["result"]["step_results"][0]["file_bytes"], 4);
+    assert_eq!(success["result"]["step_results"][0]["bytes_written"], 4);
+    assert_eq!(success["result"]["step_results"][2]["file_bytes"], 1);
+    assert_eq!(success["result"]["transcript"], json!([]));
+
+    let missing = std::env::temp_dir().join(format!("serial-worker-missing-{}.bin", uuid::Uuid::new_v4()));
+    let failed_request = sequence_request(sequence(json!([
+        {"id":"first","type":"send_file","path":first.0},
+        {"id":"missing","type":"send_file","path":missing},
+        {"id":"later","type":"send_bytes","hex":"aa"}
+    ])));
+    let (code, _) = request(url, "POST", &failed_request.to_string());
+    assert_eq!(code, 202);
+    let failed = wait_terminal(&receiver, run_id);
+    assert_eq!(failed["state"], "failed");
+    assert_eq!(failed["error"]["code"], "sequence_execution_error");
+    assert_eq!(failed["step_id"], "missing");
+    assert_eq!(failed["file_name"], missing.file_name().unwrap().to_str().unwrap());
+    assert_eq!(failed["bytes_written"], 0);
+    assert!(failed.get("file_bytes").is_none());
+    assert_eq!(failed["step_results"].as_array().unwrap().len(), 1);
+    assert_eq!(failed["step_results"][0]["step_id"], "first");
+    assert_eq!(failed["transcript"], json!([]));
+    assert!(child.try_wait().unwrap().is_none());
+    stop(&mut child, &receiver, &ready, "");
+}
