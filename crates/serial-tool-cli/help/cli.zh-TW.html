@@ -99,7 +99,7 @@ serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopba
 </code></pre>
 <p>指定一種非空的 Text／Hex／File Payload 與正整數毫秒間隔。第一筆立即送出，下一次間隔從前一筆傳送結束後起算。檔案在連線前讀取一次，過程中持續接收 RX，按 Ctrl+C 結束。<code>auto-tx</code> 不提供 Dry-run 或 JSON／JSONL 模式。</p>
 <h2 id="6-sequence-檔案">6. Sequence 檔案</h2>
-<p>Sequence 是包含 <code>sequence_version: 1</code>、<code>transport.type/settings</code> 與有序步驟的 JSON；步驟為 <code>send_text</code>、<code>send_bytes</code>、<code>wait</code>、<code>read</code>、<code>read_until</code>、<code>repeat</code>。例如建立 <code>sequence.json</code>：</p>
+<p>Sequence 是包含 <code>sequence_version: 1</code>、<code>transport.type/settings</code> 與有序步驟的 JSON；步驟為 <code>send_text</code>、<code>send_bytes</code>、<code>send_file</code>、<code>wait</code>、<code>read</code>、<code>read_until</code>、<code>repeat</code>。例如建立 <code>sequence.json</code>：</p>
 <pre><code class="language-json">{
   &quot;sequence_version&quot;: 1,
   &quot;transport&quot;: {
@@ -117,6 +117,7 @@ serial-tool sequence run --file sequence.json --mode live --port COM4
 serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
 </code></pre>
 <p>TCP Sequence 改用 <code>"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}</code>，執行時指定 <code>--transport tcp --host HOST --tcp-port PORT</code>。Sequence 不儲存設備資源或執行模式；Validate 不會開啟連線。正式格式詳 Sequence Contract。</p>
+<p>send_file 步驟使用執行主機上的本機絕對路徑，可與 Wait、Read、Repeat 等步驟交錯安排。執行到該步驟時以 4096 位元組分塊傳送原始檔案資料；Validate 僅檢查路徑格式，不開啟檔案。結果包含檔名、初始檔案大小及已確認寫入位元組數，不保存檔案完整內容或該步驟的 TX Transcript。普通 Worker 的 run-sequence 使用 Worker 主機可存取的路徑，不會上傳檔案。</p>
 <h2 id="7-worker-與-streaming">7. Worker 與 Streaming</h2>
 <p>若要讓其他程式透過持續運作的程序操作：</p>
 <pre><code class="language-sh">serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0

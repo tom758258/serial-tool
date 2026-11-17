@@ -1,4 +1,12 @@
-use std::{collections::HashSet, error, fmt, thread, time::Duration};
+use std::{
+    collections::HashSet,
+    error, fmt,
+    fs::File,
+    io::{self, Read},
+    path::Path,
+    thread,
+    time::Duration,
+};
 
 use crate::{Error, SerialSession, Transport};
 
@@ -55,6 +63,7 @@ pub struct Step {
 pub enum StepKind {
     SendText(String),
     SendBytes(Vec<u8>),
+    SendFile(String),
     Wait(Duration),
     Read {
         max_bytes: usize,
@@ -79,6 +88,7 @@ pub struct ValidationError {
 pub enum ValidationReason {
     DuplicateId,
     EmptySend,
+    InvalidFilePath,
     InvalidReadLimit,
     EmptyDelimiter,
     DelimiterExceedsReadLimit,
@@ -101,12 +111,29 @@ pub struct StepResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StepOutcome {
-    SendText { bytes_written: usize },
-    SendBytes { bytes_written: usize },
-    Wait { requested_duration: Duration },
-    Read { bytes: Vec<u8> },
-    ReadUntil { bytes: Vec<u8> },
-    Repeat { completed_iterations: usize },
+    SendText {
+        bytes_written: usize,
+    },
+    SendBytes {
+        bytes_written: usize,
+    },
+    SendFile {
+        file_name: String,
+        file_bytes: u64,
+        bytes_written: u64,
+    },
+    Wait {
+        requested_duration: Duration,
+    },
+    Read {
+        bytes: Vec<u8>,
+    },
+    ReadUntil {
+        bytes: Vec<u8>,
+    },
+    Repeat {
+        completed_iterations: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,11 +162,19 @@ pub struct RunReport {
     pub transcript: Transcript,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileTransfer {
+    pub file_name: String,
+    pub file_bytes: Option<u64>,
+    pub bytes_written: u64,
+}
+
 #[derive(Debug)]
 pub struct ExecutionFailure {
     pub step_id: StepId,
     pub error: Error,
-    pub report: RunReport,
+    pub report: Box<RunReport>,
+    pub file_transfer: Option<Box<FileTransfer>>,
 }
 
 impl fmt::Display for ExecutionFailure {
@@ -190,17 +225,22 @@ impl<'a, T: Transport> StepRunner<'a, T> {
     pub fn run(&mut self, steps: &[Step]) -> Result<RunReport, RunError> {
         validate_steps(steps).map_err(RunError::Validation)?;
         let mut report = RunReport::default();
-        if let Err((step_id, error)) = self.execute(steps, &mut report) {
+        if let Err((step_id, error, file_transfer)) = self.execute(steps, &mut report) {
             return Err(RunError::Execution(ExecutionFailure {
                 step_id,
                 error,
-                report,
+                report: Box::new(report),
+                file_transfer: file_transfer.map(Box::new),
             }));
         }
         Ok(report)
     }
 
-    fn execute(&mut self, steps: &[Step], report: &mut RunReport) -> Result<(), (StepId, Error)> {
+    fn execute(
+        &mut self,
+        steps: &[Step],
+        report: &mut RunReport,
+    ) -> Result<(), (StepId, Error, Option<FileTransfer>)> {
         for step in steps {
             let outcome = match &step.kind {
                 StepKind::SendText(text) => {
@@ -215,6 +255,9 @@ impl<'a, T: Transport> StepRunner<'a, T> {
                         bytes_written: bytes.len(),
                     }
                 }
+                StepKind::SendFile(path) => self
+                    .send_file(path)
+                    .map_err(|(error, progress)| (step.id.clone(), error, Some(progress)))?,
                 StepKind::Wait(duration) => {
                     thread::sleep(*duration);
                     StepOutcome::Wait {
@@ -226,7 +269,7 @@ impl<'a, T: Transport> StepRunner<'a, T> {
                     let count = self
                         .session
                         .read(&mut bytes)
-                        .map_err(|error| (step.id.clone(), error))?;
+                        .map_err(|error| (step.id.clone(), error, None))?;
                     bytes.truncate(count);
                     report.transcript.entries.push(TranscriptEntry {
                         step_id: step.id.clone(),
@@ -242,7 +285,7 @@ impl<'a, T: Transport> StepRunner<'a, T> {
                     let bytes = self
                         .session
                         .read_until(delimiter, *max_bytes)
-                        .map_err(|error| (step.id.clone(), error))?;
+                        .map_err(|error| (step.id.clone(), error, None))?;
                     report.transcript.entries.push(TranscriptEntry {
                         step_id: step.id.clone(),
                         direction: Direction::Rx,
@@ -272,17 +315,97 @@ impl<'a, T: Transport> StepRunner<'a, T> {
         step: &Step,
         bytes: &[u8],
         report: &mut RunReport,
-    ) -> Result<(), (StepId, Error)> {
+    ) -> Result<(), (StepId, Error, Option<FileTransfer>)> {
         self.session
             .write_all(bytes)
             .and_then(|()| self.session.flush())
-            .map_err(|error| (step.id.clone(), error))?;
+            .map_err(|error| (step.id.clone(), error, None))?;
         report.transcript.entries.push(TranscriptEntry {
             step_id: step.id.clone(),
             direction: Direction::Tx,
             bytes: bytes.to_vec(),
         });
         Ok(())
+    }
+
+    fn send_file(&mut self, path: &str) -> Result<StepOutcome, (Error, FileTransfer)> {
+        let mut progress = FileTransfer {
+            file_name: Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.to_owned()),
+            file_bytes: None,
+            bytes_written: 0,
+        };
+        let file_error = |source| Error::FileFailed {
+            path: path.into(),
+            source,
+        };
+        let mut file = File::open(path).map_err(|source| (file_error(source), progress.clone()))?;
+        let metadata = file
+            .metadata()
+            .map_err(|source| (file_error(source), progress.clone()))?;
+        if !metadata.is_file() {
+            return Err((
+                file_error(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "not a regular file",
+                )),
+                progress,
+            ));
+        }
+        progress.file_bytes = Some(metadata.len());
+        if metadata.len() == 0 {
+            return Err((
+                file_error(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "file must not be empty",
+                )),
+                progress,
+            ));
+        }
+        let mut buffer = [0u8; 4096];
+        loop {
+            let count = match file.read(&mut buffer) {
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                read => read.map_err(|source| (file_error(source), progress.clone()))?,
+            };
+            if count == 0 {
+                return Ok(StepOutcome::SendFile {
+                    file_name: progress.file_name,
+                    file_bytes: metadata.len(),
+                    bytes_written: progress.bytes_written,
+                });
+            }
+            self.session
+                .write_all(&buffer[..count])
+                .and_then(|()| self.session.flush())
+                .map_err(|error| (error, progress.clone()))?;
+            progress.bytes_written += count as u64;
+        }
+    }
+}
+
+pub fn valid_local_file_path(path: &str) -> bool {
+    if path.trim().is_empty() || path.contains('\0') {
+        return false;
+    }
+    let candidate = Path::new(path);
+    #[cfg(not(windows))]
+    {
+        candidate.is_absolute()
+    }
+    #[cfg(windows)]
+    {
+        candidate.is_absolute()
+            && matches!(
+                candidate.components().next(),
+                Some(std::path::Component::Prefix(prefix))
+                    if matches!(
+                        prefix.kind(),
+                        std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)
+                    )
+            )
     }
 }
 
@@ -298,6 +421,9 @@ pub fn validate_steps(steps: &[Step]) -> Result<(), ValidationError> {
                     }
                     StepKind::SendBytes(bytes) if bytes.is_empty() => {
                         Some(ValidationReason::EmptySend)
+                    }
+                    StepKind::SendFile(path) if !valid_local_file_path(path) => {
+                        Some(ValidationReason::InvalidFilePath)
                     }
                     StepKind::Read { max_bytes } | StepKind::ReadUntil { max_bytes, .. }
                         if *max_bytes == 0 || *max_bytes > MAX_READ_BYTES =>

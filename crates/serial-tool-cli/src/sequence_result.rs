@@ -8,6 +8,10 @@ pub(super) fn step_results_json(report: &RunReport) -> Value {
         let mut value = match &result.outcome {
             StepOutcome::SendText { bytes_written } => json!({ "type": "send_text", "bytes_written": bytes_written }),
             StepOutcome::SendBytes { bytes_written } => json!({ "type": "send_bytes", "bytes_written": bytes_written }),
+            StepOutcome::SendFile { file_name, file_bytes, bytes_written } => json!({
+                "type": "send_file", "file_name": file_name,
+                "file_bytes": file_bytes, "bytes_written": bytes_written
+            }),
             StepOutcome::Wait { requested_duration } => json!({ "type": "wait", "requested_duration_ms": requested_duration.as_millis() }),
             StepOutcome::Read { bytes } => json!({ "type": "read", "rx_hex": hex(bytes), "rx_bytes": bytes.len() }),
             StepOutcome::ReadUntil { bytes } => json!({ "type": "read_until", "rx_hex": hex(bytes), "rx_bytes": bytes.len() }),

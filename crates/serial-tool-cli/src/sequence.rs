@@ -2,7 +2,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use serial_tool_core::{
     Direction, RunError, RunReport, Sequence, SequenceTransport, SerialSession, SerialTransport,
-    SimulationTransport, Step, StepRunner, TcpSettings, TcpTransport, Transport,
+    SimulationTransport, Step, StepOutcome, StepRunner, TcpSettings, TcpTransport, Transport,
 };
 
 use crate::{
@@ -211,6 +211,19 @@ impl RunArgs {
             "Sequence run complete: {} step results",
             report.step_results.len()
         );
+        for result in &report.step_results {
+            if let StepOutcome::SendFile {
+                file_name,
+                file_bytes,
+                bytes_written,
+            } = &result.outcome
+            {
+                text.push_str(&format!(
+                    "\nFile {} (step {}): size {} bytes; confirmed written {} bytes",
+                    file_name, result.step_id, file_bytes, bytes_written
+                ));
+            }
+        }
         for entry in &report.transcript.entries {
             if entry.direction == Direction::Rx {
                 let rendered = render_rx(&entry.bytes, self.rx_display, "");

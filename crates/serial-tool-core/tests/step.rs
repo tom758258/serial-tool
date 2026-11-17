@@ -1,4 +1,4 @@
-use std::{io, time::Duration};
+use std::{fs, io, time::Duration};
 
 use serial_tool_core::{
     Direction, Error, MAX_READ_BYTES, RunError, SerialSession, SimulationTransport, Step, StepId,
@@ -324,4 +324,151 @@ fn repeat_failure_keeps_completed_iterations_and_stops_outer_steps() {
         ["send-byte", "read-reply", "send-byte"]
     );
     assert_eq!(failure.report.transcript.entries.len(), 3);
+}
+
+#[test]
+fn raw_file_steps_preserve_order_and_repeat_without_tx_payload_in_transcript() {
+    let folder = std::env::temp_dir();
+    let first_path = folder.join(format!("serial-sequence-first-{}.bin", std::process::id()));
+    let second_path = folder.join(format!("serial-sequence-second-{}.bin", std::process::id()));
+    let first: Vec<u8> = (0..4101).map(|i| (i % 251) as u8).collect();
+    let second = [0x00, 0xff, 0x0d, 0x0a];
+    fs::write(&first_path, &first).unwrap();
+    fs::write(&second_path, second).unwrap();
+
+    let steps = [
+        step(
+            "first",
+            StepKind::SendFile(first_path.to_str().unwrap().into()),
+        ),
+        step("wait", StepKind::Wait(Duration::ZERO)),
+        step(
+            "repeat",
+            StepKind::Repeat {
+                count: 2,
+                steps: vec![step(
+                    "second",
+                    StepKind::SendFile(second_path.to_str().unwrap().into()),
+                )],
+            },
+        ),
+        step("tail", StepKind::SendBytes(vec![0x55])),
+    ];
+    let mut session = SerialSession::new(SimulationTransport::loopback());
+    let report = StepRunner::new(&mut session).run(&steps).unwrap();
+    fs::remove_file(&first_path).unwrap();
+    fs::remove_file(&second_path).unwrap();
+
+    let mut expected = first;
+    expected.extend_from_slice(&second);
+    expected.extend_from_slice(&second);
+    expected.push(0x55);
+    assert_eq!(session.transport().captured_tx(), expected);
+    assert_eq!(report.step_results.len(), 6);
+    assert_eq!(
+        report.step_results[0].outcome,
+        StepOutcome::SendFile {
+            file_name: first_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            file_bytes: 4101,
+            bytes_written: 4101,
+        }
+    );
+    assert_eq!(
+        report.step_results[2].outcome,
+        StepOutcome::SendFile {
+            file_name: second_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            file_bytes: 4,
+            bytes_written: 4,
+        }
+    );
+    assert_eq!(report.transcript.entries.len(), 1);
+    assert_eq!(report.transcript.entries[0].step_id.as_str(), "tail");
+    assert_eq!(report.transcript.entries[0].bytes, [0x55]);
+}
+
+#[test]
+fn raw_file_flush_failure_reports_only_confirmed_bytes_and_stops_next_step() {
+    #[derive(Default)]
+    struct FailSecondFlush {
+        flushes: usize,
+    }
+
+    impl Transport for FailSecondFlush {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            unreachable!()
+        }
+
+        fn write_all(&mut self, _: &[u8]) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes += 1;
+            if self.flushes == 2 {
+                Err(io::Error::other("test flush failed"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    let path =
+        std::env::temp_dir().join(format!("serial-sequence-flush-{}.bin", std::process::id()));
+    fs::write(&path, vec![0x55; 5000]).unwrap();
+    let mut session = SerialSession::new(FailSecondFlush::default());
+    let steps = [
+        step("file", StepKind::SendFile(path.to_str().unwrap().into())),
+        step("later", StepKind::SendBytes(vec![0xaa])),
+    ];
+    let failure = StepRunner::new(&mut session).run(&steps).unwrap_err();
+    fs::remove_file(&path).unwrap();
+    let RunError::Execution(failure) = failure else {
+        panic!("expected a file-step execution failure")
+    };
+    assert_eq!(failure.step_id.as_str(), "file");
+    assert!(matches!(failure.error, Error::FlushFailed(_)));
+    let progress = failure.file_transfer.unwrap();
+    assert_eq!(progress.file_bytes, Some(5000));
+    assert_eq!(progress.bytes_written, 4096);
+    assert_eq!(failure.report.step_results.len(), 0);
+    assert!(failure.report.transcript.entries.is_empty());
+    assert_eq!(session.transport().flushes, 2);
+}
+
+#[test]
+fn raw_file_missing_or_empty_fails_without_sending_later_steps() {
+    let path =
+        std::env::temp_dir().join(format!("serial-sequence-empty-{}.bin", std::process::id()));
+    for exists in [false, true] {
+        if exists {
+            fs::write(&path, b"").unwrap();
+        }
+        let mut session = SerialSession::new(SimulationTransport::loopback());
+        let steps = [
+            step("file", StepKind::SendFile(path.to_str().unwrap().into())),
+            step("later", StepKind::SendBytes(vec![0xaa])),
+        ];
+        let failure = StepRunner::new(&mut session).run(&steps).unwrap_err();
+        let RunError::Execution(failure) = failure else {
+            panic!("expected file error")
+        };
+        assert_eq!(failure.step_id.as_str(), "file");
+        assert!(matches!(failure.error, Error::FileFailed { .. }));
+        let progress = failure.file_transfer.unwrap();
+        assert_eq!(progress.bytes_written, 0);
+        assert_eq!(progress.file_bytes, exists.then_some(0));
+        assert!(failure.report.step_results.is_empty());
+        assert!(session.transport().captured_tx().is_empty());
+        if exists {
+            fs::remove_file(&path).unwrap();
+        }
+    }
 }

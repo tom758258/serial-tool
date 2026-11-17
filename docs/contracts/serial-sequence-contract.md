@@ -74,13 +74,21 @@ entire tree, including nested repeat steps.
 | --- | --- | --- |
 | `send_text` | `text` string | Send exact UTF-8 bytes; no line ending is appended. |
 | `send_bytes` | `hex` string | Send raw bytes. |
+| `send_file` | `path` string | Send an absolute local file as raw bytes when the step executes. |
 | `wait` | `duration_ms` unsigned `u64` | Wait the specified milliseconds; zero is valid. |
 | `read` | `max_bytes` integer | Perform one bounded read. |
 | `read_until` | `delimiter_hex` string, `max_bytes` integer | Read through a raw byte delimiter. |
 | `repeat` | `count` integer, `steps` array | Execute child steps in order a fixed positive number of times. |
 
 `max_bytes` must be in `1..=1048576`, the Core `MAX_READ_BYTES` limit.
-Send payloads and read delimiters must be nonempty. A delimiter must fit within
+Send payloads and read delimiters must be nonempty. A `send_file` path must be a
+nonempty, non-whitespace absolute path without NUL. On Windows only local disk
+and verbatim disk paths are permitted; UNC and device namespace paths are not.
+Validate, Save and Load check path syntax but do not open the file or a device.
+The file must exist and be a readable, nonempty regular file on the machine
+executing the Sequence (for Worker, the Worker host). No upload, relative-path
+resolution, or file snapshot is provided. Do not modify the file during TX.
+ A delimiter must fit within
 `max_bytes`. Repeat count must be positive. These rules are checked by the same
 Core step validator used by `StepRunner`.
 
@@ -97,6 +105,20 @@ JSON/schema, version, transport config, step ID, hex, step validation, and
 serialization errors remain distinguishable. Execution binds the runtime
 resource, creates a `SerialSession`, and calls the existing `StepRunner`; the
 Sequence format does not define a workflow engine.
+
+A `send_file` step uses one 4096-byte buffer and sequentially writes and
+flushes each chunk through the existing session, without a new I/O owner.
+Success adds a completed Step Result with `type: send_file`, `file_name`
+(basename), `file_bytes` (initial opened-file metadata size), and
+`bytes_written` (bytes confirmed by successful Write and Flush). It never
+adds the file payload to the Sequence Transcript. Other steps retain their
+existing Transcript behavior. A file or transport error fails the Sequence
+at that step; the failed step is not a completed result, later steps do not
+run, and the failure includes `file_name`, `bytes_written` (confirmed chunks
+only), and optional `file_bytes` if metadata was obtained. An unconfirmed
+chunk may already have reached the device; these counts are not an ACK.
+The existing Sequence completion and Worker Stop behavior is unchanged:
+there is no per-step cancel, retry, progress stream, or resume.
 
 ## CLI execution
 

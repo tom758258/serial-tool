@@ -99,7 +99,7 @@ serial-tool auto-tx --mode simulate --baud 115200 --simulation-profile-id loopba
 </code></pre>
 <p>Specify one nonempty Text/Hex/File payload and a positive interval in milliseconds. The first send is immediate; the next interval starts after the previous send completes. File content is read once before connection. Continuous RX runs until Ctrl+C. <code>auto-tx</code> has no dry-run or JSON/JSONL mode.</p>
 <h2 id="6-sequence-files">6. Sequence files</h2>
-<p>A Sequence is a JSON file with <code>sequence_version: 1</code>, <code>transport.type/settings</code>, and ordered steps (<code>send_text</code>, <code>send_bytes</code>, <code>wait</code>, <code>read</code>, <code>read_until</code>, <code>repeat</code>). For example, create <code>sequence.json</code>:</p>
+<p>A Sequence is a JSON file with <code>sequence_version: 1</code>, <code>transport.type/settings</code>, and ordered steps (<code>send_text</code>, <code>send_bytes</code>, <code>send_file</code>, <code>wait</code>, <code>read</code>, <code>read_until</code>, <code>repeat</code>). For example, create <code>sequence.json</code>:</p>
 <pre><code class="language-json">{
   &quot;sequence_version&quot;: 1,
   &quot;transport&quot;: {
@@ -117,6 +117,7 @@ serial-tool sequence run --file sequence.json --mode live --port COM4
 serial-tool sequence run --file sequence.json --mode simulate --simulation-profile-id loopback-v1 --json
 </code></pre>
 <p>A TCP Sequence uses <code>"transport":{"type":"tcp","settings":{"io_timeout_ms":1000}}</code> and is run with <code>--transport tcp --host HOST --tcp-port PORT</code>. Neither format stores the device resource or execution mode. Validation does not open a connection. See the Sequence Contract.</p>
+<p>A send_file step references an absolute local path on the executing machine. Multiple file steps may be interleaved with Wait, Read and Repeat. At execution time each file is read and transmitted as unmodified raw bytes in 4096-byte chunks; validation checks path syntax but does not open the file. Results contain the file name, initial file size and confirmed written byte count, not the full file bytes or a TX Transcript entry. Ordinary Worker run-sequence resolves the path on the Worker host, without uploading the file.</p>
 <h2 id="7-worker-and-streaming">7. Worker and streaming</h2>
 <p>For a persistent machine-controlled process:</p>
 <pre><code class="language-sh">serial-tool worker --mode simulate --baud 115200 --simulation-profile-id loopback-v1 --control-port 0

@@ -520,15 +520,29 @@ export default function App() {
       connectionTransport={transport} disabled={status === 'running'}
       isConnected={connected} serialDifferences={serialDifferences}
       onNew={() => setDraft(freshSequence(settings, transport, Number(tcpSettings.io_timeout_ms)))} onLoad={() => void loadSequence()} onSave={() => void saveSequence()}
-      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && transportMatches} />
+      onValidate={() => void validate()} onRun={() => void runSequence()} canRun={canTransmit && transportMatches}
+      onChooseFile={async () => {
+        try {
+          const path = await open({ multiple: false, title: t('sequence.choose_file') })
+          return typeof path === 'string' ? path : null
+        } catch (error) {
+          setNotice({ message: errorMessage(error), kind: 'error' })
+          return null
+        }
+      }} />
       <section className="panel results"><div className="section-heading"><h2>{t('sequence.last_run')}</h2><div className="toolbar"><button disabled={!lastRun} onClick={() => void saveResult()}>{t('sequence.save_result')}</button><label>{t('sequence.rx_display')} <select value={resultDisplay} onChange={event => setResultDisplay(event.target.value as Display)}>
         <option value="hex">{t('common.hex')}</option><option value="text">{t('common.text')}</option><option value="both">{t('common.both')}</option></select></label></div></div>
         {lastRun && <p className={`result-status ${lastRun.status}`}>{t('common.status_label')} {t('sequence.run_status.' + lastRun.status)}{lastRun.failing_step_id ? ` · ${lastRun.failing_step_id}` : ''}</p>}
         <div className="result-content" ref={resultContentRef}>
         {!lastRun ? <p className="muted">{t('sequence.no_run')}</p> : <>
           {lastRun.error && <p className="error-text">{lastRun.error}</p>}
+          {lastRun.failed_file && <p>{t('sequence.failed_file_summary', {
+            file: lastRun.failed_file.file_name,
+            size: lastRun.failed_file.file_bytes == null ? t('sequence.unknown_size') : String(lastRun.failed_file.file_bytes),
+            written: lastRun.failed_file.bytes_written,
+          })}</p>}
           {lastRun.partial_bytes && <p>{t('sequence.partial_bytes')} <code>{display(lastRun.partial_bytes, resultDisplay)}</code></p>}
-          <h3>{t('sequence.step_results')}</h3><div className="result-list">{lastRun.step_results.map((result, index) => <div key={index} className="result-row"><strong>{result.step_id}</strong><span>{t('sequence.step.' + result.kind)}</span><code>{result.bytes ? display(result.bytes, resultDisplay) : result.bytes_written != null ? t('sequence.bytes_written', { count: result.bytes_written }) : result.requested_duration_ms != null ? t('sequence.duration_ms', { count: result.requested_duration_ms }) : result.completed_iterations != null ? t('sequence.iterations', { count: result.completed_iterations }) : ''}</code></div>)}</div>
+          <h3>{t('sequence.step_results')}</h3><div className="result-list">{lastRun.step_results.map((result, index) => <div key={index} className="result-row"><strong>{result.step_id}</strong><span>{t('sequence.step.' + result.kind)}</span><code>{result.bytes ? display(result.bytes, resultDisplay) : result.kind === 'send_file' ? t('sequence.file_summary', { file: result.file_name ?? '', size: result.file_bytes ?? 0, written: result.bytes_written ?? 0 }) : result.bytes_written != null ? t('sequence.bytes_written', { count: result.bytes_written }) : result.requested_duration_ms != null ? t('sequence.duration_ms', { count: result.requested_duration_ms }) : result.completed_iterations != null ? t('sequence.iterations', { count: result.completed_iterations }) : ''}</code></div>)}</div>
           <h3>{t('sequence.transcript')}</h3><div className="result-list">{lastRun.transcript.map((entry, index) => <div key={index} className="result-row"><strong>{entry.direction.toUpperCase()}</strong><span>{entry.step_id}</span><code>{entry.direction === 'rx' ? display(entry.bytes, resultDisplay) : hex(entry.bytes)}</code></div>)}</div>
         </>}
         </div>

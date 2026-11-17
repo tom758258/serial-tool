@@ -145,7 +145,7 @@ from the device are transmitted as TX if that file is later sent with Send File
 
 ## Sequence
 
-The editor supports Send Text, Send Bytes, Wait, Read, Read Until, and nested
+The editor supports Send Text, Send Bytes, Send File (Raw), Wait, Read, Read Until, and nested
 Repeat. Properties shows a short explanation for the selected step.
 New, Load, Save, Validate, Add Step, Add Child, Delete, Move Up, and
 Move Down remain available. Drafts may be temporarily invalid while editing.
@@ -180,6 +180,8 @@ display. Failed runs retain the failing step, error, completed results,
 transcript, and partial bytes when available. The button is disabled until a
 result exists. There is no saved run history or automatic result directory.
 
+
+Add one Send File (Raw) step for each local file, use the file picker or enter an absolute path, and arrange the steps with Wait, Read, or Repeat. The file is read and sent as raw bytes when that step runs. A missing, empty, or unreadable file fails the step. Results show the file name, initial size, and confirmed written byte count; the file payload is not stored in the Sequence Transcript. The executing machine must have access to each path.
 
 ## Troubleshooting and current limits
 

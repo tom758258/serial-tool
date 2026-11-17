@@ -51,6 +51,7 @@ export function serialSettingDifferences(required: LineSettings, current: LineSe
 export type Step =
   | { id: string; type: 'send_text'; text: string }
   | { id: string; type: 'send_bytes'; hex: string }
+  | { id: string; type: 'send_file'; path: string }
   | { id: string; type: 'wait'; duration_ms: number }
   | { id: string; type: 'read'; max_bytes: number }
   | { id: string; type: 'read_until'; delimiter_hex: string; max_bytes: number }
@@ -100,6 +101,8 @@ export type StepResult = {
   step_id: string
   kind: string
   bytes_written: number | null
+  file_name: string | null
+  file_bytes: number | null
   requested_duration_ms: number | null
   bytes: number[] | null
   completed_iterations: number | null
@@ -110,6 +113,7 @@ export type RunResult = {
   failing_step_id: string | null
   error: string | null
   partial_bytes: number[] | null
+  failed_file: { file_name: string; file_bytes: number | null; bytes_written: number } | null
   step_results: StepResult[]
   transcript: { step_id: string; direction: 'tx' | 'rx'; bytes: number[] }[]
 }

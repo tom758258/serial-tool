@@ -434,6 +434,10 @@ enum WireStep {
         id: String,
         hex: String,
     },
+    SendFile {
+        id: String,
+        path: String,
+    },
     Wait {
         id: String,
         duration_ms: u64,
@@ -464,6 +468,7 @@ impl TryFrom<WireStep> for Step {
                 let bytes = parse_hex(&hex, &id, "hex")?;
                 (id, StepKind::SendBytes(bytes))
             }
+            WireStep::SendFile { id, path } => (id, StepKind::SendFile(path)),
             WireStep::Wait { id, duration_ms } => {
                 (id, StepKind::Wait(Duration::from_millis(duration_ms)))
             }
@@ -510,6 +515,10 @@ impl TryFrom<&Step> for WireStep {
             StepKind::SendBytes(bytes) => Self::SendBytes {
                 id,
                 hex: hex(bytes),
+            },
+            StepKind::SendFile(path) => Self::SendFile {
+                id,
+                path: path.clone(),
             },
             StepKind::Wait(duration) => Self::Wait {
                 id,

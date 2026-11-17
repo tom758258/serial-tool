@@ -16,10 +16,11 @@ type Props = {
   onSave: () => void
   onValidate: () => void
   onRun: () => void
+  onChooseFile: () => Promise<string | null>
   canRun: boolean
 }
 
-const kinds: Step['type'][] = ['send_text', 'send_bytes', 'wait', 'read', 'read_until', 'repeat']
+const kinds: Step['type'][] = ['send_text', 'send_bytes', 'send_file', 'wait', 'read', 'read_until', 'repeat']
 function atPath(steps: Step[], path: number[]): Step {
   let current = steps[path[0]]
   for (const index of path.slice(1)) {
@@ -55,6 +56,7 @@ function newStep(kind: Step['type'], steps: Step[]): Step {
   switch (kind) {
     case 'send_text': return { id, type: kind, text: '' }
     case 'send_bytes': return { id, type: kind, hex: '' }
+    case 'send_file': return { id, type: kind, path: '' }
     case 'wait': return { id, type: kind, duration_ms: 0 }
     case 'read': return { id, type: kind, max_bytes: 64 }
     case 'read_until': return { id, type: kind, delimiter_hex: '0D0A', max_bytes: 64 }
@@ -115,6 +117,20 @@ export default function SequenceEditor(props: Props) {
     edit(next => Object.assign(atPath(next.steps, selected), patch))
   }
 
+  async function chooseFile() {
+    if (!selected || step?.type !== 'send_file' || disabled) return
+    const selectedPath = [...selected]
+    const stepId = step.id
+    const path = await props.onChooseFile()
+    if (!path) return
+    edit(next => {
+      try {
+        const target = atPath(next.steps, selectedPath)
+        if (target.type === 'send_file' && target.id === stepId) target.path = path
+      } catch { /* Step was removed while the file dialog was open. */ }
+    })
+  }
+
   function updateSerial(key: keyof LineSettings, value: string) {
     edit(next => {
       if (next.transport.type === 'serial') {
@@ -131,7 +147,8 @@ export default function SequenceEditor(props: Props) {
       return <div className="step-tree" key={path.join('.')}>
         <button type="button" disabled={disabled} className={`step-row ${active ? 'selected' : ''}`}
           onClick={() => setSelected(path)}>
-          <span>{t('sequence.step.' + item.type)}</span><strong>{item.id || t('sequence.no_id')}</strong>
+          <span>{t('sequence.step.' + item.type)}</span>
+          <strong>{item.id || t('sequence.no_id')}{item.type === 'send_file' && item.path ? ' · ' + item.path.split(/[\\/]/).pop() : ''}</strong>
         </button>
         {item.type === 'repeat' && <div className="nested-steps">{renderSteps(item.steps, path)}</div>}
       </div>
@@ -220,6 +237,10 @@ export default function SequenceEditor(props: Props) {
           <label>ID<input disabled={disabled} value={step.id} onChange={event => updateStep({ id: event.target.value })} /></label>
           {step.type === 'send_text' && <label>{t('common.text')}<textarea disabled={disabled} value={step.text} onChange={event => updateStep({ text: event.target.value })} /></label>}
           {step.type === 'send_bytes' && <label>{t('common.hex')}<textarea disabled={disabled} value={step.hex} onChange={event => updateStep({ hex: event.target.value })} /></label>}
+          {step.type === 'send_file' && <div>
+            <label>{t('sequence.file_path')}<input disabled={disabled} value={step.path} onChange={event => updateStep({ path: event.target.value })} /></label>
+            <button disabled={disabled} onClick={() => void chooseFile()}>{t('sequence.choose_file')}</button>
+          </div>}
           {step.type === 'wait' && <label>{t('sequence.duration')}<input disabled={disabled} type="number" value={step.duration_ms} onChange={event => updateStep({ duration_ms: numeric(event.target.value) })} /></label>}
           {(step.type === 'read' || step.type === 'read_until') && <label>{t('sequence.max_bytes')}<input disabled={disabled} type="number" value={step.max_bytes} onChange={event => updateStep({ max_bytes: numeric(event.target.value) })} /></label>}
           {step.type === 'read_until' && <label>{t('sequence.delimiter_hex')}<input disabled={disabled} value={step.delimiter_hex} onChange={event => updateStep({ delimiter_hex: event.target.value })} /></label>}

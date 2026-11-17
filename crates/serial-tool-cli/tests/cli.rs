@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{Read, Write},
     net::TcpListener,
     process::{Command, Output},
@@ -484,4 +485,115 @@ fn user_guide_arguments_are_isolated_from_machine_commands() {
     assert_eq!(object(&manifest)["schema_version"], 2);
     let guide_help = run(&["user-guide", "--help"]);
     assert!(String::from_utf8_lossy(&guide_help.stdout).contains("--lang"));
+}
+
+#[test]
+fn sequence_run_file_steps_keep_result_small_and_report_missing_files() {
+    let folder = std::env::temp_dir();
+    let data = folder.join(format!("serial-cli-file-step-{}.bin", std::process::id()));
+    let sequence_path = folder.join(format!("serial-cli-file-step-{}.json", std::process::id()));
+    fs::write(&data, [0x00, 0xff, 0x0d, 0x0a]).unwrap();
+    let mut sequence = serde_json::json!({
+        "sequence_version": 1,
+        "transport": {"type": "serial", "settings": {
+            "baud_rate": 115200, "data_bits": 8, "parity": "none",
+            "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000
+        }},
+        "steps": [
+            {"id": "file", "type": "send_file", "path": data},
+            {"id": "send", "type": "send_bytes", "hex": "55"}
+        ]
+    });
+    fs::write(&sequence_path, sequence.to_string()).unwrap();
+    let file = sequence_path.to_str().unwrap();
+    let valid = run(&["sequence", "validate", "--file", file, "--json"]);
+    assert!(valid.status.success());
+    let output = run(&[
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
+    ]);
+    assert!(output.status.success());
+    let result = object(&output);
+    assert_eq!(result["step_results"][0]["type"], "send_file");
+    assert_eq!(result["step_results"][0]["file_bytes"], 4);
+    assert_eq!(result["step_results"][0]["bytes_written"], 4);
+    assert_eq!(
+        result["transcript"],
+        serde_json::json!([{"step_id":"send","direction":"tx","hex":"55","bytes":1}])
+    );
+    assert!(!output.stdout.windows(8).any(|w| w == b"00ff0d0a"));
+
+    let text_output = run(&[
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+    ]);
+    assert!(text_output.status.success());
+    let text = String::from_utf8(text_output.stdout).unwrap();
+    assert!(text.contains(data.file_name().unwrap().to_str().unwrap()));
+    assert!(text.contains("size 4 bytes"));
+    assert!(text.contains("written 4 bytes"));
+
+    let missing = folder.join(format!(
+        "serial-cli-file-step-missing-{}.bin",
+        std::process::id()
+    ));
+    sequence["steps"][0]["path"] = missing.to_str().unwrap().into();
+    fs::write(&sequence_path, sequence.to_string()).unwrap();
+    let valid = run(&["sequence", "validate", "--file", file, "--json"]);
+    assert!(valid.status.success());
+    let failed = run(&[
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+        "--json",
+    ]);
+    assert_eq!(failed.status.code(), Some(3));
+    let error = object(&failed);
+    assert_eq!(error["step_id"], "file");
+    assert_eq!(
+        error["file_name"],
+        missing.file_name().unwrap().to_str().unwrap()
+    );
+    assert_eq!(error["bytes_written"], 0);
+    assert!(error.get("file_bytes").is_none());
+    assert_eq!(error["step_results"], serde_json::json!([]));
+
+    let failed_text = run(&[
+        "sequence",
+        "run",
+        "--file",
+        file,
+        "--mode",
+        "simulate",
+        "--simulation-profile-id",
+        "loopback-v1",
+    ]);
+    assert_eq!(failed_text.status.code(), Some(3));
+    assert!(failed_text.stdout.is_empty());
+    let error_text = String::from_utf8(failed_text.stderr).unwrap();
+    assert!(error_text.contains("step file failed"));
+    assert!(error_text.contains(missing.file_name().unwrap().to_str().unwrap()));
+    assert!(error_text.contains("size unknown"));
+    assert!(error_text.contains("confirmed written 0 bytes"));
+
+    fs::remove_file(&data).unwrap();
+    fs::remove_file(&sequence_path).unwrap();
 }

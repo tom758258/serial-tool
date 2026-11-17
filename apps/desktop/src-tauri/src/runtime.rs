@@ -2,7 +2,8 @@ use serde::Serialize;
 pub use serial_tool_core::runtime::Mode;
 use serial_tool_core::runtime::{Event as CoreEvent, PersistentRuntime, RuntimeError};
 use serial_tool_core::{
-    Direction, Error, RunError, RunReport, Sequence, SerialSettings, StepOutcome, TcpSettings,
+    Direction, Error, FileTransfer, RunError, RunReport, Sequence, SerialSettings, StepOutcome,
+    TcpSettings,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -23,7 +24,9 @@ pub enum Event {
 pub struct StepResultDto {
     pub step_id: String,
     pub kind: &'static str,
-    pub bytes_written: Option<usize>,
+    pub bytes_written: Option<u64>,
+    pub file_name: Option<String>,
+    pub file_bytes: Option<u64>,
     pub requested_duration_ms: Option<u128>,
     pub bytes: Option<Vec<u8>>,
     pub completed_iterations: Option<usize>,
@@ -37,31 +40,54 @@ pub struct TranscriptDto {
 }
 
 #[derive(Debug, Serialize)]
+pub struct FailedFileDto {
+    pub file_name: String,
+    pub file_bytes: Option<u64>,
+    pub bytes_written: u64,
+}
+
+impl From<FileTransfer> for FailedFileDto {
+    fn from(progress: FileTransfer) -> Self {
+        Self {
+            file_name: progress.file_name,
+            file_bytes: progress.file_bytes,
+            bytes_written: progress.bytes_written,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct RunResult {
     pub status: &'static str,
     pub failing_step_id: Option<String>,
     pub error: Option<String>,
     pub partial_bytes: Option<Vec<u8>>,
+    pub failed_file: Option<FailedFileDto>,
     pub step_results: Vec<StepResultDto>,
     pub transcript: Vec<TranscriptDto>,
 }
 
 impl RunResult {
-    fn from_report(report: RunReport, failure: Option<(String, Error)>) -> Self {
-        let (status, failing_step_id, error, partial_bytes) = match failure {
-            Some((id, error)) => (
+    fn from_report(
+        report: RunReport,
+        failure: Option<(String, Error, Option<FileTransfer>)>,
+    ) -> Self {
+        let (status, failing_step_id, error, partial_bytes, failed_file) = match failure {
+            Some((id, error, progress)) => (
                 "failed",
                 Some(id),
                 Some(error.to_string()),
                 error.partial().map(ToOwned::to_owned),
+                progress.map(FailedFileDto::from),
             ),
-            None => ("success", None, None, None),
+            None => ("success", None, None, None, None),
         };
         Self {
             status,
             failing_step_id,
             error,
             partial_bytes,
+            failed_file,
             step_results: report
                 .step_results
                 .into_iter()
@@ -70,6 +96,8 @@ impl RunResult {
                         step_id: result.step_id.as_str().to_owned(),
                         kind: "",
                         bytes_written: None,
+                        file_name: None,
+                        file_bytes: None,
                         requested_duration_ms: None,
                         bytes: None,
                         completed_iterations: None,
@@ -77,11 +105,21 @@ impl RunResult {
                     match result.outcome {
                         StepOutcome::SendText { bytes_written } => {
                             dto.kind = "send_text";
-                            dto.bytes_written = Some(bytes_written);
+                            dto.bytes_written = Some(bytes_written as u64);
                         }
                         StepOutcome::SendBytes { bytes_written } => {
                             dto.kind = "send_bytes";
+                            dto.bytes_written = Some(bytes_written as u64);
+                        }
+                        StepOutcome::SendFile {
+                            file_name,
+                            file_bytes,
+                            bytes_written,
+                        } => {
+                            dto.kind = "send_file";
                             dto.bytes_written = Some(bytes_written);
+                            dto.file_name = Some(file_name);
+                            dto.file_bytes = Some(file_bytes);
                         }
                         StepOutcome::Wait { requested_duration } => {
                             dto.kind = "wait";
@@ -190,8 +228,12 @@ impl SessionManager {
             Ok(report) => Ok(RunResult::from_report(report, None)),
             Err(RuntimeError::Sequence(error)) => match *error {
                 RunError::Execution(failure) => Ok(RunResult::from_report(
-                    failure.report,
-                    Some((failure.step_id.as_str().to_owned(), failure.error)),
+                    *failure.report,
+                    Some((
+                        failure.step_id.as_str().to_owned(),
+                        failure.error,
+                        failure.file_transfer.map(|progress| *progress),
+                    )),
                 )),
                 RunError::Validation(error) => Err(error.to_string()),
             },
@@ -408,6 +450,45 @@ mod tests {
         manager.send(vec![2]).unwrap();
         assert_eq!(next_data(&events), ("tx", vec![2]));
         assert_eq!(next_data(&events), ("rx", vec![2]));
+        manager.disconnect().unwrap();
+    }
+
+    #[test]
+    fn sequence_raw_file_reports_summary_and_missing_file_without_payload() {
+        let (manager, _events) = connect();
+        let path = std::env::temp_dir().join(format!(
+            "serial-desktop-sequence-{}.bin",
+            std::process::id()
+        ));
+        std::fs::write(&path, [0x00, 0xff, 0x0d, 0x0a]).unwrap();
+        let value = serde_json::json!({
+            "sequence_version": 1,
+            "transport": {"type": "serial", "settings": {
+                "baud_rate": 115200, "data_bits": 8, "parity": "none",
+                "stop_bits": 1, "flow_control": "none", "timeout_ms": 1000
+            }},
+            "steps": [{"id":"file","type":"send_file","path":path}]
+        });
+        let result = manager
+            .run(Sequence::from_json_str(&value.to_string()).unwrap())
+            .unwrap();
+        let serialized = serde_json::to_value(&result).unwrap();
+        assert_eq!(result.status, "success");
+        assert_eq!(serialized["step_results"][0]["kind"], "send_file");
+        assert_eq!(serialized["step_results"][0]["file_bytes"], 4);
+        assert_eq!(serialized["step_results"][0]["bytes_written"], 4);
+        assert_eq!(serialized["transcript"], serde_json::json!([]));
+        std::fs::remove_file(&path).unwrap();
+
+        let failed = manager
+            .run(Sequence::from_json_str(&value.to_string()).unwrap())
+            .unwrap();
+        let serialized = serde_json::to_value(&failed).unwrap();
+        assert_eq!(failed.status, "failed");
+        assert_eq!(serialized["failing_step_id"], "file");
+        assert_eq!(serialized["failed_file"]["bytes_written"], 0);
+        assert!(serialized["failed_file"]["file_bytes"].is_null());
+        assert_eq!(serialized["transcript"], serde_json::json!([]));
         manager.disconnect().unwrap();
     }
 

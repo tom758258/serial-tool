@@ -13,6 +13,10 @@ pub enum Error {
         port: u16,
         source: io::Error,
     },
+    FileFailed {
+        path: Box<str>,
+        source: io::Error,
+    },
     ReadFailed(io::Error),
     ReadAvailabilityFailed(serialport::Error),
     WriteFailed(io::Error),
@@ -57,6 +61,7 @@ impl fmt::Display for Error {
             Self::TcpConnectFailed { host, port, source } => {
                 write!(f, "Cannot connect to TCP {host}:{port}: {source}")
             }
+            Self::FileFailed { path, source } => write!(f, "file {path}: {source}"),
             Self::ReadFailed(error) => write!(f, "read failed: {error}"),
             Self::ReadAvailabilityFailed(error) => write!(f, "read availability failed: {error}"),
             Self::WriteFailed(error) => write!(f, "write failed: {error}"),
@@ -76,6 +81,7 @@ impl error::Error for Error {
             Self::PortEnumerationFailed(error) => Some(error),
             Self::ReadAvailabilityFailed(error) => Some(error),
             Self::TcpConnectFailed { source, .. } => Some(source),
+            Self::FileFailed { source, .. } => Some(source),
             Self::ReadFailed(error) | Self::WriteFailed(error) | Self::FlushFailed(error) => {
                 Some(error)
             }
