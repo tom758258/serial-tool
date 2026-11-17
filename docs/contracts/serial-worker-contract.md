@@ -188,6 +188,20 @@ A mismatch or invalid definition returns HTTP `400` with
 `status: "error"` and Common Error code `validation_error` before admission
 or any serial I/O. The Worker never reconfigures or replaces its session for a
 Sequence.
+Inline Sequence `send_file` steps use an absolute path on the Worker host
+and stream file contents in fixed 4096-byte chunks via the same ordinary
+`StepRunner`. These are local path references, not uploaded bytes. Path
+syntax is validated at admission, file presence and readability at execution.
+Successful file steps report `type: send_file`, `file_name`, `file_bytes`,
+and confirmed `bytes_written`, omitting their full TX bytes from Transcript.
+Failed file steps preserve the normal `sequence_execution_error` and
+`step_id`, completed Step Results and Transcript, plus top-level `file_name`,
+confirmed `bytes_written`, and `file_bytes` if metadata was available.
+A File I/O failure does not itself make the Worker fatal; a TCP Write/Flush
+failure retains the existing fatal transport cleanup behavior. This does not
+change the standalone `send-file` command's behavior or the Streaming Worker's
+lack of `run-sequence`.
+
 Requests over 16 MiB or with headers over 16 KiB are rejected. The control
 plane uses one active slot and does not queue further commands.
 
