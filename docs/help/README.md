@@ -41,7 +41,7 @@ python -B scripts/test_generate_help.py
 python scripts/generate_help.py --check
 ```
 
-The sync check generates into a temporary directory and compares both tracked bundles with the tracked bundle. It also validates language links, template
+The sync check generates into a temporary directory and compares both tracked bundles with the tracked bundle. It also validates the locale tags, absence of an in-page language selector, template
 expansion, and the absence of repository-local Markdown links. Local Markdown
 links are rejected, not rewritten; public URLs are retained.
 
@@ -51,9 +51,11 @@ builds consume the tracked bundle without running the generator. Vite copies
 it to `dist/help/`; Tauri serves it as application assets in an on-demand
 internal Help window.
 
-Desktop passes its theme preference in the Help URL. Language links preserve
-that query. Help has no persistent theme setting or live connection to the
-main window. Close and reopen Help to use a changed Desktop preference.
+Desktop selects the bundled Help page from its current locale and passes its
+theme preference in the Help URL. Help has no separate language selector,
+persistent theme setting, or live connection to the main window. Selecting Help
+again updates an existing window when the Desktop locale or theme changes;
+otherwise it focuses the window without reloading the current chapter.
 
 The CLI executable embeds the tracked CLI HTML/CSS using Rust `include_bytes!`.
 `serial-tool user-guide [--lang en|zh-TW]` extracts a content-identified

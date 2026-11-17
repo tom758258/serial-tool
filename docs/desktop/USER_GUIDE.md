@@ -31,7 +31,7 @@ Core/CLI/Worker diagnostics and machine-readable data are not translated.
 
 ## Offline Help
 
-Select **Help** at the top right to open the built-in offline guide in a separate window. It uses the current language (English or Traditional Chinese) and appearance (System, Light, or Dark). Help can switch language independently of the main window. Close and reopen Help to apply later changes to the main window's preferences. The guide works offline without requiring GitHub or other online resources.
+Select **Help** at the top right to open the built-in offline guide in a separate window. Its language and appearance (System, Light, or Dark) follow the current Desktop settings; Help has no separate language selector. After changing the language or appearance in the main window, select **Help** again to update the existing window. If nothing changed, Help is focused without reloading the current chapter. The guide works offline without requiring GitHub or other online resources.
 
 ## Connection Setup: COM and TCP
 

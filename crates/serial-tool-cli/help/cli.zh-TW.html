@@ -23,11 +23,6 @@
 <body>
   <aside class="help-sidebar">
     <div class="help-sidebar-title">Serial Tool Help</div>
-    <nav class="help-languages" aria-label="Language">
-      <a href="cli.html" hreflang="en" lang="en">English</a>
-      <span aria-hidden="true"> | </span>
-      <a href="cli.zh-TW.html" hreflang="zh-TW" lang="zh-TW">繁體中文</a>
-    </nav>
     <div class="help-sidebar-title help-toc-title" id="toc-title">Contents</div>
     <nav id="toc" aria-labelledby="toc-title"></nav>
   </aside>
@@ -160,12 +155,9 @@ serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopb
           };
 
       document.getElementById("toc-title").textContent = strings.contents;
-      document.querySelectorAll(".help-languages a").forEach(function (link) {
-        if (link.hreflang === document.documentElement.lang) {
-          link.setAttribute("aria-current", "page");
-        }
-      });
-
+      if (isTraditionalChinese) {
+        document.querySelector(".help-sidebar-title").textContent = "Serial Tool 使用說明";
+      }
       function buildTableOfContents() {
         var toc = document.getElementById("toc");
         if (!toc) return;
@@ -259,32 +251,12 @@ serial-tool worker --transport tcp --mode simulate --simulation-profile-id loopb
         });
       }
 
-      function preserveHelpThemeQuery() {
-        var override = null;
-        try {
-          var q = new URLSearchParams(location.search).get("theme");
-          if (q === "system" || q === "light" || q === "dark") override = q;
-        } catch (_error) {}
-        if (!override) return;
-        document.querySelectorAll('a[href]').forEach(function (anchor) {
-          var href = anchor.getAttribute("href");
-          if (!href || href.charAt(0) === "#" || href.indexOf(":") !== -1) return;
-          if (href.indexOf(".html") === -1) return;
-          if (href.indexOf("?theme=") !== -1) return;
-          var hashIndex = href.indexOf("#");
-          var base = hashIndex === -1 ? href : href.slice(0, hashIndex);
-          var hash = hashIndex === -1 ? "" : href.slice(hashIndex);
-          anchor.setAttribute("href", base + "?theme=" + override + hash);
-        });
-      }
-
       var headings = document.querySelectorAll(
         "#help-content h2[id], #help-content h3[id]"
       );
       buildTableOfContents();
       wrapCodeBlocks();
       observeActiveSection();
-      preserveHelpThemeQuery();
     })();
   </script>
 </body>
