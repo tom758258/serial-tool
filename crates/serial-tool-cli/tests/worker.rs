@@ -1528,7 +1528,10 @@ fn sequence_file_steps_report_summaries_and_missing_file_progress() {
     assert_eq!(success["result"]["step_results"][2]["file_bytes"], 1);
     assert_eq!(success["result"]["transcript"], json!([]));
 
-    let missing = std::env::temp_dir().join(format!("serial-worker-missing-{}.bin", uuid::Uuid::new_v4()));
+    let missing = std::env::temp_dir().join(format!(
+        "serial-worker-missing-{}.bin",
+        uuid::Uuid::new_v4()
+    ));
     let failed_request = sequence_request(sequence(json!([
         {"id":"first","type":"send_file","path":first.0},
         {"id":"missing","type":"send_file","path":missing},
@@ -1540,7 +1543,10 @@ fn sequence_file_steps_report_summaries_and_missing_file_progress() {
     assert_eq!(failed["state"], "failed");
     assert_eq!(failed["error"]["code"], "sequence_execution_error");
     assert_eq!(failed["step_id"], "missing");
-    assert_eq!(failed["file_name"], missing.file_name().unwrap().to_str().unwrap());
+    assert_eq!(
+        failed["file_name"],
+        missing.file_name().unwrap().to_str().unwrap()
+    );
     assert_eq!(failed["bytes_written"], 0);
     assert!(failed.get("file_bytes").is_none());
     assert_eq!(failed["step_results"].as_array().unwrap().len(), 1);
