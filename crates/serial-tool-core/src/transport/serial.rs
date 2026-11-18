@@ -1,4 +1,7 @@
-use std::{io::{self, Read, Write}, time::Duration};
+use std::{
+    io::{self, Read, Write},
+    time::Duration,
+};
 
 use crate::{Error, SerialSettings};
 
