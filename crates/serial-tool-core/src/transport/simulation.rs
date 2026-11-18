@@ -96,6 +96,17 @@ impl Transport for SimulationTransport {
         Ok(count)
     }
 
+    fn read_with_timeout(&mut self, buffer: &mut [u8], timeout: Duration) -> io::Result<usize> {
+        let result = self.read(buffer);
+        if result
+            .as_ref()
+            .is_err_and(|error| error.kind() == io::ErrorKind::TimedOut)
+        {
+            std::thread::sleep(timeout);
+        }
+        result
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.tx.extend_from_slice(bytes);
         if self.loopback {

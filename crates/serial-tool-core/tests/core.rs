@@ -178,6 +178,102 @@ fn max_bytes_stops_reading_and_reports_partial() {
 }
 
 #[test]
+fn fixed_length_accumulates_chunks_without_consuming_trailing_bytes() {
+    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
+        b"AB".to_vec(),
+        b"CDEF".to_vec(),
+    ]));
+    assert_eq!(session.read_fixed_length(4).unwrap(), b"ABCD");
+    let mut remaining = [0; 2];
+    assert_eq!(session.read(&mut remaining).unwrap(), 2);
+    assert_eq!(&remaining, b"EF");
+}
+
+#[test]
+fn fixed_length_timeout_reports_partial_without_changing_core_retry() {
+    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([b"ABC".to_vec()]));
+    assert!(matches!(
+        session.read_fixed_length(5),
+        Err(Error::Timeout { partial }) if partial == b"ABC"
+    ));
+    let mut again = [0; 3];
+    assert_eq!(session.read(&mut again).unwrap(), 3);
+    assert_eq!(&again, b"ABC");
+}
+
+#[test]
+fn idle_gap_completes_after_received_data_and_times_out_before_first_byte() {
+    let gap = Duration::from_millis(1);
+    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
+        b"A".to_vec(),
+        b"B".to_vec(),
+    ]));
+    assert_eq!(session.read_until_idle(gap, 8).unwrap(), b"AB");
+    let mut empty = SerialSession::new(SimulationTransport::with_rx_chunks([]));
+    assert!(matches!(
+        empty.read_until_idle(gap, 8),
+        Err(Error::Timeout { partial }) if partial.is_empty()
+    ));
+}
+
+#[test]
+fn tcp_idle_gap_waits_for_later_chunk_and_resets_on_new_rx() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (release_tx, release_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.write_all(b"A").unwrap();
+        thread::sleep(Duration::from_millis(40));
+        peer.write_all(b"B").unwrap();
+        // Keep the socket connected until the reader completes its idle gap.
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    });
+    let settings = TcpSettings {
+        host: "127.0.0.1".into(),
+        port,
+        io_timeout: Duration::from_millis(800),
+        ..TcpSettings::default()
+    };
+    let mut session = SerialSession::new(TcpTransport::connect(&settings).unwrap());
+    assert_eq!(
+        session
+            .read_until_idle(Duration::from_millis(250), 16)
+            .unwrap(),
+        b"AB"
+    );
+    release_tx.send(()).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
+fn worker_consumption_only_removes_reported_prefix() {
+    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
+        b"FIRST\nTAIL".to_vec()
+    ]));
+    assert!(matches!(
+        session.read_until(b"\n", 4),
+        Err(Error::ReadLimitExceeded { partial, .. }) if partial == b"FIRS"
+    ));
+    session.consume_reported_rx(b"FIRS").unwrap();
+    assert_eq!(session.read_until(b"\n", 8).unwrap(), b"T\n");
+    assert_eq!(session.read_fixed_length(4).unwrap(), b"TAIL");
+}
+
+#[test]
+fn idle_gap_limit_is_an_error_not_success() {
+    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([b"ABCDE".to_vec()]));
+    assert!(matches!(
+        session.read_until_idle(Duration::from_millis(1), 4),
+        Err(Error::ReadLimitExceeded { max_bytes: 4, partial }) if partial == b"ABCD"
+    ));
+    session.consume_reported_rx(b"ABCD").unwrap();
+    let mut trailing = [0; 1];
+    assert_eq!(session.read(&mut trailing).unwrap(), 1);
+    assert_eq!(&trailing, b"E");
+}
+
+#[test]
 fn empty_delimiter_fails_before_transport_read() {
     let mut session = SerialSession::new(FailingTransport::new(Failure::Read));
     assert!(matches!(

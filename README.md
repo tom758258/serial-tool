@@ -15,6 +15,7 @@ Serial Tool is a communication and execution tool, **not** a device-specific con
 - View Terminal traffic in event or continuous RX modes and export available raw bytes or a hex transcript; export the latest Sequence result as JSON.
 - Use deterministic `loopback-v1` simulation without hardware. The optional `periodic-rx-v1` profile is **only** for Streaming Simulation Workers.
 - Integrate a machine-readable local Worker through Common Worker Protocol v3; CLI/Manifest machine output retains its separate schema.
+- Ordinary Worker Receive/Query supports delimiter, fixed-length, and idle-gap RX completion for Orchestrator; standalone CLI, Desktop, and Sequence commands remain unchanged. See the [Serial Worker Contract](docs/contracts/serial-worker-contract.md).
 - Switch the Desktop interface between English and Traditional Chinese, and select System, Light, or Dark appearance.
 
 The TCP connection is a **raw byte-stream client**: no TCP server, automatic reconnection, application framing, or device protocol is provided.

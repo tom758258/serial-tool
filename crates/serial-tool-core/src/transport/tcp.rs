@@ -99,6 +99,13 @@ impl Transport for TcpTransport {
         }
     }
 
+    fn read_with_timeout(&mut self, buffer: &mut [u8], timeout: Duration) -> io::Result<usize> {
+        self.stream.set_read_timeout(Some(timeout))?;
+        let result = self.read(buffer);
+        self.stream.set_read_timeout(Some(self.io_timeout))?;
+        result
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.stream.write_all(bytes)
     }

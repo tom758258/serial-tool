@@ -131,6 +131,8 @@ serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodi
 
 `periodic-rx-v1` **只供 Streaming Simulation Worker** 使用，不迴送 TX。Streaming Worker 只接受 `send`、`send-file`；RX Event 是原始位元組區段，不保證對應封包。HTTP 接受不代表 Job 完成；Worker Stop 接受也不代表程序已結束。詳 Worker Contract。
 
+一般（非 Streaming）Worker 的 `receive` 支援 `single`（預設）、`delimiter`、`fixed`、`idle` 接收完成模式；`query` 會先送 TX 再接收，支援 `delimiter`（預設）、`fixed`、`idle`。固定長度須設定 `expected_bytes`，靜默間隔須設定 `idle_gap_ms`；`max_bytes` 是接收上限，不是必須收滿的長度。這些是供 Orchestrator 使用的 Worker 能力，不代表獨立 CLI、Desktop 或 Sequence 新增相同模式。Timeout／ReadLimitExceeded 僅消費已回報的 Session Partial RX，不清除 OS／設備 RX，後續讀取可能收到延遲資料。Worker 保留原始 `rx_hex`、`rx_bytes`；可選的 UTF-8 `rx_text`、`partial_rx_text` 由 Orchestrator 衍生。確切 JSON 參數與結果請參閱 Serial Worker Contract。
+
 ## 8. 常見問題及限制
 
 - **收不到資料：** 確認 COM 埠／TCP 目標、鮑率與線路設定，以及設備實際回應格式；單次讀取逾時不必然表示斷線。

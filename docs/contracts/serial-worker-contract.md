@@ -169,13 +169,31 @@ hex is ignored; an empty value, odd digit count, or non-hex digit is rejected.
 | --- | --- | --- |
 | `send` | required `tx_hex` string | `tx_hex`, `tx_bytes` |
 | `send-file` | required absolute local `path` string | `file_bytes`, `bytes_written` |
-| `receive` | optional `max_bytes` integer | `rx_hex`, `rx_bytes` |
-| `query` | required `tx_hex`, `delimiter_hex` strings; optional `max_bytes` integer | `tx_hex`, `tx_bytes`, `rx_hex`, `rx_bytes`, `delimiter_hex` |
+| `receive` | optional `receive_mode`; mode-specific receive arguments | `rx_hex`, `rx_bytes`; `delimiter_hex` only in delimiter mode |
+| `query` | required `tx_hex`; optional `receive_mode`; mode-specific receive arguments | `tx_hex`, `tx_bytes`, `rx_hex`, `rx_bytes`; `delimiter_hex` only in delimiter mode |
 | `run-sequence` | required `sequence` inline Sequence v1 JSON object | `sequence_version`, `step_results`, `transcript` |
 
-`max_bytes` defaults to `1024` and must be in `1..=1048576`; the query
-delimiter must fit within it. Unknown argument fields, wrong types, and
-missing required arguments are rejected before admission or serial I/O.
+`receive_mode` is optional: Receive defaults to `single` (one read); Query
+defaults to `delimiter` (TX then read until the delimiter). Receive also
+supports `delimiter`, `fixed`, and `idle`; Query supports `delimiter`, `fixed`,
+and `idle` but not `single`. All modes are ordinary foreground reads with no
+new command or streaming operation.
+
+- `single`: optional `max_bytes` (default 1024).
+- `delimiter`: required nonempty `delimiter_hex`, optional `max_bytes` (default 1024);
+  a multi-byte delimiter must fit within the limit and is included in RX.
+- `fixed`: required `expected_bytes` in `1..=1048576`. This is the exact
+  required length and read bound; `max_bytes` is not accepted in this mode.
+- `idle`: required `idle_gap_ms`, a positive integer of at most `4294967295`
+  milliseconds; optional `max_bytes` (default 1024). The first byte uses
+  the configured transport read timeout; after the first RX, each gap uses a
+  separate bounded read. A quiet gap completes normally. Reaching the byte
+  cap before a quiet gap returns `ReadLimitExceeded`.
+
+All `max_bytes` values must be in `1..=1048576`. Each mode accepts only its
+listed arguments (plus `receive_mode` and, for Query, `tx_hex`). Unknown
+fields, invalid types, and missing required arguments are rejected before
+admission or serial I/O.
 `run-sequence` accepts only `arguments.sequence`; paths, file names, and
 serialized Sequence strings are not accepted. The object follows the
 [Serial Sequence contract](serial-sequence-contract.md). Core parses and
@@ -222,8 +240,10 @@ object `details`. Never automatically retry a command with possible serial
 side effects after a timeout, disconnect, missing response, or HTTP `500`.
 
 In ordinary mode, the runner uses Core `write_all` and `flush` for `send`,
-Core `read` for `receive`, and `write_all`, `flush`, and Core `read_until`
-for `query`. Streaming mode routes `send` and `send-file` through Core
+Core `read` for legacy single-read Receive, Core `read_until` for
+delimiter Receive/Query, and Core's fixed-length/idle-gap reads for the
+new modes. Query sends TX via `write_all` and `flush` before RX.
+Streaming mode routes `send` and `send-file` through Core
 `PersistentRuntime` instead. An accepted command's HTTP response remains
 `202` even if execution later fails.
 Ordinary read timeouts and I/O failures emit `job_finished` with
@@ -237,11 +257,13 @@ confirmed ordinary Receive or Query `Error::Timeout` keeps the existing
 `error.details.reason: "read_timeout"`; other errors do not use this reason.
 Partial RX supplied by Core appears as `partial_hex` and `partial_bytes`
 (including an empty value for a zero-byte read timeout). For an ordinary
-Worker Query that times out, the partial bytes have already been reported and
-are removed from the `SerialSession` internal RX buffer. This does not discard
-unread OS/device RX, alter the normal successful Query's trailing bytes, or
-change the Core `read_until` / Sequence retry behavior. An ordinary Receive
-timeout has no partial bytes.
+Worker Receive/Query with a multi-read completion mode, confirmed Read Timeout
+or ReadLimitExceeded consumes only the partial bytes already reported from
+the `SerialSession` internal RX buffer. Unreported trailing Session bytes and
+unread OS/device RX are retained. Delayed bytes from a prior operation may
+therefore appear in a later Receive/Query. This does not change the Core
+`read_until` / Sequence retry behavior. Legacy single-read Receive timeout
+has no partial bytes. ReadLimitExceeded always fails the Job.
 For `run-sequence`, the same runner thread executes the existing Core
 `StepRunner` on the persistent session. Its success result uses the same
 `step_results` and logical `transcript` machine representation as one-shot
