@@ -183,7 +183,11 @@ impl Transport for DeviceTransport {
         }
     }
 
-    fn read_with_timeout(&mut self, buffer: &mut [u8], timeout: std::time::Duration) -> io::Result<usize> {
+    fn read_with_timeout(
+        &mut self,
+        buffer: &mut [u8],
+        timeout: std::time::Duration,
+    ) -> io::Result<usize> {
         match self {
             Self::Serial(t) => t.read_with_timeout(buffer, timeout),
             Self::Tcp(t) => t.read_with_timeout(buffer, timeout),
