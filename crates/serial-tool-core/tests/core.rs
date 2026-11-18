@@ -217,6 +217,34 @@ fn idle_gap_completes_after_received_data_and_times_out_before_first_byte() {
 }
 
 #[test]
+fn tcp_idle_gap_waits_for_later_chunk_and_resets_on_new_rx() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (release_tx, release_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.write_all(b"A").unwrap();
+        thread::sleep(Duration::from_millis(40));
+        peer.write_all(b"B").unwrap();
+        // Keep the socket connected until the reader completes its idle gap.
+        release_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    });
+    let settings = TcpSettings {
+        host: "127.0.0.1".into(),
+        port,
+        io_timeout: Duration::from_millis(800),
+        ..TcpSettings::default()
+    };
+    let mut session = SerialSession::new(TcpTransport::connect(&settings).unwrap());
+    assert_eq!(
+        session.read_until_idle(Duration::from_millis(250), 16).unwrap(),
+        b"AB"
+    );
+    release_tx.send(()).unwrap();
+    server.join().unwrap();
+}
+
+#[test]
 fn worker_consumption_only_removes_reported_prefix() {
     let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
         b"FIRST\nTAIL".to_vec()

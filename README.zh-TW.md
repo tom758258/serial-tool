@@ -15,6 +15,7 @@ Serial Tool 的定位是通訊與執行工具，**不是**特定儀器控制器�
 - 使用事件或連續 RX 模式檢視傳輸資料；匯出 Hex 終端機紀錄、原始位元組或上次序列結果 JSON。
 - 以 `loopback-v1` 進行免硬體模擬；`periodic-rx-v1` **僅**支援 Streaming Simulation Worker。
 - 透過 Common Worker Protocol v3 提供機器可讀的本機 Worker；CLI／Manifest 的機器輸出使用另一套既有 Schema。
+- 普通 Worker Receive／Query 提供 Delimiter、Fixed Length、Idle Gap 接收完成模式供 Orchestrator 使用；獨立 CLI、Desktop 與 Sequence 指令不受影響。詳見 [Serial Worker Contract](docs/contracts/serial-worker-contract.md)。
 - Desktop 提供 English／繁體中文，以及系統／淺色／深色外觀切換。
 
 TCP 僅是**原始位元組串流 Client**，不包含 TCP Server、自動重連、封包切分或特定設備協定。

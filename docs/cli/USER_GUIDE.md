@@ -131,6 +131,8 @@ serial-tool worker --mode simulate --baud 115200 --simulation-profile-id periodi
 
 `periodic-rx-v1` is **only for Streaming Simulation Workers** and does not echo TX. Streaming Workers accept only `send` and `send-file`; RX events carry raw bytes, not guaranteed packet boundaries. HTTP acceptance is not job completion; Worker Stop acceptance is not process exit. See the Worker Contract.
 
+Ordinary (non-streaming) Worker `receive` supports `single` (default), `delimiter`, `fixed`, and `idle` completion modes; Worker `query` sends TX before RX and supports `delimiter` (default), `fixed`, and `idle`. Fixed mode requires `expected_bytes`; idle mode requires `idle_gap_ms`, while `max_bytes` remains a limit rather than a required length. These are Worker capabilities for Orchestrator, not additional standalone CLI, Desktop, or Sequence modes. Timeout and ReadLimitExceeded consume only reported partial Session RX, without clearing OS/device RX; later operations may see delayed data. The Worker retains raw `rx_hex` and `rx_bytes`; optional UTF-8 `rx_text` and `partial_rx_text` are derived by Orchestrator. See the Serial Worker Contract for exact JSON arguments and outcomes.
+
 ## 8. Common problems and limits
 
 - **Nothing receives:** verify COM port or TCP destination, baud/line settings, and the device's actual response format. An empty read timeout does not always mean disconnection.
