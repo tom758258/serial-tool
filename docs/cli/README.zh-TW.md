@@ -27,8 +27,6 @@ cargo run -p serial-tool-cli -- --help
 - [Common Worker Protocol](../contracts/common-worker-protocol.md)：共用 Worker 合約。
 - [Monorepo Layout](../architecture/monorepo-layout.md)、[AGENTS.md](../../AGENTS.md)：所有權與測試規範。
 
-## 指令與進階操作參考
-
 ## CLI 基本指令
 
 在 Root Workspace 使用 `cargo run -p serial-tool-cli -- <command>`，或直接執行建置好的 `serial-tool`：
@@ -119,6 +117,8 @@ Sequence JSON 使用 `sequence_version: 1` 及 `transport.type/settings`，不�
 
 TCP 則用 `"transport": {"type":"tcp","settings":{"io_timeout_ms":1000}}`。CLI TCP Sequence Run 的 I/O Timeout 以 Sequence JSON 為準，不另由 CLI 選項設定。驗證不開 COM Port、TCP Socket 或 DNS；執行時另提供實際設備資源與模式。
 
+`send_file` 步驟使用執行主機可存取的本機絕對路徑；執行時讀取檔案，並以每次 4096 Bytes 分塊傳送未轉換的原始位元組。結果回報初始檔案大小與已確認寫入位元組數，不將完整檔案內容寫入 TX Transcript；檔案遺失、為空或無法讀取時，該步驟失敗並停止後續步驟。
+
 ```sh
 serial-tool sequence validate --file sequence.json
 serial-tool sequence run --file sequence.json --mode live --port COM4
@@ -138,6 +138,8 @@ serial-tool worker --transport tcp --mode simulate --simulation-profile-id perio
 ```
 
 Worker 使用 Common v3.0、`v3-only`；HTTP／Runtime JSONL 的 Schema 為 3，Manifest／一般 CLI JSON 為 2。`manifest --json` 宣告 `multi_job`、`startup`、`common.async_jobs` v1，並可選用 `common.streaming` v1。普通 Worker 的五個非同步命令為 `send`、`send-file`、`receive`、`query`、`run-sequence`；同時只有一個 Active Job，不額外排隊、並行或提供通用 Cancel。Streaming Worker 僅接收前兩種 Job。
+
+普通 Worker 的 `receive` 支援 `single`（預設）、`delimiter`、`fixed`、`idle`；`query` 先 TX 後 RX，支援 `delimiter`（預設）、`fixed`、`idle`，不支援 `single`。Delimiter 模式須提供 `delimiter_hex` 並將分隔符包含於 RX；Fixed 模式須提供 `expected_bytes`，不接受 `max_bytes`；Idle 模式須提供 `idle_gap_ms`，第一個 Byte 前依傳輸 Read Timeout 等待。非 Fixed 模式的 `max_bytes` 是接收上限，不是目標長度。Read Timeout 或 ReadLimitExceeded 會讓 Job 失敗；只消費已回報的 Session Partial RX，不清除 OS／設備 RX，後續操作可能收到延遲資料。UTF-8 `rx_text`、`partial_rx_text` 是 Orchestrator 衍生欄位，不是 Serial Worker 原生結果。精確參數與結果請見 [Serial Worker Contract](../contracts/serial-worker-contract.md)。
 
 Worker 以 JSONL 寫入 stdout，HTTP 控制面只綁 `127.0.0.1`；`ready` 提供端點 URL。Live Worker 只保持一條 COM 或 TCP 連線，`/stop` 關閉 Session，不發送設備特定命令。`POST /command` 的 `send-file` 使用 Worker 主機上可存取的**絕對路徑**：
 

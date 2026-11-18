@@ -11,7 +11,7 @@ Serial Tool 的定位是通訊與執行工具，**不是**特定儀器控制器�
 - 連接 COM 埠或 Raw TCP 端點，準確傳送與接收原始位元組。
 - 傳送 UTF-8 文字、Hex 位元組或未經轉換的原始檔案，並持續接收 RX。
 - 在支援的實機／模擬連線上使用互動式終端機及週期性自動傳送（Auto TX）。
-- 建立、驗證、載入、儲存及執行 Sequence v1：傳送文字、傳送位元組、等待、讀取、讀取直到、重複。
+- 建立、驗證、載入、儲存及執行 Sequence v1：傳送文字、傳送位元組、傳送原始檔案、等待、讀取、讀取直到、重複。
 - 使用事件或連續 RX 模式檢視傳輸資料；匯出 Hex 終端機紀錄、原始位元組或上次序列結果 JSON。
 - 以 `loopback-v1` 進行免硬體模擬；`periodic-rx-v1` **僅**支援 Streaming Simulation Worker。
 - 透過 Common Worker Protocol v3 提供機器可讀的本機 Worker；CLI／Manifest 的機器輸出使用另一套既有 Schema。
@@ -58,6 +58,12 @@ scripts/                   # Windows Build、Release Acceptance 與 Help 產生�
 
 ## 快速開始
 
+### Windows 發行版（x64）
+
+取得 Windows 發行套件後，先解壓縮至資料夾。執行 `Serial Tool.exe` 啟動桌面介面；使用 CLI 時，在同一資料夾開啟 PowerShell 並執行 `.\serial-tool.exe --help`。套件包含兩個免安裝 EXE 與授權資訊；Desktop 仍需要系統提供的 Microsoft Edge WebView2 Runtime。兩種介面均內建英文及繁體中文離線說明。
+
+### 從原始碼建置
+
 先安裝支援 Rust edition 2024 的工具鏈，在 Repository 根目錄執行：
 
 ```sh
@@ -69,7 +75,7 @@ cargo run -p serial-tool-cli -- send --port COM4 --baud 115200 --hex "AA 55" --d
 
 Dry-run 只驗證適用的操作，不開啟 COM 埠、TCP Socket 或進行 DNS 連線。實際操作前請確認目標設備，並移除 `--dry-run`。
 
-### Desktop
+### Desktop 開發
 
 需安裝 Node.js／npm 及 Tauri 2 平台相依環境。Windows 必須有系統提供的 Microsoft Edge WebView2 Runtime；程式不會自動安裝。
 

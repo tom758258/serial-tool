@@ -11,7 +11,7 @@ Serial Tool is a communication and execution tool, **not** a device-specific con
 - Connect to COM ports or raw TCP endpoints; transmit and receive exact bytes.
 - Send UTF-8 text, hexadecimal bytes, or unchanged raw files; monitor continuous RX.
 - Use interactive Terminal and periodic Auto TX on supported Live or Simulation connections.
-- Build, validate, load, save, and run linear Sequence v1 steps: Send Text, Send Bytes, Wait, Read, Read Until, and Repeat.
+- Build, validate, load, save, and run Sequence v1 steps: Send Text, Send Bytes, Send File (Raw), Wait, Read, Read Until, and Repeat.
 - View Terminal traffic in event or continuous RX modes and export available raw bytes or a hex transcript; export the latest Sequence result as JSON.
 - Use deterministic `loopback-v1` simulation without hardware. The optional `periodic-rx-v1` profile is **only** for Streaming Simulation Workers.
 - Integrate a machine-readable local Worker through Common Worker Protocol v3; CLI/Manifest machine output retains its separate schema.
@@ -58,6 +58,12 @@ Exact dependency versions are defined by the Cargo and npm manifests/lockfiles.
 
 ## Quick start
 
+### Windows release (x64)
+
+When a Windows release package is available, extract it to a folder. Run `Serial Tool.exe` for the Desktop, or open PowerShell in that folder and run `.\serial-tool.exe --help` for CLI commands. The package contains two standalone EXEs and license notices; no installer is required. Desktop requires the system Microsoft Edge WebView2 Runtime. Both interfaces include English and Traditional Chinese offline Help.
+
+### Build from source
+
 Install a Rust toolchain supporting edition 2024. From the repository root:
 
 ```sh
@@ -69,7 +75,7 @@ cargo run -p serial-tool-cli -- send --port COM4 --baud 115200 --hex "AA 55" --d
 
 Dry-run validates a supported operation without opening a COM port, TCP socket, or DNS connection. For a real command, select the correct device and remove `--dry-run`.
 
-### Desktop
+### Desktop development
 
 Install Node.js/npm and Tauri 2 platform prerequisites. Windows requires the **system** Microsoft Edge WebView2 Runtime; the application does not install it for you.
 

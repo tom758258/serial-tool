@@ -41,7 +41,7 @@ python -B scripts/test_generate_help.py
 python scripts/generate_help.py --check
 ```
 
-The sync check generates into a temporary directory and compares both tracked bundles with the tracked bundle. It also validates the locale tags, absence of an in-page language selector, template
+The sync check generates into a temporary directory and compares the regenerated output with the tracked Desktop and CLI Help bundles. It also validates the locale tags, absence of an in-page language selector, template
 expansion, and the absence of repository-local Markdown links. Local Markdown
 links are rejected, not rewritten; public URLs are retained.
 
