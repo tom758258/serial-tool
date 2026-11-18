@@ -1379,37 +1379,35 @@ fn parse_command(
             }
             Operation::SendFile(path.to_owned())
         }
-        "receive" => {
-            match rx_mode(arguments, "single").map_err(reject)? {
-                "single" => {
-                    exact_keys(arguments, &["receive_mode", "max_bytes"]).map_err(reject)?;
-                    Operation::Receive(read_limit(arguments).map_err(reject)?)
-                }
-                "delimiter" => {
-                    exact_keys(arguments, &["receive_mode", "delimiter_hex", "max_bytes"])
-                        .map_err(reject)?;
-                    let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
-                    let limit = read_limit(arguments).map_err(reject)?;
-                    if delimiter.is_empty() || delimiter.len() > limit {
-                        return Err(reject("delimiter must contain 1..=max_bytes bytes"));
-                    }
-                    Operation::ReceiveDelimited(delimiter, limit)
-                }
-                "fixed" => {
-                    exact_keys(arguments, &["receive_mode", "expected_bytes"]).map_err(reject)?;
-                    Operation::ReceiveFixed(required_expected_bytes(arguments).map_err(reject)?)
-                }
-                "idle" => {
-                    exact_keys(arguments, &["receive_mode", "idle_gap_ms", "max_bytes"])
-                        .map_err(reject)?;
-                    Operation::ReceiveIdle(
-                        required_idle_gap(arguments).map_err(reject)?,
-                        read_limit(arguments).map_err(reject)?,
-                    )
-                }
-                _ => return Err(reject("unsupported receive mode")),
+        "receive" => match rx_mode(arguments, "single").map_err(reject)? {
+            "single" => {
+                exact_keys(arguments, &["receive_mode", "max_bytes"]).map_err(reject)?;
+                Operation::Receive(read_limit(arguments).map_err(reject)?)
             }
-        }
+            "delimiter" => {
+                exact_keys(arguments, &["receive_mode", "delimiter_hex", "max_bytes"])
+                    .map_err(reject)?;
+                let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
+                let limit = read_limit(arguments).map_err(reject)?;
+                if delimiter.is_empty() || delimiter.len() > limit {
+                    return Err(reject("delimiter must contain 1..=max_bytes bytes"));
+                }
+                Operation::ReceiveDelimited(delimiter, limit)
+            }
+            "fixed" => {
+                exact_keys(arguments, &["receive_mode", "expected_bytes"]).map_err(reject)?;
+                Operation::ReceiveFixed(required_expected_bytes(arguments).map_err(reject)?)
+            }
+            "idle" => {
+                exact_keys(arguments, &["receive_mode", "idle_gap_ms", "max_bytes"])
+                    .map_err(reject)?;
+                Operation::ReceiveIdle(
+                    required_idle_gap(arguments).map_err(reject)?,
+                    read_limit(arguments).map_err(reject)?,
+                )
+            }
+            _ => return Err(reject("unsupported receive mode")),
+        },
         "query" => {
             let tx = required_hex(arguments, "tx_hex").map_err(reject)?;
             match rx_mode(arguments, "delimiter").map_err(reject)? {
@@ -1645,9 +1643,8 @@ mod tests {
         assert_eq!(result["rx_hex"], "41424344");
         assert_eq!(result["rx_bytes"], 4);
 
-        let mut delimited = SerialSession::new(SimulationTransport::with_rx_chunks([
-            b"OK\r\n".to_vec(),
-        ]));
+        let mut delimited =
+            SerialSession::new(SimulationTransport::with_rx_chunks([b"OK\r\n".to_vec()]));
         let result = execute(
             &mut delimited,
             Operation::ReceiveDelimited(b"\r\n".to_vec(), 32),
@@ -1658,12 +1655,7 @@ mod tests {
         assert_eq!(result["delimiter_hex"], "0d0a");
 
         let mut query = SerialSession::new(SimulationTransport::loopback());
-        let result = execute(
-            &mut query,
-            Operation::QueryFixed(b"HI".to_vec(), 2),
-            &state,
-        )
-        .unwrap();
+        let result = execute(&mut query, Operation::QueryFixed(b"HI".to_vec(), 2), &state).unwrap();
         assert_eq!(result["tx_bytes"], 2);
         assert_eq!(result["rx_bytes"], 2);
 
@@ -1682,7 +1674,7 @@ mod tests {
     fn ordinary_read_limit_does_not_repeat_partial_or_discard_trailing_rx() {
         let state = Mutex::new(State::new());
         let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
-            b"FIRST\nTAIL".to_vec(),
+            b"FIRST\nTAIL".to_vec()
         ]));
         let result = execute(
             &mut session,
@@ -1698,7 +1690,8 @@ mod tests {
             &mut session,
             Operation::ReceiveDelimited(b"\n".to_vec(), 8),
             &state,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(response["rx_hex"], "540a");
         let tail = execute(&mut session, Operation::ReceiveFixed(4), &state).unwrap();
         assert_eq!(tail["rx_hex"], "5441494c");
@@ -1720,20 +1713,33 @@ mod tests {
                 "schema_version": 3,
                 "command": name,
                 "arguments": args,
-            }).to_string();
+            })
+            .to_string();
             parse_command(body.as_bytes(), &settings, "test")
         };
-        assert!(command("receive", json!({"receive_mode":"fixed","expected_bytes":4})).is_ok());
-        assert!(command(
-            "query",
-            json!({"tx_hex":"4f4b","receive_mode":"idle","idle_gap_ms":20})
-        ).is_ok());
+        assert!(
+            command(
+                "receive",
+                json!({"receive_mode":"fixed","expected_bytes":4})
+            )
+            .is_ok()
+        );
+        assert!(
+            command(
+                "query",
+                json!({"tx_hex":"4f4b","receive_mode":"idle","idle_gap_ms":20})
+            )
+            .is_ok()
+        );
         assert!(command("receive", json!({"receive_mode":"fixed"})).is_err());
         assert!(command("receive", json!({"receive_mode":"idle","idle_gap_ms":0})).is_err());
-        assert!(command(
-            "receive",
-            json!({"receive_mode":"fixed","expected_bytes":4,"max_bytes":8})
-        ).is_err());
+        assert!(
+            command(
+                "receive",
+                json!({"receive_mode":"fixed","expected_bytes":4,"max_bytes":8})
+            )
+            .is_err()
+        );
         assert!(command("query", json!({"tx_hex":"00","receive_mode":"single"})).is_err());
         assert!(command("query", json!({"tx_hex":"00","delimiter_hex":"0d0a"})).is_ok());
         assert!(command("receive", json!({"max_bytes":32})).is_ok());

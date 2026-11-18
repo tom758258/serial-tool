@@ -219,7 +219,7 @@ fn idle_gap_completes_after_received_data_and_times_out_before_first_byte() {
 #[test]
 fn worker_consumption_only_removes_reported_prefix() {
     let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
-        b"FIRST\nTAIL".to_vec(),
+        b"FIRST\nTAIL".to_vec()
     ]));
     assert!(matches!(
         session.read_until(b"\n", 4),
@@ -232,9 +232,7 @@ fn worker_consumption_only_removes_reported_prefix() {
 
 #[test]
 fn idle_gap_limit_is_an_error_not_success() {
-    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
-        b"ABCDE".to_vec(),
-    ]));
+    let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([b"ABCDE".to_vec()]));
     assert!(matches!(
         session.read_until_idle(Duration::from_millis(1), 4),
         Err(Error::ReadLimitExceeded { max_bytes: 4, partial }) if partial == b"ABCD"

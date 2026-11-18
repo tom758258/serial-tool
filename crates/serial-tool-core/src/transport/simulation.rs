@@ -98,7 +98,10 @@ impl Transport for SimulationTransport {
 
     fn read_with_timeout(&mut self, buffer: &mut [u8], timeout: Duration) -> io::Result<usize> {
         let result = self.read(buffer);
-        if result.as_ref().is_err_and(|error| error.kind() == io::ErrorKind::TimedOut) {
+        if result
+            .as_ref()
+            .is_err_and(|error| error.kind() == io::ErrorKind::TimedOut)
+        {
             std::thread::sleep(timeout);
         }
         result

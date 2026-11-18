@@ -13,7 +13,10 @@ pub trait Transport {
 
     /// A bounded read for Idle Gap reception. Implementations must honor the timeout.
     fn read_with_timeout(&mut self, _buffer: &mut [u8], _timeout: Duration) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "timed read is unsupported"))
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "timed read is unsupported",
+        ))
     }
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
     fn flush(&mut self) -> io::Result<()>;

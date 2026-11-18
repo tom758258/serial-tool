@@ -129,7 +129,8 @@ impl<T: Transport> SerialSession<T> {
             let mut buffer = [0u8; 1024];
             let read_size = (max_bytes - self.rx.len()).min(buffer.len());
             let read_result = if received_any {
-                self.transport.read_with_timeout(&mut buffer[..read_size], idle_gap)
+                self.transport
+                    .read_with_timeout(&mut buffer[..read_size], idle_gap)
             } else {
                 self.transport.read(&mut buffer[..read_size])
             };
@@ -151,7 +152,7 @@ impl<T: Transport> SerialSession<T> {
                             io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
                         ) =>
                 {
-                    return Ok(self.rx.drain(..).collect());
+                    return Ok(std::mem::take(&mut self.rx));
                 }
                 Err(error) => return Err(Self::map_read_error(error, self.rx.clone())),
             }
