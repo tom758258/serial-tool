@@ -1724,10 +1724,16 @@ mod tests {
             parse_command(body.as_bytes(), &settings, "test")
         };
         assert!(command("receive", json!({"receive_mode":"fixed","expected_bytes":4})).is_ok());
-        assert!(command("query", json!({"tx_hex":"4f4b","receive_mode":"idle","idle_gap_ms":20})).is_ok());
+        assert!(command(
+            "query",
+            json!({"tx_hex":"4f4b","receive_mode":"idle","idle_gap_ms":20})
+        ).is_ok());
         assert!(command("receive", json!({"receive_mode":"fixed"})).is_err());
         assert!(command("receive", json!({"receive_mode":"idle","idle_gap_ms":0})).is_err());
-        assert!(command("receive", json!({"receive_mode":"fixed","expected_bytes":4,"max_bytes":8})).is_err());
+        assert!(command(
+            "receive",
+            json!({"receive_mode":"fixed","expected_bytes":4,"max_bytes":8})
+        ).is_err());
         assert!(command("query", json!({"tx_hex":"00","receive_mode":"single"})).is_err());
         assert!(command("query", json!({"tx_hex":"00","delimiter_hex":"0d0a"})).is_ok());
         assert!(command("receive", json!({"max_bytes":32})).is_ok());
