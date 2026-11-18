@@ -1386,7 +1386,8 @@ fn parse_command(
                     Operation::Receive(read_limit(arguments).map_err(reject)?)
                 }
                 "delimiter" => {
-                    exact_keys(arguments, &["receive_mode", "delimiter_hex", "max_bytes"]).map_err(reject)?;
+                    exact_keys(arguments, &["receive_mode", "delimiter_hex", "max_bytes"])
+                        .map_err(reject)?;
                     let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
                     let limit = read_limit(arguments).map_err(reject)?;
                     if delimiter.is_empty() || delimiter.len() > limit {
@@ -1399,7 +1400,8 @@ fn parse_command(
                     Operation::ReceiveFixed(required_expected_bytes(arguments).map_err(reject)?)
                 }
                 "idle" => {
-                    exact_keys(arguments, &["receive_mode", "idle_gap_ms", "max_bytes"]).map_err(reject)?;
+                    exact_keys(arguments, &["receive_mode", "idle_gap_ms", "max_bytes"])
+                        .map_err(reject)?;
                     Operation::ReceiveIdle(
                         required_idle_gap(arguments).map_err(reject)?,
                         read_limit(arguments).map_err(reject)?,
@@ -1412,7 +1414,11 @@ fn parse_command(
             let tx = required_hex(arguments, "tx_hex").map_err(reject)?;
             match rx_mode(arguments, "delimiter").map_err(reject)? {
                 "delimiter" => {
-                    exact_keys(arguments, &["tx_hex", "receive_mode", "delimiter_hex", "max_bytes"]).map_err(reject)?;
+                    exact_keys(
+                        arguments,
+                        &["tx_hex", "receive_mode", "delimiter_hex", "max_bytes"],
+                    )
+                    .map_err(reject)?;
                     let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
                     let limit = read_limit(arguments).map_err(reject)?;
                     if delimiter.is_empty() || delimiter.len() > limit {
@@ -1421,11 +1427,16 @@ fn parse_command(
                     Operation::Query(tx, delimiter, limit)
                 }
                 "fixed" => {
-                    exact_keys(arguments, &["tx_hex", "receive_mode", "expected_bytes"]).map_err(reject)?;
+                    exact_keys(arguments, &["tx_hex", "receive_mode", "expected_bytes"])
+                        .map_err(reject)?;
                     Operation::QueryFixed(tx, required_expected_bytes(arguments).map_err(reject)?)
                 }
                 "idle" => {
-                    exact_keys(arguments, &["tx_hex", "receive_mode", "idle_gap_ms", "max_bytes"]).map_err(reject)?;
+                    exact_keys(
+                        arguments,
+                        &["tx_hex", "receive_mode", "idle_gap_ms", "max_bytes"],
+                    )
+                    .map_err(reject)?;
                     Operation::QueryIdle(
                         tx,
                         required_idle_gap(arguments).map_err(reject)?,
