@@ -219,14 +219,14 @@ fn idle_gap_completes_after_received_data_and_times_out_before_first_byte() {
 #[test]
 fn worker_consumption_only_removes_reported_prefix() {
     let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
-        b"FIRST\\nTAIL".to_vec(),
+        b"FIRST\nTAIL".to_vec(),
     ]));
     assert!(matches!(
-        session.read_until(b"\\n", 4),
+        session.read_until(b"\n", 4),
         Err(Error::ReadLimitExceeded { partial, .. }) if partial == b"FIRS"
     ));
     session.consume_reported_rx(b"FIRS").unwrap();
-    assert_eq!(session.read_until(b"\\n", 8).unwrap(), b"T\\n");
+    assert_eq!(session.read_until(b"\\n", 8).unwrap(), b"T\n");
     assert_eq!(session.read_fixed_length(4).unwrap(), b"TAIL");
 }
 
