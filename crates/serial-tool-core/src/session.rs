@@ -110,7 +110,11 @@ impl<T: Transport> SerialSession<T> {
 
     /// Wait for the first byte using the configured read timeout, then complete
     /// only after a full idle gap without another transport read returning data.
-    pub fn read_until_idle(&mut self, idle_gap: Duration, max_bytes: usize) -> Result<Vec<u8>, Error> {
+    pub fn read_until_idle(
+        &mut self,
+        idle_gap: Duration,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, Error> {
         if idle_gap.is_zero() || max_bytes == 0 || max_bytes > 1_048_576 {
             return Err(Error::InvalidConfiguration("invalid idle gap or max bytes"));
         }
@@ -142,7 +146,10 @@ impl<T: Transport> SerialSession<T> {
                 }
                 Err(error)
                     if received_any
-                        && matches!(error.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock) =>
+                        && matches!(
+                            error.kind(),
+                            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                        ) =>
                 {
                     return Ok(self.rx.drain(..).collect());
                 }
