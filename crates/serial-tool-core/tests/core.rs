@@ -237,7 +237,9 @@ fn tcp_idle_gap_waits_for_later_chunk_and_resets_on_new_rx() {
     };
     let mut session = SerialSession::new(TcpTransport::connect(&settings).unwrap());
     assert_eq!(
-        session.read_until_idle(Duration::from_millis(250), 16).unwrap(),
+        session
+            .read_until_idle(Duration::from_millis(250), 16)
+            .unwrap(),
         b"AB"
     );
     release_tx.send(()).unwrap();
