@@ -1624,6 +1624,105 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ordinary_receive_and_query_support_new_completion_modes() {
+        let state = Mutex::new(State::new());
+        let mut fixed = SerialSession::new(SimulationTransport::with_rx_chunks([
+            b"AB".to_vec(),
+            b"CD".to_vec(),
+        ]));
+        let result = execute(&mut fixed, Operation::ReceiveFixed(4), &state).unwrap();
+        assert_eq!(result["rx_hex"], "41424344");
+        assert_eq!(result["rx_bytes"], 4);
+
+        let mut delimited = SerialSession::new(SimulationTransport::with_rx_chunks([
+            b"OK\r\n".to_vec(),
+        ]));
+        let result = execute(
+            &mut delimited,
+            Operation::ReceiveDelimited(b"\r\n".to_vec(), 32),
+            &state,
+        )
+        .unwrap();
+        assert_eq!(result["rx_hex"], "4f4b0d0a");
+        assert_eq!(result["delimiter_hex"], "0d0a");
+
+        let mut query = SerialSession::new(SimulationTransport::loopback());
+        let result = execute(
+            &mut query,
+            Operation::QueryFixed(b"HI".to_vec(), 2),
+            &state,
+        )
+        .unwrap();
+        assert_eq!(result["tx_bytes"], 2);
+        assert_eq!(result["rx_bytes"], 2);
+
+        let mut idle = SerialSession::new(SimulationTransport::loopback());
+        let result = execute(
+            &mut idle,
+            Operation::QueryIdle(b"OK".to_vec(), Duration::from_millis(1), 16),
+            &state,
+        )
+        .unwrap();
+        assert_eq!(result["rx_hex"], "4f4b");
+        assert_eq!(result["rx_bytes"], 2);
+    }
+
+    #[test]
+    fn ordinary_read_limit_does_not_repeat_partial_or_discard_trailing_rx() {
+        let state = Mutex::new(State::new());
+        let mut session = SerialSession::new(SimulationTransport::with_rx_chunks([
+            b"FIRST\nTAIL".to_vec(),
+        ]));
+        let result = execute(
+            &mut session,
+            Operation::ReceiveDelimited(b"\n".to_vec(), 4),
+            &state,
+        );
+        assert!(matches!(
+            result,
+            Err(WorkerOperationError::Serial(Error::ReadLimitExceeded { partial, .. }))
+                if partial == b"FIRS"
+        ));
+        let response = execute(
+            &mut session,
+            Operation::ReceiveDelimited(b"\n".to_vec(), 8),
+            &state,
+        ).unwrap();
+        assert_eq!(response["rx_hex"], "540a");
+        let tail = execute(&mut session, Operation::ReceiveFixed(4), &state).unwrap();
+        assert_eq!(tail["rx_hex"], "5441494c");
+    }
+
+    #[test]
+    fn worker_validates_new_receive_mode_arguments() {
+        let settings = ConnectionSettings::Serial(SerialSettings {
+            port: "COM1".into(),
+            baud_rate: 115_200,
+            data_bits: DataBits::Eight,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+            flow_control: FlowControl::None,
+            timeout: Duration::from_millis(1000),
+        });
+        let command = |name: &str, args: Value| {
+            let body = json!({
+                "schema_version": 3,
+                "command": name,
+                "arguments": args,
+            }).to_string();
+            parse_command(body.as_bytes(), &settings, "test")
+        };
+        assert!(command("receive", json!({"receive_mode":"fixed","expected_bytes":4})).is_ok());
+        assert!(command("query", json!({"tx_hex":"4f4b","receive_mode":"idle","idle_gap_ms":20})).is_ok());
+        assert!(command("receive", json!({"receive_mode":"fixed"})).is_err());
+        assert!(command("receive", json!({"receive_mode":"idle","idle_gap_ms":0})).is_err());
+        assert!(command("receive", json!({"receive_mode":"fixed","expected_bytes":4,"max_bytes":8})).is_err());
+        assert!(command("query", json!({"tx_hex":"00","receive_mode":"single"})).is_err());
+        assert!(command("query", json!({"tx_hex":"00","delimiter_hex":"0d0a"})).is_ok());
+        assert!(command("receive", json!({"max_bytes":32})).is_ok());
+    }
+
+    #[test]
     fn ordinary_query_timeout_consumes_only_reported_session_rx() {
         let mut session =
             SerialSession::new(SimulationTransport::with_rx_chunks([b"REA".to_vec()]));
