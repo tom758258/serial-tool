@@ -97,7 +97,12 @@ enum Operation {
     Send(Vec<u8>),
     SendFile(PathBuf),
     Receive(usize),
+    ReceiveDelimited(Vec<u8>, usize),
+    ReceiveFixed(usize),
+    ReceiveIdle(Duration, usize),
     Query(Vec<u8>, Vec<u8>, usize),
+    QueryFixed(Vec<u8>, usize),
+    QueryIdle(Vec<u8>, Duration, usize),
     RunSequence(Sequence),
 }
 
@@ -162,22 +167,53 @@ fn execute<T: Transport>(
             rx.truncate(count);
             Ok(json!({ "rx_hex": hex(&rx), "rx_bytes": rx.len() }))
         }
+        Operation::ReceiveDelimited(delimiter, limit) => {
+            let result = session.read_until(&delimiter, limit);
+            let rx = finish_ordinary_read(session, result)?;
+            Ok(json!({
+                "rx_hex": hex(&rx), "rx_bytes": rx.len(),
+                "delimiter_hex": hex(&delimiter),
+            }))
+        }
+        Operation::ReceiveFixed(expected) => {
+            let result = session.read_fixed_length(expected);
+            let rx = finish_ordinary_read(session, result)?;
+            Ok(json!({ "rx_hex": hex(&rx), "rx_bytes": rx.len() }))
+        }
+        Operation::ReceiveIdle(gap, limit) => {
+            let result = session.read_until_idle(gap, limit);
+            let rx = finish_ordinary_read(session, result)?;
+            Ok(json!({ "rx_hex": hex(&rx), "rx_bytes": rx.len() }))
+        }
         Operation::Query(tx, delimiter, limit) => {
             session.write_all(&tx)?;
             session.flush()?;
-            let rx = match session.read_until(&delimiter, limit) {
-                Err(error @ Error::Timeout { .. }) => {
-                    // The timeout's partial bytes are returned to the caller; do
-                    // not let the next ordinary Job read them a second time.
-                    session.discard_buffered_rx();
-                    return Err(error.into());
-                }
-                result => result?,
-            };
+            let result = session.read_until(&delimiter, limit);
+            let rx = finish_ordinary_read(session, result)?;
             Ok(json!({
                 "tx_hex": hex(&tx), "tx_bytes": tx.len(),
                 "rx_hex": hex(&rx), "rx_bytes": rx.len(),
                 "delimiter_hex": hex(&delimiter),
+            }))
+        }
+        Operation::QueryFixed(tx, expected) => {
+            session.write_all(&tx)?;
+            session.flush()?;
+            let result = session.read_fixed_length(expected);
+            let rx = finish_ordinary_read(session, result)?;
+            Ok(json!({
+                "tx_hex": hex(&tx), "tx_bytes": tx.len(),
+                "rx_hex": hex(&rx), "rx_bytes": rx.len(),
+            }))
+        }
+        Operation::QueryIdle(tx, gap, limit) => {
+            session.write_all(&tx)?;
+            session.flush()?;
+            let result = session.read_until_idle(gap, limit);
+            let rx = finish_ordinary_read(session, result)?;
+            Ok(json!({
+                "tx_hex": hex(&tx), "tx_bytes": tx.len(),
+                "rx_hex": hex(&rx), "rx_bytes": rx.len(),
             }))
         }
         Operation::RunSequence(sequence) => {
@@ -191,6 +227,20 @@ fn execute<T: Transport>(
             }))
         }
     }
+}
+
+/// Ordinary Worker jobs consume reported partial RX without discarding trailing
+/// bytes; standalone Core/Sequence retry semantics remain unchanged.
+fn finish_ordinary_read<T: Transport>(
+    session: &mut SerialSession<T>,
+    result: Result<Vec<u8>, Error>,
+) -> Result<Vec<u8>, WorkerOperationError> {
+    if let Err(error @ (Error::Timeout { .. } | Error::ReadLimitExceeded { .. })) = &result
+        && let Some(partial) = error.partial()
+    {
+        session.consume_reported_rx(partial)?;
+    }
+    result.map_err(Into::into)
 }
 
 fn send_file_failure(
@@ -1330,18 +1380,60 @@ fn parse_command(
             Operation::SendFile(path.to_owned())
         }
         "receive" => {
-            exact_keys(arguments, &["max_bytes"]).map_err(reject)?;
-            Operation::Receive(read_limit(arguments).map_err(reject)?)
+            match rx_mode(arguments, "single").map_err(reject)? {
+                "single" => {
+                    exact_keys(arguments, &["receive_mode", "max_bytes"]).map_err(reject)?;
+                    Operation::Receive(read_limit(arguments).map_err(reject)?)
+                }
+                "delimiter" => {
+                    exact_keys(arguments, &["receive_mode", "delimiter_hex", "max_bytes"]).map_err(reject)?;
+                    let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
+                    let limit = read_limit(arguments).map_err(reject)?;
+                    if delimiter.is_empty() || delimiter.len() > limit {
+                        return Err(reject("delimiter must contain 1..=max_bytes bytes"));
+                    }
+                    Operation::ReceiveDelimited(delimiter, limit)
+                }
+                "fixed" => {
+                    exact_keys(arguments, &["receive_mode", "expected_bytes"]).map_err(reject)?;
+                    Operation::ReceiveFixed(required_expected_bytes(arguments).map_err(reject)?)
+                }
+                "idle" => {
+                    exact_keys(arguments, &["receive_mode", "idle_gap_ms", "max_bytes"]).map_err(reject)?;
+                    Operation::ReceiveIdle(
+                        required_idle_gap(arguments).map_err(reject)?,
+                        read_limit(arguments).map_err(reject)?,
+                    )
+                }
+                _ => return Err(reject("unsupported receive mode")),
+            }
         }
         "query" => {
-            exact_keys(arguments, &["tx_hex", "delimiter_hex", "max_bytes"]).map_err(reject)?;
             let tx = required_hex(arguments, "tx_hex").map_err(reject)?;
-            let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
-            let limit = read_limit(arguments).map_err(reject)?;
-            if delimiter.len() > limit {
-                return Err(reject("max_bytes must be at least delimiter length"));
+            match rx_mode(arguments, "delimiter").map_err(reject)? {
+                "delimiter" => {
+                    exact_keys(arguments, &["tx_hex", "receive_mode", "delimiter_hex", "max_bytes"]).map_err(reject)?;
+                    let delimiter = required_hex(arguments, "delimiter_hex").map_err(reject)?;
+                    let limit = read_limit(arguments).map_err(reject)?;
+                    if delimiter.is_empty() || delimiter.len() > limit {
+                        return Err(reject("delimiter must contain 1..=max_bytes bytes"));
+                    }
+                    Operation::Query(tx, delimiter, limit)
+                }
+                "fixed" => {
+                    exact_keys(arguments, &["tx_hex", "receive_mode", "expected_bytes"]).map_err(reject)?;
+                    Operation::QueryFixed(tx, required_expected_bytes(arguments).map_err(reject)?)
+                }
+                "idle" => {
+                    exact_keys(arguments, &["tx_hex", "receive_mode", "idle_gap_ms", "max_bytes"]).map_err(reject)?;
+                    Operation::QueryIdle(
+                        tx,
+                        required_idle_gap(arguments).map_err(reject)?,
+                        read_limit(arguments).map_err(reject)?,
+                    )
+                }
+                _ => return Err(reject("unsupported query mode")),
             }
-            Operation::Query(tx, delimiter, limit)
         }
         "run-sequence" => {
             exact_keys(arguments, &["sequence"]).map_err(reject)?;
@@ -1398,6 +1490,34 @@ fn required_hex(arguments: &Map<String, Value>, name: &str) -> Result<Vec<u8>, &
         .and_then(Value::as_str)
         .ok_or("required hex argument must be a string")?;
     parse_bytes(None, Some(value)).map_err(|_| "invalid hex bytes")
+}
+
+fn rx_mode<'a>(
+    arguments: &'a Map<String, Value>,
+    default: &'a str,
+) -> Result<&'a str, &'static str> {
+    match arguments.get("receive_mode") {
+        None => Ok(default),
+        Some(value) => value.as_str().ok_or("receive_mode must be a string"),
+    }
+}
+
+fn required_expected_bytes(arguments: &Map<String, Value>) -> Result<usize, &'static str> {
+    let value = arguments
+        .get("expected_bytes")
+        .and_then(Value::as_u64)
+        .ok_or("expected_bytes must be a positive integer")?;
+    let value = usize::try_from(value).map_err(|_| "invalid expected_bytes")?;
+    max_bytes(value).map_err(|_| "expected_bytes must be between 1 and 1048576")
+}
+
+fn required_idle_gap(arguments: &Map<String, Value>) -> Result<Duration, &'static str> {
+    let value = arguments
+        .get("idle_gap_ms")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0 && *value <= u32::MAX as u64)
+        .ok_or("idle_gap_ms must be a positive integer in milliseconds")?;
+    Ok(Duration::from_millis(value))
 }
 
 fn read_limit(arguments: &Map<String, Value>) -> Result<usize, &'static str> {
