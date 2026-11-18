@@ -1,4 +1,4 @@
-use std::io::{self, Read, Write};
+use std::{io::{self, Read, Write}, time::Duration};
 
 use crate::{Error, SerialSettings};
 
@@ -36,6 +36,18 @@ impl SerialTransport {
 impl Transport for SerialTransport {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.port.read(buffer)
+    }
+
+    fn read_with_timeout(&mut self, buffer: &mut [u8], timeout: Duration) -> io::Result<usize> {
+        let original = self.port.timeout();
+        self.port
+            .set_timeout(timeout)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        let result = self.port.read(buffer);
+        self.port
+            .set_timeout(original)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        result
     }
 
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
