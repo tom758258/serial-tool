@@ -8,8 +8,12 @@
   Tauri 2 + React Desktop, distributed as two standalone Windows EXEs.
 - Raw UART/COM and TCP **client** byte communication, Terminal, Auto TX,
   send-file, persistent session RX, and cooperative operation handling.
-- Sequence v1 editor, validation, execution, and structured results;
-  `loopback-v1` simulation and streaming Worker `periodic-rx-v1` simulation.
+- Sequence v1 editor, validation, execution, and structured results,
+  including raw `send_file` steps with 4096-byte chunked writes and transfer summaries.
+- Ordinary Worker Receive (`single`, `delimiter`, `fixed`, `idle`) and Query
+  (`delimiter`, `fixed`, `idle`) completion modes, including bounded reads and
+  reported partial RX on failure.
+- `loopback-v1` simulation and streaming Worker `periodic-rx-v1` simulation.
 - Machine-readable CLI/Manifest schema 2 and Common Worker Protocol v3-only
   HTTP/JSONL, including asynchronous jobs and optional one-stream RX capture.
 - English/Traditional Chinese Desktop UI, bilingual documentation, offline

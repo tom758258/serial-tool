@@ -15,7 +15,7 @@ Windows 發行版提供兩個使用者操作入口，請依操作需求選擇。
 
 ## 啟動與畫面
 
-Windows 必須安裝系統 Microsoft Edge WebView2 Runtime；如果未偵測到，Serial Tool 會提供開啟 Microsoft 官方頁面的原生警告，**不會**自行安裝，且不建立應用視窗。使用已建置的 `Serial Tool.exe`，或在 `apps/desktop` 使用 `npm run tauri -- dev` 啟動開發版。
+Windows 必須安裝系統 Microsoft Edge WebView2 Runtime；如果未偵測到，Serial Tool 會提供開啟 Microsoft 官方頁面的原生警告，**不會**自行安裝，且不建立應用視窗。從 Windows 發行版資料夾啟動 `Serial Tool.exe`。
 
 主要功能區域是**連線設定（Connection Setup）**、**終端機（Terminal）**及**序列（Sequence）**。先選傳輸類型、實機／模擬，再連線。Desktop 模擬僅使用固定 `loopback-v1`；`periodic-rx-v1` **只供 Streaming Simulation Worker**，不是 Desktop 選項。
 
@@ -37,7 +37,7 @@ TCP/IP 實機輸入 Hostname／IPv4／IPv6、設備 Port（1～65535）、Connec
 
 連線設定的齒輪控制 COM 與 TCP **共用的**實機／模擬模式。模擬為確定性的 `loopback-v1`，不開實體 COM、DNS 或 TCP Socket。COM Port／TCP Host／Port 在模擬時停用，但原值會保留；TCP Timeout 仍須有效。
 
-切換 COM／TCP 分頁會各自保留此次執行期間的輸入值，**關閉程式後不保存連線設定**。COM 數字欄位仍採原生數字語意但隱藏 Spin Buttons；TCP Port／Timeout 輸入時保留未完成文字，按「連線」再驗證。
+切換 COM／TCP 分頁會各自保留此次執行期間的輸入值，**關閉程式後不保存連線設定**。按「連線」時會驗證數值設定。
 
 Connecting、Connected、Running、Disconnecting 時鎖定傳輸、設定及模式；先中斷連線才能切換。齒輪選項可再按一次、點外側或按 Escape 收合（Escape 恢復焦點）；收合不會清除模式。Header 顯示 COM／TCP、模式及連線狀態；連線後兩種傳輸都自動持續接收 RX。
 
@@ -67,7 +67,7 @@ Auto TX 期間來源、Payload、格式、選定檔案與間隔被鎖定；Manua
 
 Send File 由 Rust Backend 傳送選定檔案的**原始位元組**，拒絕空檔，不做 UTF-8、換行或十六進位文字解析。例如檔案內是文字 `AA 55`，實際傳送為 `41 41 20 35 35`，而非 `AA 55`。
 
-傳送檔案期間其他 TX 和 Sequence 不可同時執行。此版本把整份檔案讀入記憶體，沒有 Progress／Cancellation／Chunk Delay／XMODEM／YMODEM。
+傳送檔案期間其他 TX 和 Sequence 不可同時執行。Send File 會把整份檔案讀入記憶體，沒有 Progress／Cancellation／Chunk Delay／XMODEM／YMODEM。
 
 ## 終端機匯出
 
@@ -93,7 +93,7 @@ New 依目前 COM／TCP 分頁建立空白 Draft；Load 保留檔案自己的 Tr
 
 Editor 提示未連線、設定相符或具體 Transport／Settings 不相符。Run 要求同一傳輸、完全匹配的 UART 六項或 TCP I/O Timeout；不符合則停用 Run，保留連線和 Draft。Core 執行前也會重驗。
 
-最近一筆結果只保存在記憶體，包含完成步驟、Raw-byte Transcript，以及失敗時可取得的 Partial Bytes。狀態與控制位於高度 250px 的 Step Results／Transcript 共用捲動區上方。新的 Run 從頂端顯示；切換 RX 顯示不重設 Scroll Position。
+最近一筆結果只保存在記憶體，包含完成步驟、Raw-byte Transcript，以及失敗時可取得的 Partial Bytes。狀態與控制顯示在 Step Results／Transcript 共用捲動區上方。新的 Run 從頂端顯示；切換 RX 顯示不重設 Scroll Position。
 
 「儲存結果」匯出**完整 JSON**及原始 Byte Arrays，不受 Hex／文字／兩者顯示選擇影響。失敗結果也保留失敗步驟、Error、已完成步驟、Transcript 和可取得的 Partial Bytes；沒有結果則無法儲存。沒有持久 Run History 或自動結果目錄。
 

@@ -52,7 +52,7 @@
 </table>
 <p>This guide covers Desktop. For command-line instructions, open PowerShell in the release folder and run <code>.\serial-tool.exe user-guide --lang en</code> to open the bundled offline CLI guide.</p>
 <h2 id="getting-started">Getting started</h2>
-<p>On Windows, install the system Microsoft Edge WebView2 Runtime. If it is missing, the application offers to open the official download page and exits without creating a Tauri window; it does not install WebView2. Start the built <code>Serial Tool.exe</code> or use <code>npm run tauri -- dev</code> from <code>apps/desktop</code> for development.</p>
+<p>On Windows, install the system Microsoft Edge WebView2 Runtime. If it is missing, the application offers to open the official download page and exits without creating a Tauri window; it does not install WebView2. Start <code>Serial Tool.exe</code> from the Windows release folder.</p>
 <p>The main areas are <strong>Connection Setup</strong>, <strong>Terminal</strong>, and <strong>Sequence</strong>. Choose COM or TCP and Live or Simulation before connecting. Desktop Simulation uses only <code>loopback-v1</code>; <code>periodic-rx-v1</code> is for Streaming Simulation Workers and is not a Desktop mode.</p>
 <h2 id="language">Language</h2>
 <p>The top-right Language control switches between English and Traditional Chinese without reloading.
@@ -79,9 +79,7 @@ transports. Simulation uses deterministic <code>loopback-v1</code>, with no COM 
 DNS lookup, or TCP socket; COM Port selection and TCP Host/Port are disabled
 but retain their values. TCP timeouts must remain valid in Simulation.
 The COM and TCP form values are separately retained when switching tabs,
-but neither is saved across app restarts. Numeric COM inputs retain native
-number semantics with hidden spin buttons; TCP Port/Timeout inputs preserve
-partial text while typing and validate on Connect.</p>
+but neither is saved across app restarts. Numeric connection settings are validated on Connect.</p>
 <p>Transport, connection settings and execution mode are locked while connecting,
 connected, running or disconnecting. The gear remains available to view the
 options; it closes on a second click, outside click or Escape (which restores
@@ -117,8 +115,7 @@ playlist, per-cycle re-read, file-change monitoring, or mid-file cancellation.</
 <p>Send File (Raw) reads a selected file in the Rust backend and transmits its exact
 bytes. Empty files are rejected. There is no UTF-8 conversion, newline conversion,
 or hex-text parsing: a file containing <code>AA 55</code> sends <code>41 41 20 35 35</code>. File TX
-excludes other TX and Sequence operations until it finishes. This first version
-reads the complete file into memory and has no progress, cancellation, chunk
+excludes other TX and Sequence operations until it finishes. Send File reads the complete file into memory and has no progress, cancellation, chunk
 delay, XMODEM, or YMODEM support.</p>
 <h2 id="terminal-display-modes">Terminal display modes</h2>
 <p>The terminal keeps up to 5000 TX/RX entries in memory. Display Mode offers
@@ -183,8 +180,7 @@ rechecks the match before executing the shared StepRunner and producing the
 existing result/transcript.
 The last result, including completed steps, raw-byte transcript, and
 failure partial bytes when available, is held only in application memory.
-The status and controls remain visible above a 250px scrollable area shared
-by Step Results and Transcript. Each new run starts at the top; switching
+The status and controls remain visible above the scrollable Step Results and Transcript area. Each new run starts at the top; switching
 RX display does not reset the scroll position. Save Result exports
 that complete result as JSON with its original byte arrays, regardless of RX
 display. Failed runs retain the failing step, error, completed results,

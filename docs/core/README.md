@@ -33,7 +33,7 @@ Core supports a shared `Transport` boundary without performing CLI parsing, Work
 
 ## Sequence v1
 
-Core provides `send_text`, `send_bytes`, `wait`, `read`, `read_until` and nested `repeat` steps. The canonical JSON shape is `sequence_version: 1` with `transport: {type, settings}`; the old root `serial` member is not supported. UART and TCP share execution, but their settings must match the selected connection. Sequence files do not store COM port, TCP host/port, execution mode, or TCP connect timeout. For exact fields, errors and execution rules see the [Serial Sequence Contract](../contracts/serial-sequence-contract.md).
+Core provides `send_text`, `send_bytes`, `send_file`, `wait`, `read`, `read_until` and nested `repeat` steps. The canonical JSON shape is `sequence_version: 1` with `transport: {type, settings}`; the old root `serial` member is not supported. UART and TCP share execution, but their settings must match the selected connection. Sequence files do not store COM port, TCP host/port, execution mode, or TCP connect timeout. A `send_file` step reads an absolute local path on the executing machine when it runs and writes raw bytes in 4096-byte chunks; the file payload is not recorded in the Sequence Transcript. For exact fields, errors and execution rules see the [Serial Sequence Contract](../contracts/serial-sequence-contract.md).
 
 ## Development and validation
 

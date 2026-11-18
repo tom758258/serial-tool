@@ -15,7 +15,7 @@ This guide covers Desktop. For command-line instructions, open PowerShell in the
 
 ## Getting started
 
-On Windows, install the system Microsoft Edge WebView2 Runtime. If it is missing, the application offers to open the official download page and exits without creating a Tauri window; it does not install WebView2. Start the built `Serial Tool.exe` or use `npm run tauri -- dev` from `apps/desktop` for development.
+On Windows, install the system Microsoft Edge WebView2 Runtime. If it is missing, the application offers to open the official download page and exits without creating a Tauri window; it does not install WebView2. Start `Serial Tool.exe` from the Windows release folder.
 
 The main areas are **Connection Setup**, **Terminal**, and **Sequence**. Choose COM or TCP and Live or Simulation before connecting. Desktop Simulation uses only `loopback-v1`; `periodic-rx-v1` is for Streaming Simulation Workers and is not a Desktop mode.
 
@@ -50,9 +50,7 @@ transports. Simulation uses deterministic `loopback-v1`, with no COM access,
 DNS lookup, or TCP socket; COM Port selection and TCP Host/Port are disabled
 but retain their values. TCP timeouts must remain valid in Simulation.
 The COM and TCP form values are separately retained when switching tabs,
-but neither is saved across app restarts. Numeric COM inputs retain native
-number semantics with hidden spin buttons; TCP Port/Timeout inputs preserve
-partial text while typing and validate on Connect.
+but neither is saved across app restarts. Numeric connection settings are validated on Connect.
 
 Transport, connection settings and execution mode are locked while connecting,
 connected, running or disconnecting. The gear remains available to view the
@@ -94,8 +92,7 @@ playlist, per-cycle re-read, file-change monitoring, or mid-file cancellation.
 Send File (Raw) reads a selected file in the Rust backend and transmits its exact
 bytes. Empty files are rejected. There is no UTF-8 conversion, newline conversion,
 or hex-text parsing: a file containing `AA 55` sends `41 41 20 35 35`. File TX
-excludes other TX and Sequence operations until it finishes. This first version
-reads the complete file into memory and has no progress, cancellation, chunk
+excludes other TX and Sequence operations until it finishes. Send File reads the complete file into memory and has no progress, cancellation, chunk
 delay, XMODEM, or YMODEM support.
 
 ## Terminal display modes
@@ -172,8 +169,7 @@ rechecks the match before executing the shared StepRunner and producing the
 existing result/transcript.
 The last result, including completed steps, raw-byte transcript, and
 failure partial bytes when available, is held only in application memory.
-The status and controls remain visible above a 250px scrollable area shared
-by Step Results and Transcript. Each new run starts at the top; switching
+The status and controls remain visible above the scrollable Step Results and Transcript area. Each new run starts at the top; switching
 RX display does not reset the scroll position. Save Result exports
 that complete result as JSON with its original byte arrays, regardless of RX
 display. Failed runs retain the failing step, error, completed results,

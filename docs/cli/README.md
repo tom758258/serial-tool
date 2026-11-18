@@ -27,10 +27,6 @@ Use `serial-tool <command> --help` for exact flags and parameter defaults. Run `
 - [Common Worker Protocol](../contracts/common-worker-protocol.md): shared Worker contract.
 - [Monorepo Layout](../architecture/monorepo-layout.md) and [AGENTS.md](../../AGENTS.md): ownership and validation rules.
 
-## Command and operational reference
-
-The following material preserves the detailed CLI/Worker options and operational limits formerly kept in the root README.
-
 ## CLI usage
 
 Run `cargo run -p serial-tool-cli -- <command>` from the workspace, or use the
@@ -176,7 +172,7 @@ See [Serial Worker Contract](../contracts/serial-worker-contract.md).
 
 ## Sequences
 
-A Sequence JSON file keeps `sequence_version: 1` and now uses
+A Sequence JSON file keeps `sequence_version: 1` and uses
 `transport.type/settings`. UART files contain the existing six serial line
 settings; TCP files contain only `io_timeout_ms`. The former top-level
 `serial` shape is not supported.
@@ -219,6 +215,8 @@ execution mode; choose those at runtime. See the
 [Serial Sequence contract](../contracts/serial-sequence-contract.md) for the
 complete format.
 
+A `send_file` step uses an absolute local path on the executing machine. It reads the file when the step runs, writes unchanged bytes in 4096-byte chunks, and reports the initial file size and confirmed written bytes without storing the file payload in the TX Transcript. A missing, empty, or unreadable file fails the step and stops subsequent steps.
+
 ## Worker
 
 Start a local Worker for an explicit COM or TCP client resource, or deterministic simulation:
@@ -247,6 +245,8 @@ closes the session without sending device-specific bytes. See the
 events, and lifecycle details.
 
 Worker commands are `send`, `send-file`, `receive`, `query`, and `run-sequence`.
+Ordinary Worker `receive` supports `single` (default), `delimiter`, `fixed`, and `idle` completion; `query` sends TX before RX and supports `delimiter` (default), `fixed`, and `idle`, but not `single`. Delimiter mode requires `delimiter_hex` and includes it in RX. Fixed mode requires `expected_bytes` and does not accept `max_bytes`; idle mode requires `idle_gap_ms` and uses the transport Read Timeout before the first byte. For non-fixed modes, `max_bytes` is a limit, not a required length. Read Timeout and ReadLimitExceeded fail the job; reported partial Session RX is consumed without clearing OS/device RX, so later operations may receive delayed bytes. Optional UTF-8 `rx_text` and `partial_rx_text` are derived by Orchestrator rather than returned directly by Serial Worker. See the [Serial Worker Contract](../contracts/serial-worker-contract.md) for exact arguments and results.
+
 Submit raw files using `POST /command` with, for example:
 
 ```json
@@ -269,4 +269,4 @@ and actual process exit.
 `run-sequence` accepts an inline Sequence object whose line settings must
 match the Worker startup settings. See the
 [Serial Orchestrator workflow contract](../contracts/serial-orchestrator-workflows.md)
-for the future orchestration flow.
+for current integration behavior and boundaries.

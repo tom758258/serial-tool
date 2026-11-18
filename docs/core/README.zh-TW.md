@@ -33,7 +33,7 @@ Core 提供共用 `Transport` 邊界，但不負責 CLI 參數解析、Worker HT
 
 ## Sequence v1
 
-Core 支援 `send_text`、`send_bytes`、`wait`、`read`、`read_until` 與巢狀 `repeat`。正式 JSON 格式為 `sequence_version: 1` 加上 `transport: {type, settings}`；不支援舊的根欄位 `serial`。UART／TCP 共用執行邏輯，但設定必須與目前連線一致。Sequence 不保存 COM 埠、TCP Host／Port、執行模式或 TCP Connect Timeout。欄位、錯誤及執行規則以 [Serial Sequence Contract](../contracts/serial-sequence-contract.md) 為準。
+Core 支援 `send_text`、`send_bytes`、`send_file`、`wait`、`read`、`read_until` 與巢狀 `repeat`。正式 JSON 格式為 `sequence_version: 1` 加上 `transport: {type, settings}`；不支援舊的根欄位 `serial`。UART／TCP 共用執行邏輯，但設定必須與目前連線一致。Sequence 不保存 COM 埠、TCP Host／Port、執行模式或 TCP Connect Timeout。`send_file` 在執行時讀取執行主機上的本機絕對路徑，以每次 4096 Bytes 分塊傳送原始資料，不在 Sequence Transcript 記錄完整檔案內容。欄位、錯誤及執行規則以 [Serial Sequence Contract](../contracts/serial-sequence-contract.md) 為準。
 
 ## 開發與驗證
 
